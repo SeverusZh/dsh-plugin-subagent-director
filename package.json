@@ -1,0 +1,46 @@
+{
+  "name": "dsh-plugin-subagent-director",
+  "version": "0.1.0",
+  "description": "Subagent Director: let users pick an LLM provider/model for each subagent and plan main-agent/subagent responsibilities with role templates.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "subagent"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-agent": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-llm": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-settings": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-settings",
+    "@deepseek-ai/dsh-subagent": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-subagent",
+    "@deepseek-ai/dsh-system-prompt": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-system-prompt",
+    "@deepseek-ai/dsh-tools": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-tools",
+    "@deepseek-ai/schemastery": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/schemastery",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
