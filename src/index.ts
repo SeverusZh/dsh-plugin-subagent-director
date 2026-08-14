@@ -21,6 +21,7 @@ import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 
 import { createDelegationTool } from './delegation-tool.js';
 import { applyGuidance } from './guidance.js';
+import { installDirectorRemoteBridge } from './remote.js';
 import { installDirectorSettings } from './settings.js';
 
 export { Config } from './config.js';
@@ -58,6 +59,15 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   const backgroundMode = config.backgroundMode ?? 'one-shot';
   const toolName = config.toolName ?? 'subagent_role';
   const providerName = config.subagentProvider ?? 'spawn';
+
+  // ---- settings bridge (self-published RPC channel) ----------------------
+  // The Web settings client reads/writes our `subagent-director` namespace
+  // through a dedicated `/subagent-director` RPC channel (see ./remote.ts)
+  // because the Host apiproxy's exposedNamespaces() allowlist answers
+  // settings-not-exposed for namespaces outside the model-provider plane.
+  // installDirectorRemoteBridge is inert when either settings or connection is
+  // not mounted, so this degrades to the previous behavior in such deployments.
+  installDirectorRemoteBridge(ctx);
 
   // ---- settings snapshot -------------------------------------------------
   let settings: import('./settings.js').SubagentDirectorSettings = {};

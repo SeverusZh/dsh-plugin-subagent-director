@@ -65,10 +65,20 @@ export const inject = ['slots', 'locale', 'connection', 'remote'];
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'subagent-director: copy dictionaries');
 
-  const connection = ctx.get('connection') as ConnectionHandle;
-  const controller = new SubagentOptionsStore(connection.api);
-  const useSnapshot = bindSnapshotSelector<SubagentOptionsState>(controller.store);
+  // ctx.get('connection') is typed as the host HostConnectionHandle when the
+  // host connection package (pulled in by ../remote.ts) augments Context; the
+  // client ConnectionHandle is what the browser transport actually provides.
+  const connection = ctx.get('connection') as unknown as ConnectionHandle;
   const t = ctx.locale.bind(NS);
+  // The settings namespace rides the self-published /subagent-director RPC
+  // channel (the Host apiproxy allowlist would answer settings-not-exposed);
+  // llm.providers/llm.models still go through connection.api.llm.
+  const controller = new SubagentOptionsStore({
+    rpc: connection.rpc,
+    llm: connection.api.llm,
+    t: t as (key: SubagentDirectorKey) => string,
+  });
+  const useSnapshot = bindSnapshotSelector<SubagentOptionsState>(controller.store);
   const injected = (): SubagentOptionsSectionInjected => ({
     controller,
     useSnapshot,

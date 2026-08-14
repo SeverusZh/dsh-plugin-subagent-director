@@ -1,18 +1,31 @@
 /**
  * Subagent Director settings page store: one snapshot joining the configurable
  * provider directory (llm.providers), the model catalog (llm.models), and the
- * plugin's own settings namespace (settings.describe → the `subagent-director`
- * namespace). The host stays the single fact source: every write travels as
- * path ops through settings.mutate with an expectedRevision optimistic lock,
+ * plugin's own settings namespace. The settings namespace is read/written
+ * through the plugin's self-published `/subagent-director` RPC channel (see
+ * ../remote.ts) because the Host apiproxy's exposedNamespaces() allowlist
+ * answers `settings-not-exposed` for namespaces outside the model-provider
+ * plane; llm.providers/llm.models still ride `connection.api.llm`. The host
+ * stays the single fact source: every write travels as path ops through the
+ * bridge's settingsMutate endpoint with an expectedRevision optimistic lock,
  * and pushed invalidations (settings/document-updated, llm/adapters-updated,
  * connection/reset) refresh the page.
  */
 import type {
+  ClientConnectionRpc,
   ConfigurableProviderView,
   IApiClient,
   ModelProviderGroup,
   SettingsNamespaceView,
+  SettingsPathOpView,
 } from '@deepseek-ai/dsh-client-connection/client';
+import {
+  SUBAGENT_DIRECTOR_RPC_CHANNEL,
+  SUBAGENT_DIRECTOR_RPC_VIEW,
+  SUBAGENT_DIRECTOR_RPC_MUTATE,
+  type DirectorViewSuccess,
+} from '../bridge-contract.js';
+import type { SubagentDirectorKey } from './locales.js';
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client';
 import {
   addRoleOps,
@@ -74,15 +87,63 @@ export function messageOf(error: unknown): string {
   return typeof error === 'string' ? error : String(error);
 }
 
+/**
+ * Raised when the /subagent-director bridge channel is not reachable on the
+ * current transport (a Host that predates the bridge answers nothing). The
+ * store surfaces this as the localized `bridgeUnavailable` copy instead of a
+ * raw transport string.
+ */
+export class BridgeUnavailableError extends Error {
+  constructor() {
+    super('Subagent Director settings bridge (/subagent-director) is not available on this server');
+  }
+}
+
+/** Whether a thrown value means the bridge channel could not be called at all. */
+export function isBridgeUnavailable(error: unknown): boolean {
+  return error instanceof BridgeUnavailableError;
+}
+
+/** Wire faces the settings page needs: the bridge RPC caller, the llm face, and copy. */
+export interface StoreWire {
+  /** Generic RPC caller for the self-published /subagent-director channel. */
+  rpc: ClientConnectionRpc;
+  /** llm catalog/adapters face (still connection.api.llm). */
+  llm: IApiClient['llm'];
+  /** Section copy binder (for the localized bridge-unavailable message). */
+  t: (key: SubagentDirectorKey) => string;
+}
+
 /** The settings page controller (one per settings surface). */
 export class SubagentOptionsStore {
   readonly store: SnapshotStore<SubagentOptionsState>;
-  private readonly api: Pick<IApiClient, 'settings' | 'llm'>;
+  private readonly wire: StoreWire;
   private generation = 0;
 
-  constructor(api: Pick<IApiClient, 'settings' | 'llm'>) {
-    this.api = api;
+  constructor(wire: StoreWire) {
+    this.wire = wire;
     this.store = createSnapshotStore<SubagentOptionsState>(initialSubagentOptionsState());
+  }
+
+  /**
+   * Call one bridge endpoint over the generic RPC channel. Returns the RpcResult
+   * (ok or error branch). A transport-level rejection — the Host has no
+   * /subagent-director channel — is folded into BridgeUnavailableError so the
+   * caller can show the localized message.
+   */
+  private async callBridge<T>(endpoint: string, payload?: unknown): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+    let result;
+    try {
+      result = (await this.wire.rpc.call(SUBAGENT_DIRECTOR_RPC_CHANNEL, endpoint, payload)) as
+        | { ok: true; value: T }
+        | { ok: false; error: { code?: string; message?: string } };
+    } catch (error) {
+      throw new BridgeUnavailableError();
+    }
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+    return { ok: true, value: result.value };
   }
 
   /** Refresh the whole page snapshot: provider directory + model catalog + own namespace. */
@@ -94,20 +155,18 @@ export class SubagentOptionsStore {
       s.loading = true;
     });
     try {
-      const [providersResponse, settingsResponse, modelsResponse] = await Promise.all([
-        this.api.llm.providers({}),
-        this.api.settings.describe({}),
-        this.api.llm.models({}),
+      const [providersResponse, modelsResponse, viewResult] = await Promise.all([
+        this.wire.llm.providers({}),
+        this.wire.llm.models({}),
+        this.callBridge<DirectorViewSuccess>(SUBAGENT_DIRECTOR_RPC_VIEW),
       ]);
       if (!providersResponse.result.ok) throw new Error(providersResponse.result.error.message);
-      if (!settingsResponse.result.ok) throw new Error(settingsResponse.result.error.message);
       if (!modelsResponse.result.ok) throw new Error(modelsResponse.result.error.message);
+      if (!viewResult.ok) throw new Error(this.errorMessage(viewResult.error));
       if (generation !== this.generation) return;
-      const namespace = settingsResponse.result.value.namespaces.find(
-        (n) => n.ns === SUBAGENT_DIRECTOR_NS,
-      );
-      const section = (namespace?.value ?? {}) as StoredSection;
-      const writable = settingsResponse.result.value.writable;
+      const view = viewResult.value.view;
+      const section = (view?.value ?? {}) as StoredSection;
+      const writable = viewResult.value.writable;
       const providers = providersResponse.result.value.providers;
       const models = modelsResponse.result.value.groups;
       this.store.update((s) => {
@@ -116,19 +175,28 @@ export class SubagentOptionsStore {
         s.writable = writable;
         s.providers = providers;
         s.models = models;
-        s.namespace = namespace;
+        s.namespace = view;
         s.section = section;
-        s.revision = namespace?.revision ?? 0;
+        s.revision = view?.revision ?? 0;
         s.loading = false;
       });
     } catch (error) {
       if (generation !== this.generation) return;
       this.store.update((s) => {
         s.status = 'error';
-        s.error = messageOf(error);
+        s.error = isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : messageOf(error);
         s.loading = false;
       });
     }
+  }
+
+  /** Human text for a bridge RPC error branch. */
+  private errorMessage(error: unknown): string {
+    if (error !== null && typeof error === 'object' && 'message' in error) {
+      const message = (error as { message?: string }).message;
+      if (typeof message === 'string') return message;
+    }
+    return messageOf(error);
   }
 
   /**
@@ -137,18 +205,22 @@ export class SubagentOptionsStore {
    * settings-conflict re-reads the namespace and returns the conflict kind so
    * the UI can show the "please review and retry" message.
    */
-  private async mutate(ops: Parameters<IApiClient['settings']['mutate']>[0]['ops']): Promise<MutationOutcome> {
+  private async mutate(ops: SettingsPathOpView[]): Promise<MutationOutcome> {
     const state = this.store.getSnapshot();
     const ns = SUBAGENT_DIRECTOR_NS;
     const revision = state.revision;
-    let response;
+    let result;
     try {
-      response = await this.api.settings.mutate({ ns, ops, expectedRevision: revision });
+      result = await this.callBridge<SettingsNamespaceView>(SUBAGENT_DIRECTOR_RPC_MUTATE, { ns, ops, expectedRevision: revision });
     } catch (error) {
-      return { ok: false, kind: 'fatal', message: messageOf(error) };
+      return {
+        ok: false,
+        kind: 'fatal',
+        message: isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : messageOf(error),
+      };
     }
-    if (response.result.ok) {
-      const admitted = response.result.value;
+    if (result.ok) {
+      const admitted = result.value;
       this.store.update((s) => {
         s.revision = admitted.revision;
         // Refresh the cached section/namespace from the acknowledged view.
@@ -157,33 +229,41 @@ export class SubagentOptionsStore {
       });
       return { ok: true, kind: 'fatal', message: undefined };
     }
-    const kind = classifyMutateError(response.result.error.code, response.result.error.message);
+    const code = this.errorCode(result.error);
+    const message = this.errorMessage(result.error);
+    const kind = classifyMutateError(code, message);
     if (kind === 'conflict') {
       // Re-read the authoritative namespace so the user reviews fresh values.
       await this.reloadNamespace();
-      return { ok: false, kind, message: response.result.error.message };
+      return { ok: false, kind, message };
     }
-    return { ok: false, kind, message: response.result.error.message };
+    return { ok: false, kind, message };
   }
 
   private async reloadNamespace(): Promise<void> {
     try {
-      const settingsResponse = await this.api.settings.describe({});
-      if (!settingsResponse.result.ok) return;
-      const namespace = settingsResponse.result.value.namespaces.find(
-        (n) => n.ns === SUBAGENT_DIRECTOR_NS,
-      );
-      if (!namespace) return;
-      const writable = settingsResponse.result.value.writable;
+      const result = await this.callBridge<DirectorViewSuccess>(SUBAGENT_DIRECTOR_RPC_VIEW);
+      if (!result.ok) return;
+      const view = result.value.view;
+      if (!view) return;
       this.store.update((s) => {
-        s.namespace = namespace;
-        s.section = (namespace.value ?? {}) as StoredSection;
-        s.revision = namespace.revision;
-        s.writable = writable;
+        s.namespace = view;
+        s.section = (view.value ?? {}) as StoredSection;
+        s.revision = view.revision;
+        s.writable = result.value.writable;
       });
     } catch {
       /* keep last good snapshot */
     }
+  }
+
+  /** Error code of a bridge RPC error branch, when present. */
+  private errorCode(error: unknown): string | undefined {
+    if (error !== null && typeof error === 'object' && 'code' in error) {
+      const code = (error as { code?: unknown }).code;
+      return typeof code === 'string' ? code : undefined;
+    }
+    return undefined;
   }
 
   async addRole(id: string, draft: RoleDraft): Promise<string | undefined> {

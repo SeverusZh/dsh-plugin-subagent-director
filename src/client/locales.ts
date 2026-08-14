@@ -50,6 +50,7 @@ export type SubagentDirectorKey =
   | 'providerMissing'
   | 'restoreDone'
   | 'invalidRoleId'
+  | 'bridgeUnavailable'
   | 'modelRanOn'
   | 'modelNotRecorded'
   | 'modelRanOnTitle';
@@ -99,6 +100,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "providerMissing": "No provider selected",
   "restoreDone": "Defaults restored",
   "invalidRoleId": "Role id must be kebab-case (lowercase letters, digits, single hyphens).",
+  "bridgeUnavailable": "The Subagent Director settings bridge is not available on this server. Please update/restart the web application so it installs the /subagent-director channel.",
   "modelRanOn": "Subagent ran on",
   "modelNotRecorded": "Subagent model not recorded yet",
   "modelRanOnTitle": "Model route: {model}"
@@ -149,6 +151,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "providerMissing": "未选择供应商",
   "restoreDone": "已恢复默认",
   "invalidRoleId": "角色 id 必须为 kebab-case（小写字母、数字、单个连字符）。",
+  "bridgeUnavailable": "此服务器尚未提供 Subagent Director 设置桥接通道（/subagent-director）。请重启 Web 应用以安装该通道后再试。",
   "modelRanOn": "子代理实际运行于",
   "modelNotRecorded": "尚未记录到子代理模型",
   "modelRanOnTitle": "模型路由：{model}"
