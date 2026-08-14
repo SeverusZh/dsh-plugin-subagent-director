@@ -9,9 +9,32 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
+    "build:client": "node scripts/build-client.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/client/index.d.ts",
+      "default": "./lib/client/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "slots",
+        "locale",
+        "connection",
+        "remote"
+      ],
+      "platform": "web"
+    }
   },
   "keywords": [
     "dsh",
@@ -22,15 +45,29 @@
   ],
   "license": "MIT",
   "peerDependencies": {
+    "react": "^18.2.0",
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-subagent": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-web-react": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-schema-form": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-host-apiproxy": "^0.1.0-rc.6"
   },
   "devDependencies": {
+    "react": "file:../../../DeepSeekHarness/node_modules/react",
+    "react-dom": "file:../../../DeepSeekHarness/node_modules/react-dom",
+    "use-sync-external-store": "file:../../../DeepSeekHarness/node_modules/use-sync-external-store",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
     "@deepseek-ai/cordis": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/cordis",
     "@deepseek-ai/dsh-agent": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-agent",
     "@deepseek-ai/dsh-llm": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-llm",
@@ -39,6 +76,15 @@
     "@deepseek-ai/dsh-system-prompt": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-system-prompt",
     "@deepseek-ai/dsh-tools": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-tools",
     "@deepseek-ai/schemastery": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/schemastery",
+    "@deepseek-ai/dsh-client-runtime": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-runtime",
+    "@deepseek-ai/dsh-client-connection": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-connection",
+    "@deepseek-ai/dsh-client-ui-slots": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-ui-slots",
+    "@deepseek-ai/dsh-client-web-react": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-web-react",
+    "@deepseek-ai/dsh-client-ui-settings": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-ui-settings",
+    "@deepseek-ai/dsh-client-schema-form": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-schema-form",
+    "@deepseek-ai/dsh-client-locale": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-locale",
+    "@deepseek-ai/dsh-client-ui-primitives": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-client-ui-primitives",
+    "@deepseek-ai/dsh-host-apiproxy": "file:../../../DeepSeekHarness/node_modules/@deepseek-ai/dsh-host-apiproxy",
     "@types/node": "^26.2.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
