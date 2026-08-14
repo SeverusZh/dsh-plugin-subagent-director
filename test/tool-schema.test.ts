@@ -32,24 +32,39 @@ describe('createDelegationParameters', () => {
   it('includes run_in_background when enableRunInBackground is true (default)', () => {
     const on = createDelegationParameters({});
     const explicit = createDelegationParameters({ enableRunInBackground: true });
-    expect(on.run_in_background).toEqual({ type: 'boolean' });
-    expect(explicit.run_in_background).toEqual({ type: 'boolean' });
+    expect(on.run_in_background).toMatchObject({ type: 'boolean' });
+    expect(explicit.run_in_background).toMatchObject({ type: 'boolean' });
   });
 
   it('omits run_in_background when enableRunInBackground is false', () => {
     const off = createDelegationParameters({ enableRunInBackground: false });
     expect(off.run_in_background).toBeUndefined();
   });
+
+  it('one-shot mode documents run_in_background as defaulting to false (job id semantics)', () => {
+    const schema = createDelegationParameters({ enableRunInBackground: true, backgroundMode: 'one-shot' });
+    const desc = (schema.run_in_background as { description?: string } | undefined)?.description;
+    expect(desc).toContain('Defaults to false');
+    expect(desc).toContain('job_output');
+  });
+
+  it('continuable mode documents run_in_background as defaulting to true (durable subagent id semantics)', () => {
+    const schema = createDelegationParameters({ enableRunInBackground: true, backgroundMode: 'continuable' });
+    const desc = (schema.run_in_background as { description?: string } | undefined)?.description;
+    expect(desc).toContain('Defaults to true');
+    expect(desc).toContain('durable subagent id');
+  });
 });
 
 describe('createDelegationOutputSchema', () => {
-  it('is a oneOf of exactly background and foreground object roots', () => {
+  it('is a oneOf with exactly background, continuable, and foreground object roots', () => {
     const schema = createDelegationOutputSchema();
     const branches = (schema as { oneOf: unknown[] }).oneOf;
-    expect(branches).toHaveLength(2);
+    expect(branches).toHaveLength(3);
 
     const kinds = branches.map((b) => (b as { properties?: { kind?: { const?: string } } }).properties?.kind?.const);
     expect(kinds).toContain('background');
+    expect(kinds).toContain('continuable');
     expect(kinds).toContain('foreground');
   });
 
@@ -61,6 +76,16 @@ describe('createDelegationOutputSchema', () => {
     expect(bg).toBeDefined();
     expect(bg?.additionalProperties).toBe(false);
     expect((bg?.properties?.jobId as { required?: true } | undefined)?.required).toBe(true);
+  });
+
+  it('continuable branch carries a required subagentId', () => {
+    const schema = createDelegationOutputSchema();
+    const con = (schema as { oneOf: { properties?: Record<string, unknown>; additionalProperties?: boolean }[] }).oneOf.find(
+      (b) => (b.properties?.kind as { const?: string } | undefined)?.const === 'continuable',
+    );
+    expect(con).toBeDefined();
+    expect(con?.additionalProperties).toBe(false);
+    expect((con?.properties?.subagentId as { required?: true } | undefined)?.required).toBe(true);
   });
 
   it('foreground branch carries required runId and output array', () => {

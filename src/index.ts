@@ -9,7 +9,11 @@
  * route validation need them); systemPrompt and settings are optional and are
  * acquired lazily so their absence does not block the rest.
  *
- * Continuable background is deferred to M2 and rejected here at assembly time.
+ * Background modes: 'one-shot' defaults calls to foreground and runs background
+ * calls as a plain Task; 'continuable' defaults them to background via
+ * ctx.subagents.startContinuable() and requires the transport provider's
+ * prepareContinuable capability, which is validated at mount time (mirrors
+ * dsh-tool-subagent).
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent';
@@ -26,7 +30,12 @@ export {
   createDelegationOutputSchema,
   createDelegationTool,
   DELEGATION_TOOL_PREFIX,
+  resolveDelegationMode,
+  renderDelegationResult,
   type DelegationToolArgs,
+  type DelegationResult,
+  type DelegationRoute,
+  type DelegationModeDecision,
 } from './delegation-tool.js';
 export { applyGuidance, renderRolesGuidance, GUIDANCE_SECTION_ORDER, GUIDANCE_SECTION_NAME } from './guidance.js';
 export {
@@ -43,12 +52,7 @@ export const name = 'subagent-director';
 export const inject = ['tools', 'subagents', 'llm'];
 
 export function apply(ctx: Context, config: import('./config.js').DirectorConfig) {
-
-  // M1 rejects continuable background at assembly time (design R5).
-  if ((config.backgroundMode ?? 'one-shot') === 'continuable') {
-    throw new Error('subagent-director: backgroundMode "continuable" is deferred to M2 and is not supported in M1 — use "one-shot"');
-  }
-
+  const backgroundMode = config.backgroundMode ?? 'one-shot';
   const toolName = config.toolName ?? 'subagent_role';
   const providerName = config.subagentProvider ?? 'spawn';
 
@@ -75,7 +79,12 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
     if (typeof config.maxDepth === 'number' && !provider.capabilities.depthLimit) {
       throw new Error('subagent-director: provider "' + provider.name + '" cannot enforce maxDepth (no depthLimit capability) — set maxDepth: \'provider-managed\'');
     }
-    ctx.logger.info('[' + name + '] registering ' + toolName + ' on subagent transport ' + '"' + providerName + '"');
+    if (backgroundMode === 'continuable' && provider.prepareContinuable === undefined) {
+      throw new Error('subagent-director: provider "' + provider.name + '" does not support backgroundMode: continuable — switch the subagent provider or use backgroundMode: "one-shot"');
+    }
+    ctx.logger.info(
+      '[' + name + '] registering ' + toolName + ' on subagent transport ' + '"' + providerName + '"' + ' with backgroundMode ' + '"' + backgroundMode + '"',
+    );
     disposeTool = ctx.tools.register(createDelegationTool({ ctx, config, provider, getSettings }));
   };
 

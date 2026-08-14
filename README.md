@@ -101,10 +101,12 @@ npm run build     # 产出 lib/
 
 ### 路线图
 
-- M1（当前）：Host 核心（设置 schema、四级路由解析、subagent_role 工具、主 agent 指引）；
-- M2：设置界面（settings.section UI：默认模型 + 角色卡片）；
-- M3：continuable 后台、toolFilter 注入、结果可观测性；
-- M4：顶替内置 subagent 工具、对 workflow/ralph 的默认模型兜底。
+- M1 ✅：Host 核心（设置 schema、四级路由解析、subagent_role 工具、主 agent 指引，含真实端到端验证）；
+- M2 ✅：设置界面（settings.section UI：默认模型 + 角色卡片，client bundle 加载验证通过）；
+- M3a ✅：continuable 后台模式（send_message 续聊 + 结算通知语义）；
+- M3b：toolFilter 注入、结果可观测性（UI 显示子代理实际模型）；
+- M4：顶替内置 subagent 工具、对 workflow/ralph 的默认模型兜底；
+- 开源发布：GitHub 建仓、MIT License、CHANGELOG、npm 发布。
 
 ### 许可
 

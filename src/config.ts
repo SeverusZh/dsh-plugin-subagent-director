@@ -38,7 +38,10 @@ export interface DirectorConfig {
   /**
    * Background execution policy (default 'one-shot').
    * 'one-shot' defaults calls to foreground and runs background calls as a
-   * plain Task. 'continuable' is deferred to M2 and explicitly rejected.
+   * plain Task. 'continuable' defaults calls to background via
+   * ctx.subagents.startContinuable(), requires the transport provider's
+   * prepareContinuable capability, and returns the durable child id for later
+   * send_message follow-up (FR-5.3).
    */
   backgroundMode?: 'one-shot' | 'continuable';
 

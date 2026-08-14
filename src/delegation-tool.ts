@@ -20,7 +20,9 @@
  *     { kind: foreground, runId, output }.
  *   - one-shot background mirrors the official Task registration on
  *     ctx.jobs.start({ kind: subagent, ... }) returning { kind: background, jobId }.
- *   - continuable is deferred to M2 and rejected at assembly time in index.ts.
+ *   - continuable runs the child through ctx.subagents.startContinuable() and
+ *     returns { kind: continuable, subagentId } (the durable child id), which the
+ *     parent later follows up on with send_message (M3a / FR-5.3).
  *
  * reasoningEffort: the DSH AgentOptions and SubagentStartRequest shapes do
  * not carry reasoning effort (dsh-agent runtime-types.d.ts, dsh-subagent
@@ -61,17 +63,26 @@ export interface DelegationToolArgs {
   model?: string;
   /** Reasoning-effort override (optional; advisory — logged, not injected). */
   reasoningEffort?: string;
-  /** Whether to run as a background job and return its id (when enabled). */
+  /**
+   * Whether to run in the background. Defaults to false in one-shot mode; in
+   * continuable mode it defaults to true and returns the durable child id for
+   * later send_message follow-up.
+   */
   run_in_background?: boolean;
 }
 
 /**
- * Build the author-facing tool parameter schema given a config. Exposed as a
+ * Build the model-facing tool parameter schema given a config. Exposed as a
  * pure function so unit tests can assert the model-visible shape without a live
  * context: description/prompt are required; role/provider/model/reasoningEffort
- * are optional; run_in_background appears only when enableRunInBackground is not false.
+ * are optional; run_in_background appears only when enableRunInBackground is not
+ * false. In continuable mode its description notes the default of true and the
+ * durable-child-id return shape (mirrors dsh-tool-subagent's wording).
  */
-export function createDelegationParameters(config: Pick<DirectorConfig, 'enableRunInBackground'>): ParameterSchemaSpec {
+export function createDelegationParameters(
+  config: Pick<DirectorConfig, 'enableRunInBackground' | 'backgroundMode'>,
+): ParameterSchemaSpec {
+  const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable';
   const parameters: ParameterSchemaSpec = {
     description: {
       type: 'string',
@@ -97,12 +108,15 @@ export function createDelegationParameters(config: Pick<DirectorConfig, 'enableR
   if (config.enableRunInBackground !== false) {
     parameters.run_in_background = {
       type: 'boolean',
+      description: continuable
+        ? 'Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it.'
+        : 'Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill.',
     };
   }
   return parameters;
 }
 
-/** The author-facing output schema: exactly one of background or foreground. */
+/** The model-facing output schema: exactly one of background, continuable, or foreground. */
 export function createDelegationOutputSchema(): ValueSchemaSpec {
   return {
     oneOf: [
@@ -112,6 +126,14 @@ export function createDelegationOutputSchema(): ValueSchemaSpec {
         properties: {
           kind: { type: 'string', required: true, const: 'background' },
           jobId: { type: 'string', required: true },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', required: true, const: 'continuable' },
+          subagentId: { type: 'string', required: true },
         },
       },
       {
@@ -206,15 +228,58 @@ function invalidProviderError(provider: string, available: string[]): Error {
   return new Error(`${ERROR_PREFIX} LLM provider route ${provider} is not routable (no adapter serves it). Available providers: ${list}`);
 }
 
-/** Decide foreground vs background, rejecting a forced background when disabled. */
-function resolveRunInBackground(request: DelegationToolArgs, backgroundEnabled: boolean): boolean {
-  if (!backgroundEnabled) {
+/** The resolved execution route for one delegation call. */
+export type DelegationRoute = 'foreground' | 'one-shot' | 'continuable';
+
+/** The mode decision for one delegation: whether to run in the background, and which route to use. */
+export interface DelegationModeDecision {
+  runInBackground: boolean;
+  route: DelegationRoute;
+}
+
+/**
+ * Pure mode decision (extracted for unit testing) mirroring dsh-tool-subagent's
+ * resolveDelegationRun: a forced background while the flag is disabled is
+ * rejected; otherwise background defaults to the configured mode's policy —
+ * false for one-shot, true for continuable.
+ */
+export function resolveDelegationMode(
+  request: Pick<DelegationToolArgs, 'run_in_background'>,
+  options: { backgroundEnabled: boolean; continuable: boolean },
+): DelegationModeDecision {
+  if (!options.backgroundEnabled) {
     if (request.run_in_background === true) {
       throw new Error(`${ERROR_PREFIX} run_in_background is disabled for this tool instance (enableRunInBackground: false)`);
     }
-    return false;
+    return { runInBackground: false, route: 'foreground' };
   }
-  return request.run_in_background ?? false;
+  const runInBackground = request.run_in_background ?? options.continuable;
+  return {
+    runInBackground,
+    route: runInBackground ? (options.continuable ? 'continuable' : 'one-shot') : 'foreground',
+  };
+}
+
+/** The union of delegation result shapes produced by execute. */
+export type DelegationResult =
+  | { kind: 'background'; jobId: string }
+  | { kind: 'continuable'; subagentId: string }
+  | { kind: 'foreground'; runId: string; output: JsonValue[] };
+
+/**
+ * Pure renderer for a delegation result (extracted for unit testing). Mirrors
+ * dsh-tool-subagent's output.render: a continuable child renders as
+ * "started subagent <id>"; a one-shot task keeps its tool-name-qualified text;
+ * a foreground result emits its joined text blocks.
+ */
+export function renderDelegationResult(value: DelegationResult | { kind: 'foreground'; output: object[] }, toolName: string): string {
+  if (value.kind === 'background') return `started background ${toolName} task ${value.jobId}`;
+  if (value.kind === 'continuable') return `started subagent ${value.subagentId}`;
+  const blocks = value.output as Array<{ type?: unknown; text?: unknown }>;
+  return blocks
+    .filter((block) => typeof block === 'object' && block !== null && block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text as string)
+    .join('');
 }
 
 /**
@@ -230,6 +295,7 @@ export function createDelegationTool(options: {
 }) {
   const { ctx, config, provider, getSettings } = options;
   const backgroundEnabled = config.enableRunInBackground !== false;
+  const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable';
   const toolName = config.toolName ?? 'subagent_role';
   const providerName = config.subagentProvider ?? 'spawn';
 
@@ -239,8 +305,10 @@ export function createDelegationTool(options: {
       'Delegate a self-contained task to a role-bound subagent with an optional LLM route (provider/model) override. ' +
       'Resolves the model through configure -> role -> default -> inherit; role persona and tool filtering are applied when supported. ' +
       (backgroundEnabled
-        ? 'This call waits for the result by default. Set `run_in_background: true` to return a job id; collect with `job_output` and stop with `job_kill`.'
-        : 'This call waits for the subagent and returns its result.'),
+        ? continuable
+          ? ' This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.'
+          : ' This call waits for the result by default. Set `run_in_background: true` to return a job id; collect with `job_output` and stop with `job_kill`.'
+        : ' This call waits for the subagent and returns its result.'),
     parameters: {
       description: {
         type: 'string',
@@ -263,7 +331,14 @@ export function createDelegationTool(options: {
       model: { type: 'string', description: 'Model id override (optional). Explicit provider/model win over a role binding.' },
       reasoningEffort: { type: 'string', description: 'Reasoning-effort override (optional). Adapter serving the route decides support.' },
       ...(backgroundEnabled
-        ? { run_in_background: { type: 'boolean', description: 'Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill.' } }
+        ? {
+            run_in_background: {
+              type: 'boolean',
+              description: continuable
+                ? 'Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it.'
+                : 'Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill.',
+            },
+          }
         : {}),
     },
     output: {
@@ -281,6 +356,14 @@ export function createDelegationTool(options: {
             type: 'object',
             additionalProperties: false,
             properties: {
+              kind: { type: 'string', required: true, const: 'continuable' },
+              subagentId: { type: 'string', required: true },
+            },
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
               kind: { type: 'string', required: true, const: 'foreground' },
               runId: { type: 'string', required: true },
               output: { type: 'array', required: true, items: { type: 'json' } },
@@ -288,19 +371,7 @@ export function createDelegationTool(options: {
           },
         ],
       },
-      render: (_args, value) => {
-        const text =
-          value.kind === 'background'
-            ? `started background ${toolName} task ${value.jobId}`
-            : value.output
-                .filter(
-                  (block): block is { type: string; text: string } =>
-                    typeof block === 'object' && block !== null && !Array.isArray(block) && 'type' in block && block.type === 'text',
-                )
-                .map((block) => block.text ?? '')
-                .join('');
-        return [{ type: 'text', text }];
-      },
+      render: (_args, value) => [{ type: 'text', text: renderDelegationResult(value, toolName) }],
     },
     isConcurrencySafe: () => true,
     async execute(args: DelegationToolArgs, exec) {
@@ -311,7 +382,7 @@ export function createDelegationTool(options: {
       const route = resolveRoute({ args, settings, parent: parent.options });
       const warnings = [...route.warnings];
       ctx.logger.info(
-        `[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} transport=${providerName} route=${JSON.stringify(route.agentOptions ?? null)} persona=${route.persona ? 'yes' : 'no'} warnings=${JSON.stringify(warnings)}`,
+        `[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} mode=${continuable ? 'continuable' : 'one-shot'} transport=${providerName} route=${JSON.stringify(route.agentOptions ?? null)} persona=${route.persona ? 'yes' : 'no'} warnings=${JSON.stringify(warnings)}`,
       );
 
       // FR-8.1: an explicitly supplied provider must be routable — never silently swapped.
@@ -366,7 +437,26 @@ export function createDelegationTool(options: {
         ...(maxDepth !== undefined ? { maxDepth } : {}),
       };
 
-      if (resolveRunInBackground(args, backgroundEnabled)) {
+      const decision = resolveDelegationMode(args, { backgroundEnabled, continuable });
+
+      // Continuable background runs the child through startContinuable and returns
+      // the durable child id for later send_message follow-up (FR-5.3 / F11).
+      if (decision.route === 'continuable') {
+        if (provider.prepareContinuable === undefined) {
+          throw new Error(
+            `${ERROR_PREFIX} transport provider "${providerName}" does not support backgroundMode: continuable — switch the subagent provider or use backgroundMode: 'one-shot'`,
+          );
+        }
+        const start = await ctx.subagents.startContinuable({
+          provider: providerName,
+          label: args.description,
+          request,
+          signal: exec.signal,
+        });
+        return { kind: 'continuable' as const, subagentId: start.childId };
+      }
+
+      if (decision.route === 'one-shot') {
         const jobs = ctx.get('jobs');
         if (jobs === undefined) {
           throw new Error(`${ERROR_PREFIX} background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs`);
