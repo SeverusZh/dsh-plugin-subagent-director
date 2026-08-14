@@ -49,7 +49,10 @@ export type SubagentDirectorKey =
   | 'modelOptional'
   | 'providerMissing'
   | 'restoreDone'
-  | 'invalidRoleId';
+  | 'invalidRoleId'
+  | 'modelRanOn'
+  | 'modelNotRecorded'
+  | 'modelRanOnTitle';
 
 /** English dictionary ($subagentDirector). */
 export const en: Record<SubagentDirectorKey, string> = {
@@ -95,7 +98,10 @@ export const en: Record<SubagentDirectorKey, string> = {
   "modelOptional": "Save the card to apply changes",
   "providerMissing": "No provider selected",
   "restoreDone": "Defaults restored",
-  "invalidRoleId": "Role id must be kebab-case (lowercase letters, digits, single hyphens)."
+  "invalidRoleId": "Role id must be kebab-case (lowercase letters, digits, single hyphens).",
+  "modelRanOn": "Subagent ran on",
+  "modelNotRecorded": "Subagent model not recorded yet",
+  "modelRanOnTitle": "Model route: {model}"
 };
 
 /** Chinese dictionary. */
@@ -142,5 +148,8 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "modelOptional": "保存卡片以应用更改",
   "providerMissing": "未选择供应商",
   "restoreDone": "已恢复默认",
-  "invalidRoleId": "角色 id 必须为 kebab-case（小写字母、数字、单个连字符）。"
+  "invalidRoleId": "角色 id 必须为 kebab-case（小写字母、数字、单个连字符）。",
+  "modelRanOn": "子代理实际运行于",
+  "modelNotRecorded": "尚未记录到子代理模型",
+  "modelRanOnTitle": "模型路由：{model}"
 };

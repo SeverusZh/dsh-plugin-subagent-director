@@ -8,7 +8,7 @@
  * through settings.mutate with an optimistic-revision lock.
  */
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client';
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
+import type { ClientContext, ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client';
 import type {} from '@deepseek-ai/dsh-client-locale/client';
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react';
@@ -16,6 +16,7 @@ import { en, zh, type SubagentDirectorKey } from './locales.js';
 import { SubagentOptionsStore, type SubagentOptionsState } from './store.js';
 import type { SubagentOptionsSectionInjected } from './SubagentOptionsSection.js';
 import { SubagentOptionsSection } from './SubagentOptionsSection.js';
+import { SubagentModelDock } from './SubagentModelDock.js';
 
 /** Dictionary namespace owned by Subagent Director (bilingual, typed). */
 export const NS = 'settings.subagentDirector';
@@ -24,6 +25,21 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Subagent Director settings-page copy. */
     'settings.subagentDirector': SubagentDirectorKey;
+  }
+}
+/**
+ * Compile-time view of `conversation.composer.dock`: declared here only to
+ * strongly type our occupant. The runtime seat is owned by
+ * dsh-client-ui-conversation's bundle; this augmentation contributes no
+ * runtime declaration (it stays in this package's own module scope).
+ */
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    'conversation.composer.dock': {
+      kind: 'list';
+      scope: 'session';
+      owner: { readonly session: ConversationSnapshot | undefined; readonly input: unknown };
+    };
   }
 }
 
@@ -83,6 +99,18 @@ export function apply(ctx: ClientContext): void {
         inject: injected,
       },
       SubagentOptionsSection,
+    ),
+  );
+
+  ctx.slots.inject('conversation.composer.dock', () =>
+    ctx.slots.register(
+      {
+        name: 'conversation.composer.dock',
+        id: 'subagent-director-model',
+        order: 90,
+        locale: NS,
+      },
+      SubagentModelDock,
     ),
   );
 }

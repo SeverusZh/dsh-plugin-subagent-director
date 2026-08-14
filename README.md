@@ -104,13 +104,19 @@ npm run build     # 产出 lib/
 - M1 ✅：Host 核心（设置 schema、四级路由解析、subagent_role 工具、主 agent 指引，含真实端到端验证）；
 - M2 ✅：设置界面（settings.section UI：默认模型 + 角色卡片，client bundle 加载验证通过）；
 - M3a ✅：continuable 后台模式（send_message 续聊 + 结算通知语义）；
-- M3b：toolFilter 注入、结果可观测性（UI 显示子代理实际模型）；
-- M4：顶替内置 subagent 工具、对 workflow/ralph 的默认模型兜底；
-- 开源发布：GitHub 建仓、MIT License、CHANGELOG、npm 发布。
+- M3b（进行中）：toolFilter 注入、结果可观测性（UI 显示子代理实际模型）；
+- M4（规划中）：顶替内置 subagent 工具、对 workflow/ralph 的默认模型兜底。
 
 ### 许可
 
-MIT。上游依赖 `@deepseek-ai/*`（peerDependencies，由使用方 profile 提供，本包不捆绑）。
+MIT。版权归 Subagent Director contributors。上游依赖 `@deepseek-ai/*`（peerDependencies，由使用方 profile 提供，本包不捆绑）。
+
+### GitHub / 发布
+
+- 源码：<https://github.com/SeverusZh/dsh-plugin-subagent-director>（GitHub 仓库建仓后生效）
+- Issues：<https://github.com/SeverusZh/dsh-plugin-subagent-director/issues>
+- npm：`dsh-plugin-subagent-director` @ `0.1.0`（npm publish 后生效）
+- 变更记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
@@ -123,7 +129,15 @@ MIT。上游依赖 `@deepseek-ai/*`（peerDependencies，由使用方 profile �
 - **Four-layer resolution** — call args > role binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
 - **Main-agent guidance** — a system-prompt section listing roles and when to delegate to each.
 
-See the Chinese section above for install, configuration, usage, and verification. License: MIT.
+See the Chinese section above for install, configuration, usage, and verification.
+
+### Publish
+
+- **Source / Homepage**: <https://github.com/SeverusZh/dsh-plugin-subagent-director> (repo becomes live once created)
+- **Issues**: <https://github.com/SeverusZh/dsh-plugin-subagent-director/issues>
+- **npm**: `dsh-plugin-subagent-director` @ `0.1.0` (live after `npm publish`)
+- **Changelog**: see [CHANGELOG.md](./CHANGELOG.md)
+- **License**: MIT — Copyright (c) 2026 Subagent Director contributors.
 
 ---
 

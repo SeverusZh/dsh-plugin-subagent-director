@@ -1,12 +1,21 @@
 {
   "name": "dsh-plugin-subagent-director",
   "version": "0.1.0",
-  "description": "Subagent Director: let users pick an LLM provider/model for each subagent and plan main-agent/subagent responsibilities with role templates.",
+  "description": "Subagent Director: choose an LLM provider/model for each subagent (call args > role binding > plugin default > inherit parent) and plan main-agent/subagent responsibilities with role templates, plus a settings UI.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SeverusZh/dsh-plugin-subagent-director.git"
+  },
+  "homepage": "https://github.com/SeverusZh/dsh-plugin-subagent-director",
+  "bugs": {
+    "url": "https://github.com/SeverusZh/dsh-plugin-subagent-director/issues"
+  },
   "files": [
-    "lib"
+    "lib",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
@@ -41,7 +50,12 @@
     "deepseek-harness",
     "cordis",
     "plugin",
-    "subagent"
+    "subagent",
+    "subagent-director",
+    "llm",
+    "provider",
+    "model",
+    "role-template"
   ],
   "license": "MIT",
   "peerDependencies": {
