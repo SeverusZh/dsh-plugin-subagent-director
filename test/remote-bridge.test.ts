@@ -1,13 +1,14 @@
 /**
-
- * Unit tests for the self-published `/subagent-director` settings bridge
+ * Unit tests for the self-published "/subagent-director" settings bridge
  * (src/remote.ts + src/bridge-contract.ts). The bridge is how the Web client
  * reads/writes the `subagent-director` namespace despite the Host apiproxy's
  * exposedNamespaces() allowlist answering `settings-not-exposed` for it
  * (dsh-host-apiproxy/lib/index.js:2410-2423, 3470-3475). Everything here runs
  * in a plain node environment against the pure mapping helpers and the
- * captured bridge handler.
+ * captured webServer route handler.
  */
+import { EventEmitter } from 'node:events';
+import type { ServerResponse } from 'node:http';
 import { describe, it, expect } from 'vitest';
 import {
   SettingsConflictError,
@@ -156,73 +157,181 @@ describe('directorMutate', () => {
 });
 
 describe('installDirectorRemoteBridge', () => {
-  it('returns a no-op disposer (and does not register) without settings/connection', () => {
-    const ctx = { get: () => undefined, logger: { debug: () => {} } };
+  it('returns a no-op disposer (and does not register) without settings or webServer', () => {
+    const ctx = { get: () => undefined, logger: { debug: () => {} }, effect: () => () => {} };
     const dispose = installDirectorRemoteBridge(ctx as never);
     expect(typeof dispose).toBe('function');
     dispose();
   });
 
-  it('refuses settingsMutate requests whose ns does not match the owned namespace', async () => {
+  it('registers a "subagent-director" prefix route on webServer', () => {
     let captured;
-    const fakeCtx = {
-      get: (key: string) => {
-        if (key === 'settings') {
-          return { writable: true, describe: () => [], mutate: async () => {} };
-        }
-        if (key === 'connection') {
-          return {
-            rpc: {
-              handle: (channel: string, handler: unknown, options: unknown) => {
-                captured = { channel, handler, options };
-                return () => {};
-              },
-            },
-          };
-        }
-        return undefined;
+    const fakeCtx = bridgeCtx(
+      { writable: true, describe: () => [], mutate: async () => {} },
+      (route) => {
+        captured = route;
       },
-      logger: { debug: () => {} },
-    };
-    installDirectorRemoteBridge(fakeCtx as never);
-    expect(captured?.channel).toBe('/subagent-director');
-    expect(captured?.options?.authority).toBe('loopback');
-    const result = await captured.handler(
-      'settingsMutate',
-      { ns: 'llm-deepseek', ops: [] },
-      new AbortController().signal,
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('bad-request');
+    installDirectorRemoteBridge(fakeCtx as never);
+    expect(captured).toBeDefined();
+    expect(captured?.kind).toBe('prefix');
+    expect(captured?.path).toBe('/subagent-director');
+    expect(typeof captured?.handler).toBe('function');
   });
 
-  it('answers settingsView with an empty (unregistered) view through the handler', async () => {
-    let captured;
-    const fakeCtx = {
-      get: (key: string) => {
-        if (key === 'settings') {
-          return { writable: true, describe: () => [] };
-        }
-        if (key === 'connection') {
-          return {
-            rpc: {
-              handle: (channel: string, handler: unknown, options: unknown) => {
-                captured = { channel, handler, options };
-                return () => {};
-              },
-            },
-          };
-        }
-        return undefined;
-      },
-      logger: { debug: () => {} },
-    };
-    installDirectorRemoteBridge(fakeCtx as never);
-    const result = await captured.handler('settingsView', {}, new AbortController().signal);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.writable).toBe(true);
-      expect(result.value.view).toBeUndefined();
+  it('answers settingsView through the route handler and refuses a bad ns on settingsMutate', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never);
+
+    // settingsView with an unregistered namespace → ok with an empty view.
+    const view = await callRoute(route, '/subagent-director/settingsView', {
+      type: 'client-request', rpcId: 't1', method: 'settingsView', payload: {},
+    });
+    expect(view.code).toBe(200);
+    const viewJson = JSON.parse(view.body);
+    expect(viewJson.type).toBe('server-response');
+    expect(viewJson.rpcId).toBe('t1');
+    expect(viewJson.result.ok).toBe(true);
+    if (viewJson.result.ok) {
+      expect(viewJson.result.value.writable).toBe(true);
+      expect(viewJson.result.value.view).toBeUndefined();
+    }
+
+    // settingsMutate with a non-owned ns → bad-request.
+    const badNs = await callRoute(route, '/subagent-director/settingsMutate', {
+      type: 'client-request', rpcId: 't2', method: 'settingsMutate', payload: { ns: 'llm-deepseek', ops: [] },
+    });
+    const badNsJson = JSON.parse(badNs.body);
+    expect(badNsJson.result.ok).toBe(false);
+    if (!badNsJson.result.ok) expect(badNsJson.result.error.code).toBe('bad-request');
+  });
+
+  it('returns 404 for non-POST, 403 for a non-loopback Host, 415 wrong content-type, and 400 bad JSON', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never);
+
+    // Non-POST.
+    expect((await callRaw(route, 'GET', '/subagent-director/settingsView', '')).code).toBe(404);
+    // Non-loopback Host.
+    expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'evil.com:3090')).code).toBe(403);
+    // Wrong content-type.
+    expect(
+      (await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', '127.0.0.1', 'text/plain')).code,
+    ).toBe(415);
+    // Unparseable body.
+    expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{not json}')).code).toBe(400);
+  });
+
+  it('returns 200 bad-request for a malformed envelope and a method mismatch', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never);
+
+    // Malformed envelope (missing type / rpcId / method) → 200 bad-request with invalid-request rpcId.
+    const malformed = await callRoute(route, '/subagent-director/settingsView', { rpcId: 't', payload: {} });
+    const malformedJson = JSON.parse(malformed.body);
+    expect(malformed.code).toBe(200);
+    expect(malformedJson.rpcId).toBe('invalid-request');
+    expect(malformedJson.result.ok).toBe(false);
+    if (!malformedJson.result.ok) expect(malformedJson.result.error.code).toBe('bad-request');
+
+    // Method mismatch (path settingsView, body method settingsMutate) → 200 bad-request.
+    const mismatch = await callRoute(route, '/subagent-director/settingsView', {
+      type: 'client-request', rpcId: 't9', method: 'settingsMutate', payload: {},
+    });
+    const mismatchJson = JSON.parse(mismatch.body);
+    expect(mismatch.code).toBe(200);
+    expect(mismatchJson.result.ok).toBe(false);
+    if (!mismatchJson.result.ok) {
+      expect(mismatchJson.result.error.code).toBe('bad-request');
+      expect(mismatchJson.result.error.message).toContain('does not match endpoint');
     }
   });
 });
+
+/** Build a fake ctx exposing settings + a webServer.register capture. */
+function bridgeCtx(settings: unknown, onRegister: (route: { kind: string; path: string; handler: unknown }) => void) {
+  return {
+    get: (key: string) => {
+      if (key === 'settings') return settings;
+      if (key === 'webServer') {
+        return {
+          register: (route: { kind: string; path: string; handler: unknown }) => {
+            onRegister(route);
+            return () => {};
+          },
+        };
+      }
+      return undefined;
+    },
+    logger: { debug: () => {} },
+    effect: (fn: () => () => void) => fn(),
+  };
+}
+
+interface CallResult {
+  code: number;
+  body: string;
+}
+
+/** Drive a route handler once, returning the status + body a fake res accumulated. */
+async function drive(
+  route: { handler: (req: unknown, res: ServerResponse) => void | Promise<void> },
+  opts: { method: string; url: string; reqBody: string; host: string; contentType: string },
+): Promise<CallResult> {
+  const { method, url, reqBody, host, contentType } = opts;
+  // Emit the body then 'end' as a fresh stream once listeners are attached.
+  const req = new EventEmitter() as unknown as {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    on: (event: string, cb: (...args: unknown[]) => void) => void;
+  };
+  (req as unknown as { method: string }).method = method;
+  (req as unknown as { url: string }).url = url;
+  (req as unknown as { headers: Record<string, string> }).headers = { 'content-type': contentType, host };
+
+  const result: CallResult = { code: 200, body: '' };
+  const res = {
+    writeHead: (code: number) => { result.code = code; },
+    end: (chunk?: unknown) => { if (chunk !== undefined) result.body += String(chunk); },
+    destroy: () => {},
+  } as unknown as ServerResponse;
+
+  const handlerPromise = Promise.resolve(route.handler(req, res));
+  // The handler attaches its stream listeners synchronously before its first
+  // await, so a check-phase flush reliably finds them attached.
+  setImmediate(() => flushBody(req as unknown as EventEmitter, reqBody));
+  await handlerPromise;
+  // The route wrapper does not return the handler promise, so settle one more
+  // tick for the async body read + response write to finish.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  return result;
+}
+
+function flushBody(ee: EventEmitter, reqBody: string): void {
+  if (reqBody.length > 0) ee.emit('data', Buffer.from(reqBody, 'utf8'));
+  ee.emit('end');
+}
+
+function callRoute(
+  route: { handler: (req: unknown, res: ServerResponse) => void | Promise<void> },
+  url: string,
+  body: unknown,
+  host = '127.0.0.1:3090',
+): Promise<CallResult> {
+  return drive(route, { method: 'POST', url, reqBody: JSON.stringify(body), host, contentType: 'application/json' });
+}
+
+function callRaw(
+  route: { handler: (req: unknown, res: ServerResponse) => void | Promise<void> },
+  method: string,
+  url: string,
+  reqBody: string,
+  host = '127.0.0.1:3090',
+  contentType = 'application/json',
+): Promise<CallResult> {
+  return drive(route, { method, url, reqBody, host, contentType });
+}

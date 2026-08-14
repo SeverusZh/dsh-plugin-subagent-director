@@ -5,9 +5,11 @@
  * delegation tool. Reads user settings live; a deployment without a settings
  * provider degrades to an empty resolved section (zero intrusion).
  *
- * Dependency posture: subagents and llm are required (the tool and its runtime
- * route validation need them); systemPrompt and settings are optional and are
- * acquired lazily so their absence does not block the rest.
+ * Dependency posture: tools/subagents/llm/settings are required through inject
+ * (both web and headless bundles mount the settings service); systemPrompt
+ * remains optional and is acquired lazily so its absence does not block the
+ * rest. The webServer-dependent HTTP bridge lives in the separate
+ * \`subagent-director-bridge\` entry (src/bridge-entry.ts).
  *
  * Background modes: 'one-shot' defaults calls to foreground and runs background
  * calls as a plain Task; 'continuable' defaults them to background via
@@ -21,7 +23,6 @@ import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 
 import { createDelegationTool } from './delegation-tool.js';
 import { applyGuidance } from './guidance.js';
-import { installDirectorRemoteBridge } from './remote.js';
 import { installDirectorSettings } from './settings.js';
 
 export { Config } from './config.js';
@@ -53,21 +54,18 @@ export {
 
 export const name = 'subagent-director';
 
-export const inject = ['tools', 'subagents', 'llm'];
+export const inject = ['tools', 'subagents', 'llm', 'settings'];
 
 export function apply(ctx: Context, config: import('./config.js').DirectorConfig) {
   const backgroundMode = config.backgroundMode ?? 'one-shot';
   const toolName = config.toolName ?? 'subagent_role';
   const providerName = config.subagentProvider ?? 'spawn';
 
-  // ---- settings bridge (self-published RPC channel) ----------------------
-  // The Web settings client reads/writes our `subagent-director` namespace
-  // through a dedicated `/subagent-director` RPC channel (see ./remote.ts)
-  // because the Host apiproxy's exposedNamespaces() allowlist answers
-  // settings-not-exposed for namespaces outside the model-provider plane.
-  // installDirectorRemoteBridge is inert when either settings or connection is
-  // not mounted, so this degrades to the previous behavior in such deployments.
-  installDirectorRemoteBridge(ctx);
+  // NOTE: the /subagent-director settings bridge route is installed by the
+  // separate `subagent-director-bridge` plugin entry (src/bridge-entry.ts),
+  // which injects webServer — tree-external plugins cannot see that service
+  // through ctx.get(). The main entry must not touch webServer, or headless
+  // profiles would lose the delegation tool.
 
   // ---- settings snapshot -------------------------------------------------
   let settings: import('./settings.js').SubagentDirectorSettings = {};

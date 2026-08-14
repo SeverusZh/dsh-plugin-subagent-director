@@ -1,26 +1,34 @@
 /**
- * Subagent Director — self-published setting bridge (design addition for the
- * "namespace not exposed" fix).
+ * Subagent Director — self-published setting bridge on the Host web server
+ * (design fix: "namespace not exposed").
  *
  * The Web settings client read/writes the plugin's `subagent-director`
- * namespace through `connection.api.settings.describe/mutate`, which the host
- * API proxy gates behind its hard-coded `exposedNamespaces()` allowlist
+ * namespace via a dedicated "/subagent-director" webServer prefix route instead
+ * of the Host apiproxy's settings.describe/mutate, which the API proxy gates
+ * behind its hard-coded exposedNamespaces() allowlist
  * (dsh-host-apiproxy). A tree-external plugin cannot add its own namespace to
  * that list, so those calls answer `settings-not-exposed`. To bypass the
- * allowlist without touching apiproxy, this module self-publishes a dedicated
- * direct RPC channel (`/subagent-director`) via
- * `ctx.connection.rpc.handle(...)`, reading and writing `ctx.settings` itself.
+ * allowlist without touching apiproxy, this module self-publishes a prefix
+ * route (kind:"prefix", path:"/subagent-director") via `ctx.webServer.register`
+ * (dsh-host-webserver/lib/index.js:53-60) and reads/writes `ctx.settings`
+ * itself.
  *
  * The wire contract mirrors the settings domain slice apiproxy exposes for
  * one namespace: `settingsView` returns `{ writable, view }` where `view` is a
  * `SettingsNamespaceView` (redacted), and `settingsMutate` applies path ops
  * with an optimistic `expectedRevision` and returns the new redacted view, or
  * an error with the same `settings-conflict` / `settings-rejected` semantics so
- * the existing client conflict-reload logic works unchanged.
+ * the existing client conflict-reload logic works unchanged. The client already
+ * speaks this contract unchanged (dsh-client-connection/lib/client.js:10094-10113
+ * and src/client/store.ts), so no client change is required.
  *
- * Pure mapping helpers live at the top (no cordis) so the host side is
- * unit-testable in a plain node environment.
+ * Pure mapping / wire-envelope helpers live at the top (no cordis) so they are
+ * unit-testable in a plain node environment. The route handler is a node:http
+ * (req, res) handler, mirroring the Connection channel semantics in
+ * dsh-client-connection/lib/index.js:275-300 and 322-328, plus a lightweight
+ * loopback Host fence.
  */
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
 import {
   SettingsConflictError,
@@ -34,28 +42,34 @@ import type {
   SettingsNamespaceView,
   SettingsPathOpView,
 } from '@deepseek-ai/dsh-host-apiproxy/api';
-import type {
-  ConnectionRpcHandler,
-  HostConnectionHandle,
-} from '@deepseek-ai/dsh-client-connection';
+
 import {
   SettingsSchema,
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
 } from './settings.js';
 import {
-  SUBAGENT_DIRECTOR_RPC_CHANNEL,
   SUBAGENT_DIRECTOR_RPC_VIEW,
   SUBAGENT_DIRECTOR_RPC_MUTATE,
   type DirectorMutateRequest,
   type DirectorViewSuccess,
 } from './bridge-contract.js';
+import {
+  SUBAGENT_DIRECTOR_ROUTE_PATH,
+  buildServerResponse,
+  buildMethodMismatchResponse,
+  buildBadRequestResponse,
+  parseClientRequestEnvelope,
+  isLoopbackHost,
+  endpointFromPath,
+  type ServerResponseEnvelope,
+} from './envelope.js';
 
-/** Wire channel/endpoint constants shared with the client (see bridge-contract). */
-export {
-  SUBAGENT_DIRECTOR_RPC_CHANNEL,
-  SUBAGENT_DIRECTOR_RPC_VIEW,
-  SUBAGENT_DIRECTOR_RPC_MUTATE,
-};
+/** Wire route path the bridge owns on the Host web server. */
+export { SUBAGENT_DIRECTOR_ROUTE_PATH as SUBAGENT_DIRECTOR_RPC_CHANNEL };
+/** Endpoint that returns the namespace's redacted wire view. */
+export { SUBAGENT_DIRECTOR_RPC_VIEW };
+/** Endpoint that applies one path-op mutation. */
+export { SUBAGENT_DIRECTOR_RPC_MUTATE };
 /** Request payload for the settingsMutate bridge endpoint. */
 export type { DirectorMutateRequest, DirectorViewSuccess };
 
@@ -178,64 +192,185 @@ export async function directorMutate(
   return { ok: true, value: toDirectorNamespaceView(descriptor) };
 }
 
+/** Re-export the wire-envelope helpers so tests import them from one place. */
+export {
+  parseClientRequestEnvelope,
+  isLoopbackHost,
+  isLoopbackHostname,
+  endpointFromPath,
+  buildServerResponse,
+  buildMethodMismatchResponse,
+  buildBadRequestResponse,
+  INVALID_REQUEST_RPC_ID,
+} from './envelope.js';
+
 /**
- * Install the Subagent Director setting bridge on the Host web transport.
- * Registered only while both a settings provider (`ctx.settings`) and a
- * connection transport (`ctx.connection`) are mounted, so a deployment without
- * either degrades to the previous behavior. Returns a disposer.
+ * The node:http handler for the "/subagent-director" prefix route. Owns the
+ * full response lifecycle. Wire contract mirrors the generic Connection RPC
+ * channel (dsh-client-connection/lib/index.js:275-328):
+ *   - non-POST        → 404 "not found"
+ *   - wrong content-type → 415
+ *   - unparseable JSON body → 400 "body is not JSON"
+ *   - malformed client-request envelope → 200 bad-request (fixed rpcId)
+ *   - method vs endpoint mismatch → 200 bad-request
+ *   - non-loopback Host header → 403 "forbidden" (lightweight trust fence)
+ *   - dispatch error → 500 "handler failure: ..."
+ */
+export function handleDirectorBridgeRequest(
+  settings: SettingsProvider,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  return handleDirectorBridgeRequestInner(settings, req.url ?? '/', req.headers.host, req, res);
+}
+
+async function handleDirectorBridgeRequestInner(
+  settings: SettingsProvider,
+  rawUrl: string,
+  hostHeader: string | undefined,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  // Non-POST → 404.
+  if (req.method !== 'POST') {
+    sendPlain(res, 404, 'not found');
+    return;
+  }
+  // Content type must be application/json → 415.
+  const contentType = (req.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
+  if (contentType !== 'application/json') {
+    sendPlain(res, 415, 'content type must be application/json');
+    return;
+  }
+  // Loopback Host fence → 403.
+  if (hostHeader === undefined || !isLoopbackHost(hostHeader)) {
+    sendPlain(res, 403, 'forbidden');
+    return;
+  }
+  // Read the JSON body → 400 on unparseable.
+  const raw = await readBody(req);
+  let body: unknown;
+  try {
+    body = raw.length === 0 ? {} : JSON.parse(raw);
+  } catch {
+    sendPlain(res, 400, 'body is not JSON');
+    return;
+  }
+  // Envelope validation → 200 bad-request.
+  const parsed = parseClientRequestEnvelope(body);
+  if (!parsed.ok) {
+    sendJson(res, 200, buildBadRequestResponse(parsed.issues));
+    return;
+  }
+  const envelope = parsed.envelope;
+  // Method must match the path-derived endpoint.
+  const endpoint = endpointFromPath(SUBAGENT_DIRECTOR_ROUTE_PATH, pathnameOf(rawUrl));
+  if (endpoint === undefined || envelope.method !== endpoint) {
+    sendJson(res, 200, buildMethodMismatchResponse(envelope.rpcId, envelope.method, endpoint ?? '(invalid path)'));
+    return;
+  }
+  // Dispatch.
+  const result = await dispatchBridgeEndpoint(settings, endpoint, envelope.payload);
+  sendJson(res, 200, buildServerResponse(envelope.rpcId, result));
+}
+
+/** Dispatch one validated endpoint to the settings seam. Throws on unknown endpoint. */
+async function dispatchBridgeEndpoint(
+  settings: SettingsProvider,
+  endpoint: string,
+  payload: unknown,
+): Promise<RpcResult<unknown>> {
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_VIEW) {
+    return directorViewOk(settings) as RpcResult<unknown>;
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_MUTATE) {
+    const request = payload as DirectorMutateRequest | null;
+    if (request?.ns !== String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE)) {
+      return {
+        ok: false,
+        error: {
+          code: 'bad-request',
+          message: 'settingsMutate: expected ns "' + String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE) + '"',
+          details: { issues: [] },
+        },
+      };
+    }
+    const ops = (request?.ops ?? []) as SettingsPathOpView[];
+    return directorMutate(
+      (n, o, r) => settings.mutate(n, o, r),
+      (opts) => settings.describe(opts),
+      String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE),
+      ops,
+      request?.expectedRevision,
+    );
+  }
+  throw new Error('unknown bridge endpoint ' + JSON.stringify(endpoint));
+}
+
+/**
+ * Install the Subagent Director setting bridge on the Host web server via a
+ * self-published prefix route. Lazy-acquires `ctx.webServer`; a deployment
+ * without that service (e.g. headless) logs a debug line naming the missing
+ * service and installs nothing. Returns a disposer.
  */
 export function installDirectorRemoteBridge(ctx: Context): () => void {
   const settings = ctx.get('settings') as SettingsProvider | undefined;
-  const connection = ctx.get('connection') as HostConnectionHandle | undefined;
-  if (settings === undefined || connection === undefined) {
+  const webServer = ctx.get('webServer');
+  if (settings === undefined || webServer === undefined) {
     ctx.logger.debug(
       '[subagent-director] settings bridge not installed ' +
         '(settings:' + String(settings !== undefined) +
-        ', connection:' + String(connection !== undefined) + ')',
+        ', webServer:' + String(webServer !== undefined) + ')',
     );
     return () => {};
   }
 
-  const handler: ConnectionRpcHandler = async (endpoint, payload) => {
-    if (endpoint === SUBAGENT_DIRECTOR_RPC_VIEW) {
-      return directorViewOk(settings);
-    }
-    if (endpoint === SUBAGENT_DIRECTOR_RPC_MUTATE) {
-      const request = payload as DirectorMutateRequest | null;
-      if (request?.ns !== String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE)) {
-        return {
-          ok: false,
-          error: {
-            code: 'bad-request',
-            message: 'settingsMutate: expected ns "' + String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE) + '"',
-            details: { issues: [] },
-          },
-        } as RpcResult<SettingsNamespaceView>;
+  const handler = (req: IncomingMessage, res: ServerResponse): Promise<void> | void => {
+    handleDirectorBridgeRequest(settings, req, res).catch((error) => {
+      // Dispatch throw (unknown endpoint or a settings seam blow-up) → 500.
+      if (res.headersSent) {
+        res.destroy();
+        return;
       }
-      const ops = request?.ops ?? [];
-      return directorMutate(
-        (n, o, r) => settings.mutate(n, o, r),
-        (opts) => settings.describe(opts),
-        String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE),
-        ops,
-        request?.expectedRevision,
-      );
-    }
-    return {
-      ok: false,
-      error: {
-        code: 'bad-request',
-        message: 'unknown bridge endpoint ' + JSON.stringify(endpoint),
-        details: { issues: [] },
-      },
-    } as RpcResult<unknown>;
+      sendPlain(res, 500, 'handler failure: ' + String(error));
+    });
   };
 
-  return connection.rpc.handle(
-    SUBAGENT_DIRECTOR_RPC_CHANNEL,
-    handler,
-    { authority: 'loopback' },
+  return ctx.effect(
+    () => webServer.register({ kind: 'prefix', path: SUBAGENT_DIRECTOR_ROUTE_PATH, handler }),
+    'subagent-director: settings bridge route',
   );
+}
+
+/** Collect the full request body as a UTF-8 string. */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+/** Pathname portion of a raw request URL (safe for endpointFromPath). */
+function pathnameOf(rawUrl: string): string {
+  try {
+    return new URL(rawUrl, 'http://dsh.internal').pathname;
+  } catch {
+    return rawUrl;
+  }
+}
+
+/** Write a plain-text response with the given status. */
+function sendPlain(res: ServerResponse, status: number, text: string): void {
+  res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end(text);
+}
+
+/** Write a JSON response with the given status. */
+function sendJson(res: ServerResponse, status: number, payload: ServerResponseEnvelope): void {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
 }
 
 /** Convenience re-export for the namespaced schema used to document the view. */

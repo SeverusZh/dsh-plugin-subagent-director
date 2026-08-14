@@ -25,14 +25,18 @@
   },
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
     "./client": {
       "types": "./lib/client/index.d.ts",
       "default": "./lib/client/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./bridge": {
+      "types": "./lib/bridge-entry.d.ts",
+      "default": "./lib/bridge-entry.js"
+    }
   },
   "dsh": {
     "client": {
