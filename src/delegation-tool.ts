@@ -30,13 +30,14 @@
  * already returns it separately for auditability).
  */
 import type { Context } from '@deepseek-ai/cordis';
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
 import { defineTool, type JsonValue, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
 import { settleRun } from '@deepseek-ai/dsh-subagent';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent';
 
 import type { DirectorConfig } from './config.js';
-import { resolveRoute, type SubagentDirectorSettings } from './route-resolver.js';
+import { resolveRoute, type RouteToolFilter, type SubagentDirectorSettings } from './route-resolver.js';
 
 /** Stable log namespace prefix for delegation/tool diagnostics (design section 10). */
 export const DELEGATION_TOOL_PREFIX = 'subagent-director';
@@ -282,6 +283,66 @@ export function renderDelegationResult(value: DelegationResult | { kind: 'foregr
     .join('');
 }
 
+
+/**
+ * Pure capability gate (extracted from execute for unit testing, behavioral
+ * no-op): a resolved delegation feature demands a transport-provider capability,
+ * and its absence is a hard error (FR-8.1 / design 7.3). persona, toolFilter,
+ * and a numeric maxDepth each require the matching capability flag.
+ */
+export function assertDelegationCapabilities(options: {
+  providerName: string;
+  persona?: string;
+  toolFilter?: RouteToolFilter;
+  capabilities: { persona: boolean; toolFilter: boolean; depthLimit: boolean };
+  maxDepth?: number | 'provider-managed';
+}): void {
+  const { providerName, persona, toolFilter, capabilities, maxDepth } = options;
+  if (persona !== undefined && !capabilities.persona) {
+    throw new Error(
+      `${ERROR_PREFIX} role binds a persona but transport provider "${providerName}" does not support the persona capability — switch the subagent provider or drop the role persona`,
+    );
+  }
+  if (toolFilter !== undefined && !capabilities.toolFilter) {
+    throw new Error(
+      `${ERROR_PREFIX} role binds a tool filter but transport provider "${providerName}" does not support the toolFilter capability — switch the subagent provider or drop the role filter`,
+    );
+  }
+  if (typeof maxDepth === 'number' && !capabilities.depthLimit) {
+    throw new Error(
+      `${ERROR_PREFIX} transport provider "${providerName}" cannot enforce maxDepth (no depthLimit capability) — set maxDepth: 'provider-managed' to leave the recursion budget to the provider`,
+    );
+  }
+}
+
+/** The route-derived fields that flow into a SubagentStartRequest body. */
+export interface SubagentRequestParts {
+  description: string;
+  prompt: ContentBlock[];
+  parent: Agent;
+  agentOptions?: Pick<AgentOptions, 'provider' | 'model'>;
+  persona?: string;
+  toolFilter?: RouteToolFilter;
+  maxDepth?: number;
+}
+
+/**
+ * Pure request-body assembly (extracted from execute for unit testing,
+ * behavioral no-op): persona and toolFilter propagate into the request only
+ * when the role resolved them, so a bare delegation stays zero-intrusion.
+ */
+export function buildSubagentRequest<Parts extends SubagentRequestParts>(parts: Parts) {
+  return {
+    label: parts.description,
+    prompt: parts.prompt,
+    parent: parts.parent,
+    ...(parts.agentOptions !== undefined ? { agentOptions: parts.agentOptions } : {}),
+    ...(parts.persona !== undefined ? { persona: parts.persona } : {}),
+    ...(parts.toolFilter !== undefined ? { toolFilter: parts.toolFilter } : {}),
+    ...(parts.maxDepth !== undefined ? { maxDepth: parts.maxDepth } : {}),
+  };
+}
+
 /**
  * Create the subagent_role ToolDefinition for one mounted subagent transport
  * provider. getSettings returns the current settings snapshot so execute reads
@@ -411,31 +472,29 @@ export function createDelegationTool(options: {
       }
 
       // persona/toolFilter require the transport provider's capabilities.
-      if (route.persona !== undefined && !provider.capabilities.persona) {
-        throw new Error(`${ERROR_PREFIX} role binds a persona but transport provider "${providerName}" does not support the persona capability — switch the subagent provider or drop the role persona`);
-      }
-      if (route.toolFilter !== undefined && !provider.capabilities.toolFilter) {
-        throw new Error(`${ERROR_PREFIX} role binds a tool filter but transport provider "${providerName}" does not support the toolFilter capability — switch the subagent provider or drop the role filter`);
-      }
-      if (typeof config.maxDepth === 'number' && !provider.capabilities.depthLimit) {
-        throw new Error(`${ERROR_PREFIX} transport provider "${providerName}" cannot enforce maxDepth (no depthLimit capability) — set maxDepth: 'provider-managed' to leave the recursion budget to the provider`);
-      }
+      const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined;
+      assertDelegationCapabilities({
+        providerName,
+        persona: route.persona,
+        toolFilter: route.toolFilter,
+        capabilities: provider.capabilities,
+        maxDepth,
+      });
 
       // reasoningEffort is advisory and not part of AgentOptions/SubagentStartRequest.
       if (route.reasoningEffort !== undefined) {
         ctx.logger.info(`[${DELEGATION_TOOL_PREFIX}] reasoningEffort=${route.reasoningEffort} is advisory and logged only (not injectable via AgentOptions)`);
       }
 
-      const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined;
-      const request = {
-        label: args.description,
+      const request = buildSubagentRequest({
+        description: args.description,
         prompt: [{ type: 'text' as const, text: args.prompt }],
         parent,
-        ...(agentOptions !== undefined ? { agentOptions } : {}),
-        ...(route.persona !== undefined ? { persona: route.persona } : {}),
-        ...(route.toolFilter !== undefined ? { toolFilter: route.toolFilter } : {}),
-        ...(maxDepth !== undefined ? { maxDepth } : {}),
-      };
+        agentOptions,
+        persona: route.persona,
+        toolFilter: route.toolFilter,
+        maxDepth,
+      });
 
       const decision = resolveDelegationMode(args, { backgroundEnabled, continuable });
 

@@ -26,6 +26,8 @@ import { installDirectorSettings } from './settings.js';
 export { Config } from './config.js';
 export type { DirectorConfig } from './config.js';
 export {
+  assertDelegationCapabilities,
+  buildSubagentRequest,
   createDelegationParameters,
   createDelegationOutputSchema,
   createDelegationTool,
@@ -36,6 +38,7 @@ export {
   type DelegationResult,
   type DelegationRoute,
   type DelegationModeDecision,
+  type SubagentRequestParts,
 } from './delegation-tool.js';
 export { applyGuidance, renderRolesGuidance, GUIDANCE_SECTION_ORDER, GUIDANCE_SECTION_NAME } from './guidance.js';
 export {
