@@ -20,7 +20,7 @@
 - **主代理指引** —— 系统提示自动注入角色清单，主代理知道何时委派给谁；
 - **设置界面** —— DSH 设置面板内可视化配置（默认模型 + 角色卡片增删改）；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
-- **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型。
+- **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型。⚠️ 该功能暂不可用，正在开发中；
 
 ## 快速开始
 
@@ -130,6 +130,6 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 - **Four-layer resolution** — call args > role binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
 - **Settings UI** — manage defaults and role cards in the DSH settings panel;
 - **Continuable background** — durable subagent ids with send_message follow-ups;
-- **Observability** — the addressed subagent’s actual provider/model shown under the composer.
+- **Observability** — the addressed subagent’s actual provider/model shown under the composer. ⚠️ Not yet available — under development.
 
 **Install** — add two patch rows to your profile’s cordis.patch.yml: `dsh-plugin-subagent-director` (main) and `dsh-plugin-subagent-director/bridge` (Web settings bridge). See the Chinese section above for full configuration examples. License: MIT.
