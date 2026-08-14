@@ -40,7 +40,7 @@ export {
 
 export const name = 'subagent-director';
 
-export const inject = ['subagents', 'llm'];
+export const inject = ['tools', 'subagents', 'llm'];
 
 export function apply(ctx: Context, config: import('./config.js').DirectorConfig) {
 
