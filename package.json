@@ -15,7 +15,8 @@
   },
   "files": [
     "lib",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "cordis.patch.yml"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
@@ -39,6 +40,9 @@
     }
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "inject": [
         "slots",

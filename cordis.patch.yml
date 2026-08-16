@@ -1,0 +1,12 @@
+# dsh-plugin-subagent-director bundle patch.
+#
+# Adds the plugin's two entries: the main entry and the settings bridge that
+# exposes the `subagent-director` settings namespace to the Web UI.
+# Install: dsh plugin --profile <name> add dsh-plugin-subagent-director
+# Restart `dsh --profile <name>` after installing.
+- insert:
+    - id: subagent-director
+      name: dsh-plugin-subagent-director
+- insert:
+    - id: subagent-director-bridge
+      name: dsh-plugin-subagent-director/bridge
