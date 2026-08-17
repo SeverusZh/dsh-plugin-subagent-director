@@ -8,7 +8,7 @@
   <img alt="DeepSeek Harness" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.0--rc.x-blue">
 </p>
 
-[English](#english) · [特性](#特性) · [快速开始](#快速开始) · [角色模板](#角色模板) · [术语](#术语) · [开发](#开发) · [路线图](#路线图) · [FAQ](#faq)
+[English](#english) · [特性](#特性) · [快速开始](#快速开始) · [角色模板](#角色模板) · [术语](#术语) · [开发](#开发) · [FAQ](#faq)
 
 ---
 
@@ -134,12 +134,6 @@ npm test          # vitest（129 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
-
-## 路线图
-
-- v0.2：子代理目录内直接展示实际模型；composer 快捷选择「本次委派模型」；
-- v0.3：顶替内置 subagent 工具名（无感升级）；对 workflow/ralph 的默认模型兜底；
-- 欢迎通过 Issue / PR 提出想法。
 
 ## FAQ
 
