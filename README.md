@@ -15,6 +15,9 @@
 ## 特性
 
 - **供应商与模型选择** —— 为 subagent 配置默认 LLM 供应商（route）与模型；每次委派也可以由模型显式指定；
+- **默认模型兜底** —— 配置 `defaultProvider`/`defaultModel` 后，即使模型调用内置
+  `subagent`/`subagent_fork` 工具，未显式指定模型的子代理也会自动使用该模型
+  （`applyDefaultRoute`，默认开启；未配置默认模型时为零侵入空操作）；
 - **角色模板** —— 定义「代码审查员」「翻译员」等角色：职责描述（给主代理看）+ persona（注入子代理）+ 可选模型绑定；
 - **四级回退链** —— 单次调用参数 > 角色绑定 > 插件默认 > 继承主代理（未配置时零侵入）；
 - **主代理指引** —— 系统提示自动注入角色清单，主代理知道何时委派给谁；
@@ -48,6 +51,7 @@ dsh plugin --profile <name> add dsh-plugin-subagent-director
     enableRunInBackground: true
     backgroundMode: one-shot     # one-shot 或 continuable
     maxDepth: 3
+    applyDefaultRoute: true      # 默认 true：把默认模型应用到所有未显式指定模型的子代理
 ```
 
 > 注意：不要再用 `- insert:` 添加这两个条目，否则启动会报
@@ -122,7 +126,9 @@ npm run build     # host(tsc) + client(rolldown bundle)
 DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插件通过自注册的 `/subagent-director` HTTP 路由桥接自己的命名空间，而该路由依赖的 webServer 服务只能经 cordis `inject` 获取，因此拆成独立的 `subagent-director-bridge` 条目（无 Web 的 headless 场景它会自动不激活，主条目不受影响）。
 
 **未配置任何角色时行为如何？**
-与未安装本插件时完全一致：subagent 继承主代理模型，零侵入。
+未配置任何角色且未配置默认模型时与未安装本插件完全一致（零侵入）。配置了
+`defaultProvider`/`defaultModel` 且未关闭 `applyDefaultRoute` 时，所有未显式
+指定模型的子代理（含内置工具发起的）都会使用该默认模型。
 
 **新供应商/API 会自动出现吗？**
 会。设置页订阅了供应商与设置变更事件，在 Models 页新增供应商/API key 后，下拉列表自动刷新，无需重启。
