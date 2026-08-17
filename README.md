@@ -30,26 +30,28 @@
 dsh plugin --profile <name> add dsh-plugin-subagent-director
 ```
 
-或本地开发时以 file: / link: 路径挂载（示例见下）。
+或本地开发时以 `dsh plugin --profile <name> add link:<绝对路径>` 挂载本地 checkout
+（配置示例见下）。
 
-### 配置（cordis.patch.yml）
+### 配置（cordis.patch.yml，可选）
 
-需要**两个插件条目**（本包拆分了桥接条目，用于把设置命名空间暴露给 Web UI）：
+`dsh plugin add` 会通过插件包自带的 `cordis.patch.yml` 自动挂载主条目与桥接条目
+（`subagent-director` / `subagent-director-bridge`，桥接条目用于把设置命名空间
+暴露给 Web UI），**不需要**手动 `insert`。需要覆盖默认配置时按 id 覆盖主条目：
 
 ```yaml
-- insert:
-    - id: subagent-director
-      name: dsh-plugin-subagent-director
-      config:
-        subagentProvider: spawn      # 传输：spawn（无父上下文）/ fork（继承父历史）
-        toolName: subagent_role      # 模型可见工具名
-        enableRunInBackground: true
-        backgroundMode: one-shot     # one-shot 或 continuable
-        maxDepth: 3
-- insert:
-    - id: subagent-director-bridge
-      name: dsh-plugin-subagent-director/bridge
+- id: subagent-director
+  name: dsh-plugin-subagent-director
+  config:
+    subagentProvider: spawn      # 传输：spawn（无父上下文）/ fork（继承父历史）
+    toolName: subagent_role      # 模型可见工具名
+    enableRunInBackground: true
+    backgroundMode: one-shot     # one-shot 或 continuable
+    maxDepth: 3
 ```
+
+> 注意：不要再用 `- insert:` 添加这两个条目，否则启动会报
+> `duplicate loader entry id`。
 
 ### 角色模板（设置界面或 settings.yaml）
 
@@ -132,4 +134,4 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 - **Continuable background** — durable subagent ids with send_message follow-ups;
 - **Observability** — the addressed subagent’s actual provider/model shown under the composer. ⚠️ Not yet available — under development.
 
-**Install** — add two patch rows to your profile’s cordis.patch.yml: `dsh-plugin-subagent-director` (main) and `dsh-plugin-subagent-director/bridge` (Web settings bridge). See the Chinese section above for full configuration examples. License: MIT.
+**Install** — `dsh plugin --profile <name> add dsh-plugin-subagent-director` mounts the main and bridge entries automatically from the package's bundle patch (`cordis.patch.yml`); optionally override the main entry's config in your profile's cordis.patch.yml (see the Chinese section above). License: MIT.
