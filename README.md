@@ -53,6 +53,16 @@ dsh plugin --profile <name> add dsh-plugin-subagent-director
 > 注意：不要再用 `- insert:` 添加这两个条目，否则启动会报
 > `duplicate loader entry id`。
 
+### 安装注意事项
+
+- 推荐直接 `dsh plugin --profile <name> add dsh-plugin-subagent-director`（npm
+  发布版已包含构建产物，peer 依赖由 DSH 的 `$DSH_HOME/profiles/node_modules`
+  fallback 提供，开箱即用）。
+- 本地 `link:` 开发时：git 仓库不包含 `lib/`（已被 .gitignore），挂载前需先
+  `npm install && npm run build`；且 checkout 需位于 `$DSH_HOME/profiles/` 下
+  （或仓库自带 node_modules），否则 `@deepseek-ai/*` peer 依赖会报
+  `ERR_MODULE_NOT_FOUND`。
+
 ### 角色模板（设置界面或 settings.yaml）
 
 settings 命名空间 `subagent-director`：
