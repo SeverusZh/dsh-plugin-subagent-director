@@ -78,7 +78,7 @@ export function applyDefaultRouteSeam(
   const originalStartContinuable = subagents.startContinuable;
   const isRoutable = makeIsRoutable(ctx);
 
-  const resolve = (request: SubagentStartRequest) =>
+  const resolve = (request: Pick<SubagentStartRequest, 'agentOptions'>) =>
     resolveSeamAgentOptions({ agentOptions: request.agentOptions, settings: getSettings(), isRoutable });
 
   subagents.start = (name, request) => {
