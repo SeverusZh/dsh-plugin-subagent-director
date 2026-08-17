@@ -22,6 +22,7 @@ import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent';
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 
 import { createDelegationTool } from './delegation-tool.js';
+import { applyDefaultRouteSeam } from './default-route.js';
 import { applyGuidance } from './guidance.js';
 import { installDirectorSettings } from './settings.js';
 
@@ -78,6 +79,14 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
     },
   });
   const getSettings = (): import('./settings.js').SubagentDirectorSettings => settings;
+
+  // ---- default route seam ------------------------------------------------
+  // 把 settings 里的默认 provider/model 应用到一切未显式指定模型的子代理
+  // 启动（内置 subagent/subagent_fork 等），实现"无感生效"；卸载时由
+  // ctx.effect 恢复被包装的原方法。
+  if (config.applyDefaultRoute !== false) {
+    ctx.effect(() => applyDefaultRouteSeam(ctx, getSettings), 'subagent-director:default-route-seam');
+  }
 
   // ---- role guidance ----------------------------------------------------
   applyGuidance(ctx, getSettings, toolName);

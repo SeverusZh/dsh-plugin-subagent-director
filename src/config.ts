@@ -50,6 +50,16 @@ export interface DirectorConfig {
    * provider's `depthLimit` capability. 'provider-managed' sends no cap.
    */
   maxDepth?: number | 'provider-managed';
+
+  /**
+   * Whether to apply the settings `defaultProvider`/`defaultModel` to every
+   * subagent start that did not carry an explicit agentOptions — including
+   * starts initiated by the built-in `subagent`/`subagent_fork` tools (default
+   * true). With no default model configured this is a no-op (zero intrusion);
+   * set false to keep the defaults limited to `subagent_role`'s resolution
+   * chain.
+   */
+  applyDefaultRoute?: boolean;
 }
 
 /** Schemastery schema for {@link DirectorConfig}. */
@@ -60,4 +70,5 @@ export const Config = z.object({
   backgroundMode: z.union(['one-shot', 'continuable']).default('one-shot'),
   maxDepth: z
     .union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed')]),
+  applyDefaultRoute: z.boolean().default(true),
 });

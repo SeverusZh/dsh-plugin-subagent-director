@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { applyDefaultRouteSeam, resolveSeamAgentOptions } from '../src/default-route.js';
+import { Config } from '../src/config.js';
 
 const defaults = { defaultProvider: 'opencode-go', defaultModel: 'mimo-v2.5' };
 
@@ -113,5 +114,11 @@ describe('applyDefaultRouteSeam', () => {
     dispose();
     expect(h.subagents.start).toBe(originalStart);
     expect(h.subagents.startContinuable).toBe(originalContinuable);
+  });
+});
+
+describe('Config', () => {
+  it('applyDefaultRoute 默认开启', () => {
+    expect(Config({}).applyDefaultRoute).toBe(true);
   });
 });
