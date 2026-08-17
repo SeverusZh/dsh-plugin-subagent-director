@@ -24,7 +24,7 @@ import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 import { createDelegationTool } from './delegation-tool.js';
 import { applyDefaultRouteSeam } from './default-route.js';
 import { applyGuidance } from './guidance.js';
-import { installDirectorSettings } from './settings.js';
+import { createSettingsSnapshot, installDirectorSettings } from './settings.js';
 
 export { Config } from './config.js';
 export type { DirectorConfig } from './config.js';
@@ -69,16 +69,11 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   // profiles would lose the delegation tool.
 
   // ---- settings snapshot -------------------------------------------------
-  let settings: import('./settings.js').SubagentDirectorSettings = {};
-  installDirectorSettings(ctx, {}, {
-    setSource: (current) => {
-      settings = current();
-    },
-    onChange: () => {
-      // snapshot already updated by setSource; nothing further to do in M1.
-    },
-  });
-  const getSettings = (): import('./settings.js').SubagentDirectorSettings => settings;
+  // 快照跟随 dsh-settings 的 onChange 热更新（settings.yaml / 设置面板改动
+  // 即时生效），不再只在挂载时读取一次。
+  const settingsSnapshot = createSettingsSnapshot<import('./settings.js').SubagentDirectorSettings>({});
+  installDirectorSettings(ctx, {}, settingsSnapshot.hooks);
+  const getSettings = settingsSnapshot.get;
 
   // ---- default route seam ------------------------------------------------
   // 把 settings 里的默认 provider/model 应用到一切未显式指定模型的子代理

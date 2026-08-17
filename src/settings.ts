@@ -30,6 +30,40 @@ export const SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE = settingsNamespace('subagent-
 
 export type { RoleTemplate, SubagentDirectorSettings } from './route-resolver.js';
 
+/**
+ * Live settings snapshot holder.
+ *
+ * dsh-settings' `installSettingsSection` calls `setSource` exactly once with a
+ * source thunk and fires `onChange` on every settings change (settings.yaml
+ * hot reload, settings UI writes). The previous wiring captured the value
+ * inside setSource and left onChange empty, so edits were only visible after a
+ * restart. This helper keeps the source thunk so onChange can re-read it and
+ * the snapshot follows live settings.
+ */
+export interface SettingsSnapshot<T> {
+  /** The dsh-settings consumer hooks to pass to installSettingsSection. */
+  hooks: SettingsSectionHooks<T>;
+  /** The current resolved snapshot (refreshed by onChange). */
+  get(): T;
+}
+
+export function createSettingsSnapshot<T>(initial: T): SettingsSnapshot<T> {
+  let source: (() => T) | undefined;
+  let snapshot = initial;
+  return {
+    hooks: {
+      setSource: (current) => {
+        source = current;
+        snapshot = current();
+      },
+      onChange: () => {
+        if (source !== undefined) snapshot = source();
+      },
+    },
+    get: () => snapshot,
+  };
+}
+
 /** Kebab-case: lowercase alphanumeric segments separated by single hyphens. */
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
