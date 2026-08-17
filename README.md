@@ -99,6 +99,9 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
 subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." })  # 临时覆盖模型
 ```
 
+`role` 参数支持用角色 id 或显示名引用：未命中 id 时会按 `displayName` 精确匹配
+（多个同名角色取定义顺序第一个并提示）；建议始终用 id，见系统提示中的 Delegate 行。
+
 ## 术语
 
 - **subagentProvider（传输）**：`spawn` / `fork` / `acp`——子代理跑在哪条传输链路上；
