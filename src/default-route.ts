@@ -14,6 +14,12 @@
  * property of `subagent_role`'s explicit path (route-resolver.ts).
  */
 import type { AgentOptions } from '@deepseek-ai/dsh-agent';
+import type {
+  ContinuableStart,
+  ContinuableStartSpec,
+  SubagentRun,
+  SubagentStartRequest,
+} from '@deepseek-ai/dsh-subagent';
 import type { SubagentDirectorSettings } from './route-resolver.js';
 
 export interface SeamResolveInput {
@@ -36,4 +42,69 @@ export function resolveSeamAgentOptions(input: SeamResolveInput): Pick<AgentOpti
   if (isEmpty(provider) || isEmpty(model)) return undefined;
   if (isRoutable !== undefined && !isRoutable(provider!)) return undefined;
   return { provider, model };
+}
+
+/** The subset of the subagent service the seam wraps. */
+export interface SubagentsSeam {
+  start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;
+  startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;
+}
+
+/** Structural context the seam needs; keeps the wrapper unit-testable. */
+export interface DefaultRouteSeamContext {
+  get(name: string): unknown;
+  logger: { info(message: string): void; warn(message: string): void };
+  subagents: SubagentsSeam;
+}
+
+function makeIsRoutable(ctx: DefaultRouteSeamContext): ((provider: string) => boolean) | undefined {
+  const llm = ctx.get('llm') as { listProviders(): Array<{ id: string }> } | undefined;
+  if (llm === undefined) return undefined;
+  return (provider: string) => llm.listProviders().some((entry) => entry.id === provider);
+}
+
+/**
+ * Wrap `ctx.subagents.start` / `startContinuable` so a subagent start without
+ * explicit `agentOptions` receives the configured defaults. Returns a disposer
+ * that restores the original methods (registered via `ctx.effect` by the
+ * caller, so it runs when the plugin fiber unloads).
+ */
+export function applyDefaultRouteSeam(
+  ctx: DefaultRouteSeamContext,
+  getSettings: () => SubagentDirectorSettings,
+): () => void {
+  const subagents = ctx.subagents;
+  const originalStart = subagents.start;
+  const originalStartContinuable = subagents.startContinuable;
+  const isRoutable = makeIsRoutable(ctx);
+
+  const resolve = (request: SubagentStartRequest) =>
+    resolveSeamAgentOptions({ agentOptions: request.agentOptions, settings: getSettings(), isRoutable });
+
+  subagents.start = (name, request) => {
+    const agentOptions = resolve(request);
+    if (agentOptions !== undefined) {
+      ctx.logger.info(
+        `[subagent-director] default route seam: applying ${agentOptions.provider}/${agentOptions.model} to ${name} subagent`,
+      );
+      return originalStart.call(subagents, name, { ...request, agentOptions });
+    }
+    return originalStart.call(subagents, name, request);
+  };
+
+  subagents.startContinuable = (spec) => {
+    const agentOptions = resolve(spec.request);
+    if (agentOptions !== undefined) {
+      ctx.logger.info(
+        `[subagent-director] default route seam: applying ${agentOptions.provider}/${agentOptions.model} to continuable subagent`,
+      );
+      return originalStartContinuable.call(subagents, { ...spec, request: { ...spec.request, agentOptions } });
+    }
+    return originalStartContinuable.call(subagents, spec);
+  };
+
+  return () => {
+    subagents.start = originalStart;
+    subagents.startContinuable = originalStartContinuable;
+  };
 }
