@@ -146,9 +146,26 @@ export function resolveRoute(input: RouteInput): RouteResult {
       role = bound;
       resolvedRoleId = roleIdRaw;
     } else {
-      warnings.push(
-        'subagent-director: role "' + roleIdRaw + '" does not exist; its binding (persona/provider/model) is skipped',
-      );
+      const byDisplay = Object.entries(roles).find(([, candidate]) => candidate?.displayName === roleIdRaw);
+      if (byDisplay !== undefined) {
+        role = byDisplay[1];
+        resolvedRoleId = byDisplay[0];
+        warnings.push(
+          'subagent-director: role "' + roleIdRaw + '" is not an id; resolved by displayName to id "' + resolvedRoleId + '" — prefer passing the id directly',
+        );
+        const dupes = Object.entries(roles).filter(
+          ([id, candidate]) => id !== resolvedRoleId && candidate?.displayName === roleIdRaw,
+        );
+        if (dupes.length > 0) {
+          warnings.push(
+            'subagent-director: multiple roles share displayName "' + roleIdRaw + '"; using id "' + resolvedRoleId + '"',
+          );
+        }
+      } else {
+        warnings.push(
+          'subagent-director: role "' + roleIdRaw + '" does not exist; its binding (persona/provider/model) is skipped',
+        );
+      }
     }
   }
 

@@ -239,4 +239,43 @@ describe('resolveRoute', () => {
     expect(r.persona).toBeUndefined();
     expect(r.toolFilter).toBeUndefined();
   });
+
+  it('resolves a role by displayName when the id is not a key', () => {
+    const r = resolve({ args: { role: 'Coder' } }); // displayName of the coder role
+    expect(r.roleId).toBe('coder');
+    expect(r.persona).toBe('You are a careful engineer.');
+    expect(r.agentOptions).toEqual({ provider: 'opencode-go', model: 'deepseek-v4-flash' });
+    expect(r.layer).toBe('role');
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain('resolved by displayName to id "coder"');
+  });
+
+  it('exact id wins over another role whose displayName equals that id', () => {
+    const r = resolve({
+      settings: baseSettings({
+        roles: {
+          writer: { displayName: 'Coder', description: 'Writes prose' },
+          coder: { displayName: 'Writer', description: 'Writes code' },
+        },
+      }),
+      args: { role: 'coder' },
+    });
+    expect(r.roleId).toBe('coder');
+    expect(r.persona).toBeUndefined();
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('ambiguous displayName picks the first role and warns', () => {
+    const r = resolve({
+      settings: baseSettings({
+        roles: {
+          first: { displayName: 'Same', description: 'first' },
+          second: { displayName: 'Same', description: 'second' },
+        },
+      }),
+      args: { role: 'Same' },
+    });
+    expect(r.roleId).toBe('first');
+    expect(r.warnings.some((w) => w.includes('multiple roles share displayName "Same"'))).toBe(true);
+  });
 });
