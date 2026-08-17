@@ -34,6 +34,7 @@ export function renderRolesGuidance(settings: SubagentDirectorSettings, toolName
 
   const lines: string[] = [
     'Subagent Director roles — delegate one of these role-bound subagents when the task matches its description. Each role may bind a model; when it does, the subagent runs on that model route.',
+    'Reference roles by their id (shown in the Delegate line), never by display name; when the user names a role by its display name, map it to that id.',
   ];
   for (const [id, role] of entries) {
     const bound =
