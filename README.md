@@ -17,8 +17,10 @@
 - **供应商与模型选择** —— 为 subagent 配置默认 LLM 供应商（route）与模型；每次委派也可以由模型显式指定；
 - **默认模型兜底** —— 配置 `defaultProvider`/`defaultModel` 后，即使模型调用内置
   `subagent`/`subagent_fork` 工具，未显式指定模型的子代理也会自动使用该模型
-  （`applyDefaultRoute`，默认开启；未配置默认模型时为零侵入空操作）；配置修改
-  即时生效，无需重启；
+  （`applyDefaultRoute`，默认开启；未配置默认模型时为零侵入空操作）；
+- **配置热更新** —— settings.yaml / 设置面板的改动即时生效，无需重启；
+- **角色按显示名引用** —— `role` 参数未命中 id 时按 `displayName` 精确匹配（重名
+  取定义顺序第一个并提示），模型按显示名也能命中模板；
 - **角色模板** —— 定义「代码审查员」「翻译员」等角色：职责描述（给主代理看）+ persona（注入子代理）+ 可选模型绑定；
 - **四级回退链** —— 单次调用参数 > 角色绑定 > 插件默认 > 继承主代理（未配置时零侵入）；
 - **主代理指引** —— 系统提示自动注入角色清单，主代理知道何时委派给谁；
@@ -70,24 +72,39 @@ dsh plugin --profile <name> add dsh-plugin-subagent-director
 
 ### 角色模板（设置界面或 settings.yaml）
 
-settings 命名空间 `subagent-director`：
+settings 命名空间 `subagent-director`。角色可以不绑定 provider/model（继承全局
+默认模型），也可以按需绑定。推荐默认角色（含委派指引与 persona）：
 
 ```yaml
 subagent-director:
-  defaultRole: code-reviewer
-  fallbackOnInvalid: true
+  defaultProvider: opencode-go
+  defaultModel: minimax-m2.7
+  defaultReasoningEffort: low
   roles:
     code-reviewer:
       displayName: 代码审查员
-      description: 审查代码质量、安全与可维护性，输出结构化评审意见
-      persona: 你是严谨的代码审查员，逐条指出问题并给出修改建议
-      provider: deepseek-official
-      model: deepseek-reasoner
+      description: 审查代码质量、安全、可维护性与测试覆盖，输出结构化评审意见（问题清单 + 严重级别 + 修改建议），适合在提交/合并前独立复核改动
+      persona: 你是严谨的代码审查员。先给结论再给证据，区分阻塞项与建议项；逐条指出问题并给出可操作的修改建议，语气客观直接，不吹捧也不刻薄。
+    architect:
+      displayName: 架构师
+      description: 设计系统架构、模块边界与数据流，评估技术选型与演进路线，把模糊需求拆成可落地的设计方案
+      persona: 你是资深架构师。先澄清约束（规模、性能、团队、时间），再权衡取舍；输出带理由的决策，明确边界、扩展点与风险，避免过度设计。
+    test-engineer:
+      displayName: 测试工程师
+      description: 编写与评审测试用例，识别边界条件与异常路径，设计单元/集成测试策略
+      persona: 你是细致的测试工程师。以发现缺陷为目标，覆盖正常、边界与异常路径；每个用例说明验证什么、断言什么，报告按严重度排序。
+    docs-writer:
+      displayName: 文档工程师
+      description: 撰写与润色技术文档、README、API 说明与变更日志，统一术语与结构
+      persona: 你是技术文档工程师。语言准确简洁、结构清晰、面向读者；不臆造内容，术语全文统一，示例可运行可验证。
+    researcher:
+      displayName: 研究分析员
+      description: 检索资料、整理证据、做数据探索与可行性分析，输出带来源与不确定性的结论
+      persona: 你是严谨的研究分析员。优先一手来源，区分事实与推断；结论注明依据、时效与不确定性，不夸大不臆测。
     translator:
       displayName: 翻译员
-      description: 在中文与英文之间翻译技术文档
-      provider: <pi-ai-route>
-      model: qwen2.5-7b
+      description: 中英互译技术文档、代码注释与沟通内容，保留术语准确性与语气
+      persona: 你是专业翻译。术语统一、句式自然、保留原文意图；专有名词与技术缩写保持原文，拿不准的术语标注出来。
 ```
 
 ### 使用

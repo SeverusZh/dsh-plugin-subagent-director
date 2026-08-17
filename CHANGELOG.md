@@ -2,6 +2,33 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **默认模型兜底**：在 `ctx.subagents.start/startContinuable` 层注入默认
+  provider/model，对内置 `subagent`/`subagent_fork` 发起的子代理同样生效
+  （`applyDefaultRoute`，默认开启；未配置默认模型时零侵入）；
+- **配置热更新**：settings.yaml / 设置面板改动即时生效，无需重启；
+- **角色按显示名引用**：`role` 参数未命中 id 时按 `displayName` 精确匹配，
+  多个同名角色取定义顺序第一个并提示；
+- **角色指引强化**：系统提示明确要求按 id 引用角色（Delegate 行），不要用显示名。
+
+### 修复
+
+- 设置快照只在插件挂载时读取一次、运行中修改配置不生效的问题（`onChange` 现在会
+  重新读取来源并刷新快照）；
+- 默认路由 seam 卸载时恢复原始方法的引用（保留未绑定引用，dispose 幂等）。
+
+### 测试
+
+- 单元测试由 129 增至 150：默认模型兜底、显示名解析、指引渲染、设置快照热更新。
+
+### 文档
+
+- README：默认模型兜底、配置热更新、角色显示名引用、推荐默认角色示例；
+- 新增设计文档与实现计划（`docs/superpowers/`）。
+
 ## [0.1.0] - 2026-08-14
 
 首个公开发布版本。
