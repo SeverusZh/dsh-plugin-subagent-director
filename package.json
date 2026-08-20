@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-subagent-director",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Subagent Director: choose an LLM provider/model for each subagent (call args > role binding > plugin default > inherit parent) and plan main-agent/subagent responsibilities with role templates, plus a settings UI.",
   "type": "module",
   "main": "lib/index.js",
