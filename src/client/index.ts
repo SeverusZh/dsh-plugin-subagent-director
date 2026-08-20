@@ -11,7 +11,7 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type { ClientContext, ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client';
 import type {} from '@deepseek-ai/dsh-client-locale/client';
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react';
+import { bindSnapshotSelector } from './bind.js';
 import { en, zh, type SubagentDirectorKey } from './locales.js';
 import { SubagentOptionsStore, type SubagentOptionsState } from './store.js';
 import type { SubagentOptionsSectionInjected } from './SubagentOptionsSection.js';

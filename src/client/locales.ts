@@ -41,6 +41,8 @@ export type SubagentDirectorKey =
   | 'readonly'
   | 'save'
   | 'cancel'
+  | 'edit'
+  | 'retry'
   | 'fallbackOnInvalid'
   | 'roleIdPlaceholder'
   | 'displayNamePlaceholder'
@@ -91,6 +93,8 @@ export const en: Record<SubagentDirectorKey, string> = {
   "readonly": "Settings are read-only in this deployment.",
   "save": "Save",
   "cancel": "Cancel",
+  "edit": "Edit",
+  "retry": "Retry",
   "fallbackOnInvalid": "Fall back to the parent agent when a role-bound model is invalid",
   "roleIdPlaceholder": "e.g. code-reviewer",
   "displayNamePlaceholder": "e.g. Code Reviewer",
@@ -142,6 +146,8 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "readonly": "当前部署中设置为只读。",
   "save": "保存",
   "cancel": "取消",
+  "edit": "编辑",
+  "retry": "重试",
   "fallbackOnInvalid": "当角色绑定的模型无效时回退到父代理",
   "roleIdPlaceholder": "例如 code-reviewer",
   "displayNamePlaceholder": "例如 代码审查员",

@@ -11,7 +11,7 @@
  * a localized message that the save/delete/restore controls surface inline.
  */
 import { useEffect, useState } from 'react';
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react';
+import type { SnapshotSelectorHook } from './bind.js';
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-client-connection/client';
 import type { SubagentDirectorKey } from './locales.js';
 import type { SubagentOptionsState, SubagentOptionsStore } from './store.js';
@@ -97,7 +97,7 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
         return (
             <div style={sectionWidth}>
                 <p style={{ color: token.danger, fontSize: 13 }}>{t('loadError')}: {state.error ?? ''}</p>
-                <button style={ghostButtonStyle} onClick={() => void controller.load()}>{t('save')}</button>
+                <button style={ghostButtonStyle} onClick={() => void controller.load()}>{t('retry')}</button>
             </div>
         );
     }

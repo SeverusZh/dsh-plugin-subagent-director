@@ -158,7 +158,7 @@ export function RoleCard({ id, role, isDefault, groups, t, onSave, onDelete, onS
         </div>
         {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
         <div style={{ display: 'flex', gap: 8 }}>
-          <button style={primaryButtonStyle} disabled={busy} onClick={save}>Edit</button>
+          <button style={primaryButtonStyle} disabled={busy} onClick={save}>{t('save')}</button>
           <button style={ghostButtonStyle} disabled={busy} onClick={() => setEditing(false)}>{t('cancel')}</button>
         </div>
       </div>
@@ -185,7 +185,7 @@ export function RoleCard({ id, role, isDefault, groups, t, onSave, onDelete, onS
       </div>
       {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button style={ghostButtonStyle} disabled={busy} onClick={() => setEditing(true)}>{t('save')}</button>
+        <button style={ghostButtonStyle} disabled={busy} onClick={() => setEditing(true)}>{t('edit')}</button>
         <button style={ghostButtonStyle} disabled={busy || isDefault} onClick={() => (void onSetDefault(), undefined)}>{t('setDefaultRole')}</button>
         <button style={dangerButtonStyle} disabled={busy} onClick={remove}>{t('deleteRole')}</button>
       </div>
