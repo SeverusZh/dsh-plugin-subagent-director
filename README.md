@@ -5,7 +5,8 @@
 <p align="center">
   <img alt="npm version" src="https://img.shields.io/npm/v/dsh-plugin-subagent-director?label=npm">
   <img alt="license" src="https://img.shields.io/npm/l/dsh-plugin-subagent-director">
-  <img alt="DeepSeek Harness" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.0--rc.x-blue">
+  <img alt="DeepSeek Harness" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.0--rc.6-blue">
+  <img alt="Awesome DSH Plugin" src="https://awesome-dsh-plugin.com/badge.svg">
 </p>
 
 [English](#english) · [特性](#特性) · [快速开始](#快速开始) · [角色模板](#角色模板) · [术语](#术语) · [开发](#开发) · [FAQ](#faq)
