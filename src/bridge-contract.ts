@@ -18,6 +18,10 @@ export const SUBAGENT_DIRECTOR_RPC_CHANNEL = '/subagent-director';
 export const SUBAGENT_DIRECTOR_RPC_VIEW = 'settingsView';
 /** Endpoint that applies one path-op mutation. */
 export const SUBAGENT_DIRECTOR_RPC_MUTATE = 'settingsMutate';
+/** Endpoint that releases one resident continuable child of a live parent. */
+export const SUBAGENT_DIRECTOR_RPC_CLOSE = 'subagentClose';
+/** Endpoint that returns the actual provider/model of one child session. */
+export const SUBAGENT_DIRECTOR_RPC_MODEL = 'subagentModel';
 
 /** Successful settingsView bridge response. */
 export interface DirectorViewSuccess {
@@ -37,3 +41,17 @@ export interface DirectorMutateRequest {
 export type SettingsPathOpViewLike =
   | { op: 'set'; path: string[]; value: unknown }
   | { op: 'unset'; path: string[] };
+
+/** Request payload for the subagentClose bridge endpoint. */
+export interface DirectorCloseRequest {
+  parentSessionId: string;
+  childSessionId: string;
+}
+
+/** Request payload for the subagentModel bridge endpoint. */
+export interface DirectorModelRequest {
+  sessionId: string;
+}
+
+/** Successful subagentModel bridge response. */
+export type DirectorModelSuccess = { found: true; provider: string; model: string } | { found: false };

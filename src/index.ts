@@ -22,6 +22,7 @@ import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent';
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 
 import { createDelegationTool } from './delegation-tool.js';
+import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 import { applyDefaultRouteSeam } from './default-route.js';
 import { applyGuidance } from './guidance.js';
 import { createSettingsSnapshot, installDirectorSettings } from './settings.js';
@@ -44,6 +45,7 @@ export {
   type SubagentRequestParts,
 } from './delegation-tool.js';
 export { applyGuidance, renderRolesGuidance, GUIDANCE_SECTION_ORDER, GUIDANCE_SECTION_NAME } from './guidance.js';
+export { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 export {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
   SettingsSchema,
@@ -85,6 +87,12 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
 
   // ---- role guidance ----------------------------------------------------
   applyGuidance(ctx, getSettings, toolName);
+
+  // ---- close_subagent tool ----------------------------------------------
+  // Provider-independent (drain is a global subagents operation), so it
+  // registers at mount time like the control tools; on a deployment without
+  // continuable children it is a safe no-op.
+  ctx.effect(() => ctx.tools.register(createCloseSubagentTool({ ctx })), 'subagent-director: close_subagent tool');
 
   // ---- delegation tool registration ------------------------------------
   if (typeof config.maxDepth === 'number') assertSubagentMaxDepth(config.maxDepth);

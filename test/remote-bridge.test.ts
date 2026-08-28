@@ -20,6 +20,9 @@ import {
   pickDirectorNamespaceView,
   toDirectorNamespaceView,
   directorMutate,
+  dispatchSubagentClose,
+  dispatchSubagentModel,
+  latestRequestHeaderModel,
 } from '../src/remote.js';
 import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE } from '../src/settings.js';
 
@@ -335,3 +338,143 @@ function callRaw(
 ): Promise<CallResult> {
   return drive(route, { method, url, reqBody, host, contentType });
 }
+describe('latestRequestHeaderModel', () => {
+  const headerEvent = (provider: string, model: string) => ({
+    type: 'request/header',
+    seq: 1,
+    data: { header: { config: { provider, model } } },
+  });
+
+  it('returns the config of the last request/header event', () => {
+    expect(
+      latestRequestHeaderModel([
+        { type: 'user/message', seq: 0 },
+        headerEvent('deepseek', 'old-model'),
+        headerEvent('ollama-pro', 'deepseek-v4-flash:0731'),
+      ]),
+    ).toEqual({ provider: 'ollama-pro', model: 'deepseek-v4-flash:0731' });
+  });
+
+  it('returns undefined for an empty log or one without request/header', () => {
+    expect(latestRequestHeaderModel([])).toBeUndefined();
+    expect(latestRequestHeaderModel([{ type: 'user/message' }])).toBeUndefined();
+    expect(latestRequestHeaderModel(null as unknown as unknown[])).toBeUndefined();
+  });
+
+  it('returns undefined when the last header carries no provider/model', () => {
+    expect(
+      latestRequestHeaderModel([{ type: 'request/header', data: { header: { config: {} } } }]),
+    ).toBeUndefined();
+  });
+});
+
+describe('dispatchSubagentClose', () => {
+  const closeDeps = (overrides: Partial<import('../src/remote.js').BridgeDeps> = {}) => ({
+    settings: { writable: true, describe: () => [], mutate: async () => {} } as never,
+    agents: { get: () => ({ id: 'parent-1' }) },
+    subagents: { drainContinuableChildren: async () => {} },
+    ...overrides,
+  });
+
+  it('drains the resolved parent with the child id and returns closed', async () => {
+    const calls: unknown[][] = [];
+    const deps = closeDeps({
+      subagents: {
+        drainContinuableChildren: async (...args: unknown[]) => {
+          calls.push(args);
+        },
+      },
+    });
+    const result = await dispatchSubagentClose(deps as never, {
+      parentSessionId: 'parent-1',
+      childSessionId: 'child-9',
+    });
+    expect(result).toEqual({ ok: true, value: { closed: true } });
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0][1][0])).toBe('child-9');
+  });
+
+  it('rejects with session-not-found when the parent agent is not live', async () => {
+    const deps = closeDeps({ agents: { get: () => undefined } });
+    const result = await dispatchSubagentClose(deps as never, {
+      parentSessionId: 'gone',
+      childSessionId: 'child-9',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('session-not-found');
+  });
+
+  it('rejects with internal when the drain rejects (e.g. non-direct child)', async () => {
+    const deps = closeDeps({
+      subagents: {
+        drainContinuableChildren: async () => {
+          throw new Error('subagent "other" is not a direct child of agent "parent-1"');
+        },
+      },
+    });
+    const result = await dispatchSubagentClose(deps as never, {
+      parentSessionId: 'parent-1',
+      childSessionId: 'other',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('internal');
+      expect(result.error.message).toContain('not a direct child');
+    }
+  });
+
+  it('rejects with bad-request for a malformed payload', async () => {
+    const result = await dispatchSubagentClose(closeDeps() as never, { parentSessionId: 'p' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('bad-request');
+  });
+});
+
+describe('dispatchSubagentModel', () => {
+  const modelDeps = (overrides: Partial<import('../src/remote.js').BridgeDeps> = {}) => ({
+    settings: { writable: true, describe: () => [], mutate: async () => {} } as never,
+    sessionQuery: {
+      readSession: async () => ({
+        events: [{ type: 'request/header', data: { header: { config: { provider: 'opencode-go', model: 'deepseek-v4-flash' } } } }],
+      }),
+    },
+    ...overrides,
+  });
+
+  it('returns the actual provider/model from the child log', async () => {
+    const result = await dispatchSubagentModel(modelDeps() as never, { sessionId: 'child-9' });
+    expect(result).toEqual({ ok: true, value: { found: true, provider: 'opencode-go', model: 'deepseek-v4-flash' } });
+  });
+
+  it('degrades to found:false when the log records no header', async () => {
+    const deps = modelDeps({
+      sessionQuery: { readSession: async () => ({ events: [{ type: 'user/message' }] }) },
+    });
+    const result = await dispatchSubagentModel(deps as never, { sessionId: 'child-9' });
+    expect(result).toEqual({ ok: true, value: { found: false } });
+  });
+
+  it('rejects with internal when sessionQuery is absent or fails', async () => {
+    const absent = await dispatchSubagentModel(modelDeps({ sessionQuery: undefined }) as never, {
+      sessionId: 'child-9',
+    });
+    expect(absent.ok).toBe(false);
+    if (!absent.ok) expect(absent.error.code).toBe('internal');
+
+    const failing = await dispatchSubagentModel(
+      modelDeps({ sessionQuery: { readSession: async () => { throw new Error('boom'); } } }) as never,
+      { sessionId: 'child-9' },
+    );
+    expect(failing.ok).toBe(false);
+    if (!failing.ok) {
+      expect(failing.error.code).toBe('internal');
+      expect(failing.error.message).toContain('boom');
+    }
+  });
+
+  it('rejects with bad-request for a malformed payload', async () => {
+    const result = await dispatchSubagentModel(modelDeps() as never, {});
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('bad-request');
+  });
+});

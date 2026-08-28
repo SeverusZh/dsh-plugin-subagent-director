@@ -27,7 +27,11 @@
 - **主代理指引** —— 系统提示自动注入角色清单，主代理知道何时委派给谁；
 - **设置界面** —— DSH 设置面板内可视化配置（默认模型 + 角色卡片增删改）；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
-- **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型。⚠️ 该功能暂不可用，正在开发中；
+- **释放可持续子代理** —— 模型可见工具 `close_subagent(subagent_id)` 与子代理会话
+  页的「终止可持续状态」按钮，主动释放已完成但仍驻留的 continuable 子代理
+  （内部调用 DSH 核心 `drainContinuableChildren`）；
+- **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型
+  （从会话 `request/header` 记录读取真实路由；读不到时优雅降级）；
 
 ## 快速开始
 
@@ -164,6 +168,7 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 - **Four-layer resolution** — call args > role binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
 - **Settings UI** — manage defaults and role cards in the DSH settings panel;
 - **Continuable background** — durable subagent ids with send_message follow-ups;
-- **Observability** — the addressed subagent’s actual provider/model shown under the composer. ⚠️ Not yet available — under development.
+- **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "Release subagent" button in the subagent session header, freeing resident children through the core `drainContinuableChildren` API;
+- **Observability** — the addressed subagent’s actual provider/model shown under the composer, read from the session’s `request/header` records (graceful degradation when no run is recorded yet).
 
 **Install** — `dsh plugin --profile <name> add dsh-plugin-subagent-director` mounts the main and bridge entries automatically from the package's bundle patch (`cordis.patch.yml`); optionally override the main entry's config in your profile's cordis.patch.yml (see the Chinese section above). License: MIT.

@@ -123,6 +123,16 @@ function isEmpty(value: string | undefined): boolean {
   return value === undefined || value === '';
 }
 
+/**
+ * Whether a tool filter actually restricts anything. dsh-settings materializes
+ * an absent `toolFilter` as `{ allow: [], deny: [] }` (issue #2), so a filter
+ * whose allow/deny are both empty is treated as unconfigured — writing it into
+ * a SubagentStartRequest would make the core restrict all tools (tools=0).
+ */
+export function hasToolFilter(filter: RouteToolFilter | undefined): boolean {
+  return filter !== undefined && ((filter.allow?.length ?? 0) > 0 || (filter.deny?.length ?? 0) > 0);
+}
+
 /** Core pure resolution logic. */
 export function resolveRoute(input: RouteInput): RouteResult {
   const { args = {}, settings, parent } = input;
@@ -213,7 +223,7 @@ export function resolveRoute(input: RouteInput): RouteResult {
     ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     ...(resolvedRoleId !== undefined ? { roleId: resolvedRoleId } : {}),
     ...(role !== undefined && !isEmpty(role.persona) ? { persona: role.persona } : {}),
-    ...(role !== undefined && role.toolFilter !== undefined ? { toolFilter: role.toolFilter } : {}),
+    ...(role !== undefined && hasToolFilter(role.toolFilter) ? { toolFilter: role.toolFilter } : {}),
     warnings,
   };
 }

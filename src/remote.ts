@@ -30,6 +30,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
+import { SessionId } from '@deepseek-ai/dsh-session';
 import {
   SettingsConflictError,
   settingsNamespace,
@@ -50,6 +51,11 @@ import {
 import {
   SUBAGENT_DIRECTOR_RPC_VIEW,
   SUBAGENT_DIRECTOR_RPC_MUTATE,
+  SUBAGENT_DIRECTOR_RPC_CLOSE,
+  SUBAGENT_DIRECTOR_RPC_MODEL,
+  type DirectorCloseRequest,
+  type DirectorModelRequest,
+  type DirectorModelSuccess,
   type DirectorMutateRequest,
   type DirectorViewSuccess,
 } from './bridge-contract.js';
@@ -70,8 +76,54 @@ export { SUBAGENT_DIRECTOR_ROUTE_PATH as SUBAGENT_DIRECTOR_RPC_CHANNEL };
 export { SUBAGENT_DIRECTOR_RPC_VIEW };
 /** Endpoint that applies one path-op mutation. */
 export { SUBAGENT_DIRECTOR_RPC_MUTATE };
+/** Endpoint that releases one resident continuable child of a live parent. */
+export { SUBAGENT_DIRECTOR_RPC_CLOSE };
+/** Endpoint that returns the actual provider/model of one child session. */
+export { SUBAGENT_DIRECTOR_RPC_MODEL };
 /** Request payload for the settingsMutate bridge endpoint. */
-export type { DirectorMutateRequest, DirectorViewSuccess };
+export type { DirectorMutateRequest, DirectorViewSuccess, DirectorCloseRequest, DirectorModelRequest, DirectorModelSuccess };
+
+/**
+ * The services the bridge dispatch needs beyond settings. Kept structural so
+ * the module stays testable without a live cordis context; installers resolve
+ * them lazily through ctx.get and may leave optional ones undefined.
+ */
+export interface BridgeDeps {
+  settings: SettingsProvider;
+  /** Live agent registry (dsh-agent ctx.agents). */
+  agents?: { get(id: SessionId): unknown };
+  /** Subagent service (dsh-subagent ctx.subagents). */
+  subagents?: { drainContinuableChildren(parent: unknown, childIds: readonly SessionId[]): Promise<void> };
+  /** Unified session query (dsh-session-query ctx.sessionQuery). */
+  sessionQuery?: { readSession(sessionId: SessionId): Promise<{ events: readonly unknown[] }> };
+}
+
+/**
+ * Fold the actual provider/model off a session event log: walk from the tail
+ * and take the LAST `request/header` event's `data.header.config`, which the
+ * agent loop records on every model request (the durable "what actually ran"
+ * source; assistant messages carry no provider/model in current DSH).
+ * Returns undefined when the log records none.
+ */
+export function latestRequestHeaderModel(events: readonly unknown[]): { provider: string; model: string } | undefined {
+  if (!Array.isArray(events)) return undefined;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event === null || typeof event !== 'object') continue;
+    const record = event as { type?: unknown; data?: unknown };
+    if (record.type !== 'request/header') continue;
+    const data = record.data as { header?: { config?: unknown } } | null | undefined;
+    const config = data?.header?.config as { provider?: unknown; model?: unknown } | null | undefined;
+    if (config !== null && typeof config === 'object') {
+      const provider = config.provider;
+      const model = config.model;
+      if (typeof provider === 'string' && provider !== '' && typeof model === 'string' && model !== '') {
+        return { provider, model };
+      }
+    }
+  }
+  return undefined;
+}
 
 /**
  * Map one redacted settings descriptor to its wire view — mirrors apiproxy's
@@ -217,15 +269,15 @@ export {
  *   - dispatch error → 500 "handler failure: ..."
  */
 export function handleDirectorBridgeRequest(
-  settings: SettingsProvider,
+  deps: BridgeDeps,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  return handleDirectorBridgeRequestInner(settings, req.url ?? '/', req.headers.host, req, res);
+  return handleDirectorBridgeRequestInner(deps, req.url ?? '/', req.headers.host, req, res);
 }
 
 async function handleDirectorBridgeRequestInner(
-  settings: SettingsProvider,
+  deps: BridgeDeps,
   rawUrl: string,
   hostHeader: string | undefined,
   req: IncomingMessage,
@@ -270,18 +322,18 @@ async function handleDirectorBridgeRequestInner(
     return;
   }
   // Dispatch.
-  const result = await dispatchBridgeEndpoint(settings, endpoint, envelope.payload);
+  const result = await dispatchBridgeEndpoint(deps, endpoint, envelope.payload);
   sendJson(res, 200, buildServerResponse(envelope.rpcId, result));
 }
 
-/** Dispatch one validated endpoint to the settings seam. Throws on unknown endpoint. */
+/** Dispatch one validated endpoint. Throws on unknown endpoint. */
 async function dispatchBridgeEndpoint(
-  settings: SettingsProvider,
+  deps: BridgeDeps,
   endpoint: string,
   payload: unknown,
 ): Promise<RpcResult<unknown>> {
   if (endpoint === SUBAGENT_DIRECTOR_RPC_VIEW) {
-    return directorViewOk(settings) as RpcResult<unknown>;
+    return directorViewOk(deps.settings) as RpcResult<unknown>;
   }
   if (endpoint === SUBAGENT_DIRECTOR_RPC_MUTATE) {
     const request = payload as DirectorMutateRequest | null;
@@ -297,14 +349,117 @@ async function dispatchBridgeEndpoint(
     }
     const ops = (request?.ops ?? []) as SettingsPathOpView[];
     return directorMutate(
-      (n, o, r) => settings.mutate(n, o, r),
-      (opts) => settings.describe(opts),
+      (n, o, r) => deps.settings.mutate(n, o, r),
+      (opts) => deps.settings.describe(opts),
       String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE),
       ops,
       request?.expectedRevision,
     );
   }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CLOSE) {
+    return dispatchSubagentClose(deps, payload);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_MODEL) {
+    return dispatchSubagentModel(deps, payload);
+  }
   throw new Error('unknown bridge endpoint ' + JSON.stringify(endpoint));
+}
+
+/**
+ * Release one resident continuable child of an exact live parent (issue #1 UI
+ * path). The parent agent is looked up by session id; when it is no longer
+ * live its continuable children were released with it, which the client
+ * surfaces as `subagent-parent-not-live`. A drain rejection (e.g. core
+ * UNAUTHORIZED for a non-direct child) maps to `subagent-close-rejected`.
+ */
+export async function dispatchSubagentClose(
+  deps: BridgeDeps,
+  payload: unknown,
+): Promise<RpcResult<{ closed: true }>> {
+  const request = payload as DirectorCloseRequest | null;
+  if (
+    request === null ||
+    typeof request !== 'object' ||
+    typeof request.parentSessionId !== 'string' ||
+    typeof request.childSessionId !== 'string'
+  ) {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'subagentClose: expected { parentSessionId, childSessionId }', details: { issues: [] } },
+    };
+  }
+  const parent = deps.agents?.get(SessionId(request.parentSessionId));
+  if (parent === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: 'session-not-found',
+        message: 'parent agent ' + request.parentSessionId + ' is not live; its continuable children are released with it',
+        details: { sessionId: SessionId(request.parentSessionId) },
+      },
+    };
+  }
+  if (deps.subagents === undefined) {
+    return {
+      ok: false,
+      error: { code: 'internal', message: 'subagents service is not mounted', details: {} },
+    };
+  }
+  try {
+    await deps.subagents.drainContinuableChildren(parent, [SessionId(request.childSessionId)]);
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: 'internal',
+        message: error instanceof Error ? error.message : String(error),
+        details: {},
+      },
+    };
+  }
+  return { ok: true, value: { closed: true as const } };
+}
+
+/**
+ * Return the actual provider/model of one child session from its last
+ * `request/header` event (the observability data source; see
+ * latestRequestHeaderModel). Degrades to { found: false } when the log
+ * records none and to `subagent-model-unavailable` when the session query
+ * service is not mounted.
+ */
+export async function dispatchSubagentModel(
+  deps: BridgeDeps,
+  payload: unknown,
+): Promise<RpcResult<DirectorModelSuccess>> {
+  const request = payload as DirectorModelRequest | null;
+  if (request === null || typeof request !== 'object' || typeof request.sessionId !== 'string') {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'subagentModel: expected { sessionId }', details: { issues: [] } },
+    };
+  }
+  if (deps.sessionQuery === undefined) {
+    return {
+      ok: false,
+      error: { code: 'internal', message: 'sessionQuery service is not mounted', details: {} },
+    };
+  }
+  try {
+    const log = await deps.sessionQuery.readSession(SessionId(request.sessionId));
+    const model = latestRequestHeaderModel(log?.events);
+    return model === undefined
+      ? { ok: true, value: { found: false as const } }
+      : { ok: true, value: { found: true as const, provider: model.provider, model: model.model } };
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: 'internal',
+        message: error instanceof Error ? error.message : String(error),
+        details: {},
+      },
+    };
+  }
 }
 
 /**
@@ -325,8 +480,18 @@ export function installDirectorRemoteBridge(ctx: Context): () => void {
     return () => {};
   }
 
+  // agents/subagents/sessionQuery stay lazy (ctx.get) so the bridge keeps
+  // working in deployments where one of them is absent: the corresponding
+  // endpoints answer a structured error instead of crashing the route.
+  const deps: BridgeDeps = {
+    settings,
+    agents: ctx.get('agents') as BridgeDeps['agents'],
+    subagents: ctx.get('subagents') as BridgeDeps['subagents'],
+    sessionQuery: ctx.get('sessionQuery') as BridgeDeps['sessionQuery'],
+  };
+
   const handler = (req: IncomingMessage, res: ServerResponse): Promise<void> | void => {
-    handleDirectorBridgeRequest(settings, req, res).catch((error) => {
+    handleDirectorBridgeRequest(deps, req, res).catch((error) => {
       // Dispatch throw (unknown endpoint or a settings seam blow-up) → 500.
       if (res.headersSent) {
         res.destroy();

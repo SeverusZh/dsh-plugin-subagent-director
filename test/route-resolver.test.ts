@@ -279,3 +279,66 @@ describe('resolveRoute', () => {
     expect(r.warnings.some((w) => w.includes('multiple roles share displayName "Same"'))).toBe(true);
   });
 });
+
+describe('resolveRoute toolFilter 空值语义（issue #2）', () => {
+  it('不输出 dsh-settings 物化的空 toolFilter（{allow:[],deny:[]}）', () => {
+    const r = resolveRoute({
+      args: { role: 'coder' },
+      settings: baseSettings({
+        roles: {
+          coder: {
+            displayName: 'Coder',
+            description: 'Write code',
+            toolFilter: { allow: [], deny: [] },
+          },
+        },
+      }),
+    });
+    expect(r.toolFilter).toBeUndefined();
+    expect(r.roleId).toBe('coder');
+  });
+
+  it('不输出缺失 allow/deny 的空对象 toolFilter（{}）', () => {
+    const r = resolveRoute({
+      args: { role: 'coder' },
+      settings: baseSettings({
+        roles: {
+          coder: { displayName: 'Coder', description: 'Write code', toolFilter: {} },
+        },
+      }),
+    });
+    expect(r.toolFilter).toBeUndefined();
+  });
+
+  it('仍输出非空 allow 的 toolFilter', () => {
+    const r = resolveRoute({
+      args: { role: 'coder' },
+      settings: baseSettings({
+        roles: {
+          coder: {
+            displayName: 'Coder',
+            description: 'Write code',
+            toolFilter: { allow: ['apply_patch'] },
+          },
+        },
+      }),
+    });
+    expect(r.toolFilter).toEqual({ allow: ['apply_patch'] });
+  });
+
+  it('仍输出非空 deny 的 toolFilter', () => {
+    const r = resolveRoute({
+      args: { role: 'coder' },
+      settings: baseSettings({
+        roles: {
+          coder: {
+            displayName: 'Coder',
+            description: 'Write code',
+            toolFilter: { deny: ['bash'] },
+          },
+        },
+      }),
+    });
+    expect(r.toolFilter).toEqual({ deny: ['bash'] });
+  });
+});

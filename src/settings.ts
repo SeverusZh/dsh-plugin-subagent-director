@@ -76,10 +76,18 @@ export const RoleTemplateSchema = z.object({
   provider: z.string(),
   model: z.string(),
   reasoningEffort: z.string(),
-  toolFilter: z.object({
-    allow: z.array(z.string()),
-    deny: z.array(z.string()),
-  }),
+  // schemastery has no z.optional/z.undefined; an absent object field would
+  // otherwise be materialized as { allow: [], deny: [] }, which the route
+  // resolver must treat as unconfigured (issue #2). .default(undefined)
+  // leaves an absent toolFilter out of the resolved section entirely; an
+  // explicitly-set filter still resolves (empty sub-arrays are tolerated by
+  // hasToolFilter at resolution time).
+  toolFilter: z
+    .object({
+      allow: z.array(z.string()),
+      deny: z.array(z.string()),
+    })
+    .default(undefined as never),
 });
 
 /**

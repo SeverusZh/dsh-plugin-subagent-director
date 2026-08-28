@@ -19,7 +19,9 @@ import { describe, it, expect } from 'vitest';
 import {
   formatModelRef,
   isAddressedSubagent,
+  isContinuableChild,
   latestSubagentModel,
+  mergeModelLookup,
   provenanceOf,
   type ConversationNode,
 } from '../src/client/subagent-model.js';
@@ -174,5 +176,43 @@ describe('isAddressedSubagent (哪个表面才渲染读数)', () => {
     const addressedEmpty = { subagent: { id: 'child-2' }, nodes: [assistant({})] };
     expect(isAddressedSubagent(addressedEmpty as never)).toBe(true);
     expect(latestSubagentModel(addressedEmpty as never)).toEqual({ found: false });
+  });
+});
+
+describe('mergeModelLookup (快照与 RPC 数据源合并)', () => {
+  const found = (provider: string, model: string): import('../src/client/subagent-model.js').SubagentModelRef => ({
+    found: true,
+    provider,
+    model,
+  });
+
+  it('prefers the local provenance when both sides found a model', () => {
+    expect(mergeModelLookup(found('local-p', 'local-m'), found('remote-p', 'remote-m'))).toEqual(
+      found('local-p', 'local-m'),
+    );
+  });
+
+  it('falls back to the remote result when the snapshot has none', () => {
+    expect(mergeModelLookup({ found: false }, found('remote-p', 'remote-m'))).toEqual(
+      found('remote-p', 'remote-m'),
+    );
+  });
+
+  it('stays not-found when neither source records a model', () => {
+    expect(mergeModelLookup({ found: false }, { found: false })).toEqual({ found: false });
+  });
+});
+
+describe('isContinuableChild (终止按钮的显示门控)', () => {
+  it('is true for a continuable addressed child', () => {
+    expect(
+      isContinuableChild({ subagent: { address: { mode: 'continuable' } } } as never),
+    ).toBe(true);
+  });
+
+  it('is false for an ordinary session, a one-shot child, and null', () => {
+    expect(isContinuableChild({ subagent: null } as never)).toBe(false);
+    expect(isContinuableChild({ subagent: { address: { mode: 'one-shot' } } } as never)).toBe(false);
+    expect(isContinuableChild(undefined)).toBe(false);
   });
 });

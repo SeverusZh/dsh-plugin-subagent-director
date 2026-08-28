@@ -128,3 +128,24 @@ describe('validateDirectorSettings', () => {
     expect(() => validateDirectorSettings(settings)).not.toThrow();
   });
 });
+
+describe('settings schema toolFilter 物化（issue #2）', () => {
+  it('role without toolFilter does not materialize an empty toolFilter object', () => {
+    const resolved = SettingsSchema({
+      roles: { observer: { displayName: '观察者', description: '测试' } },
+    });
+    expect((resolved.roles as Record<string, RoleTemplate>).observer.toolFilter).toBeUndefined();
+  });
+
+  it('an explicit toolFilter still resolves', () => {
+    const resolved = SettingsSchema({
+      roles: {
+        reviewer: { displayName: 'Reviewer', description: 'Reviews', toolFilter: { allow: ['read'] } },
+      },
+    });
+    expect((resolved.roles as Record<string, RoleTemplate>).reviewer.toolFilter).toEqual({
+      allow: ['read'],
+      deny: [],
+    });
+  });
+});

@@ -108,3 +108,29 @@ export function isAddressedSubagent(
 export function formatModelRef(ref: SubagentModelRef): string {
   return `${ref.provider}/${ref.model}`;
 }
+
+/**
+ * Whether this session is a continuable child (the surface where the
+ * "release sustained state" control is meaningful). Reads the catalog
+ * address's mode; ordinary sessions and one-shot children are false.
+ */
+export function isContinuableChild(
+  snapshot: Pick<ConversationSnapshot, 'subagent'> | null | undefined,
+): boolean {
+  if (snapshot === null || snapshot === undefined) return false;
+  const address = snapshot.subagent?.address;
+  return address !== undefined && address !== null && address.mode === 'continuable';
+}
+
+/**
+ * Merge a local snapshot-derived lookup with a remote (RPC) lookup: the local
+ * provenance wins when present (the runtime's own record), otherwise the
+ * remote result decides. Kept pure so the dock's data-source preference is
+ * unit-testable without a wire.
+ */
+export function mergeModelLookup(
+  local: SubagentModelLookup,
+  remote: SubagentModelLookup,
+): SubagentModelLookup {
+  return local.found ? local : remote;
+}

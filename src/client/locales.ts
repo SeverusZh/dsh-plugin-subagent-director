@@ -55,7 +55,14 @@ export type SubagentDirectorKey =
   | 'bridgeUnavailable'
   | 'modelRanOn'
   | 'modelNotRecorded'
-  | 'modelRanOnTitle';
+  | 'modelQueryFailed'
+  | 'modelRanOnTitle'
+  | 'closeContinuable'
+  | 'closeContinuableTitle'
+  | 'closingContinuable'
+  | 'closedSubagent'
+  | 'confirmCloseContinuable'
+  | 'closeFailed';
 
 /** English dictionary ($subagentDirector). */
 export const en: Record<SubagentDirectorKey, string> = {
@@ -107,7 +114,14 @@ export const en: Record<SubagentDirectorKey, string> = {
   "bridgeUnavailable": "The Subagent Director settings bridge is not available on this server. Please update/restart the web application so it installs the /subagent-director channel.",
   "modelRanOn": "Subagent ran on",
   "modelNotRecorded": "Subagent model not recorded yet",
-  "modelRanOnTitle": "Model route: {model}"
+  "modelQueryFailed": "Subagent model unavailable",
+  "modelRanOnTitle": "Model route: {model}",
+  "closeContinuable": "Release subagent",
+  "closeContinuableTitle": "Release this continuable subagent (free its resident handle)",
+  "closingContinuable": "Releasing…",
+  "closedSubagent": "Released",
+  "confirmCloseContinuable": "Release continuable subagent “{id}”? It will stop being resident; you can no longer continue it with send_message.",
+  "closeFailed": "Release failed: {message}"
 };
 
 /** Chinese dictionary. */
@@ -160,5 +174,12 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "bridgeUnavailable": "此服务器尚未提供 Subagent Director 设置桥接通道（/subagent-director）。请重启 Web 应用以安装该通道后再试。",
   "modelRanOn": "子代理实际运行于",
   "modelNotRecorded": "尚未记录到子代理模型",
-  "modelRanOnTitle": "模型路由：{model}"
+  "modelQueryFailed": "暂时无法获取子代理模型",
+  "modelRanOnTitle": "模型路由：{model}",
+  "closeContinuable": "终止可持续状态",
+  "closeContinuableTitle": "释放此可持续子代理（解除驻留句柄）",
+  "closingContinuable": "正在终止…",
+  "closedSubagent": "已终止",
+  "confirmCloseContinuable": "终止可持续子代理“{id}”？终止后将不再驻留，无法再用 send_message 继续它。",
+  "closeFailed": "终止失败：{message}"
 };

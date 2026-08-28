@@ -16,7 +16,8 @@ import { en, zh, type SubagentDirectorKey } from './locales.js';
 import { SubagentOptionsStore, type SubagentOptionsState } from './store.js';
 import type { SubagentOptionsSectionInjected } from './SubagentOptionsSection.js';
 import { SubagentOptionsSection } from './SubagentOptionsSection.js';
-import { SubagentModelDock } from './SubagentModelDock.js';
+import { SubagentModelDock, type SubagentModelDockInjected } from './SubagentModelDock.js';
+import { SubagentCloseAction, type SubagentCloseActionInjected } from './SubagentCloseAction.js';
 
 /** Dictionary namespace owned by Subagent Director (bilingual, typed). */
 export const NS = 'settings.subagentDirector';
@@ -39,6 +40,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       kind: 'list';
       scope: 'session';
       owner: { readonly session: ConversationSnapshot | undefined; readonly input: unknown };
+    };
+    /** Additive per-session header action row (ui-conversation seat). */
+    'conversation.session.header.actions': {
+      kind: 'list';
+      scope: 'session';
     };
   }
 }
@@ -85,6 +91,8 @@ export function apply(ctx: ClientContext): void {
     api: connection.api,
     t: t as SubagentOptionsSectionInjected['t'],
   });
+  const dockInjected = (): SubagentModelDockInjected => ({ rpc: connection.rpc });
+  const closeInjected = (): SubagentCloseActionInjected => ({ rpc: connection.rpc });
 
   ctx.effect(() => {
     const refresh = (): void => refreshIfLoaded(controller);
@@ -119,8 +127,22 @@ export function apply(ctx: ClientContext): void {
         id: 'subagent-director-model',
         order: 90,
         locale: NS,
+        inject: dockInjected,
       },
       SubagentModelDock,
+    ),
+  );
+
+  ctx.slots.inject('conversation.session.header.actions', () =>
+    ctx.slots.register(
+      {
+        name: 'conversation.session.header.actions',
+        id: 'subagent-director-close',
+        order: 20,
+        locale: NS,
+        inject: closeInjected,
+      },
+      SubagentCloseAction,
     ),
   );
 }
