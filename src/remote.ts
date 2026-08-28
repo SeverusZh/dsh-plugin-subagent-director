@@ -53,10 +53,12 @@ import {
   SUBAGENT_DIRECTOR_RPC_MUTATE,
   SUBAGENT_DIRECTOR_RPC_CLOSE,
   SUBAGENT_DIRECTOR_RPC_MODEL,
+  SUBAGENT_DIRECTOR_RPC_TOOLS,
   type DirectorCloseRequest,
   type DirectorModelRequest,
   type DirectorModelSuccess,
   type DirectorMutateRequest,
+  type DirectorToolsSuccess,
   type DirectorViewSuccess,
 } from './bridge-contract.js';
 import {
@@ -80,8 +82,10 @@ export { SUBAGENT_DIRECTOR_RPC_MUTATE };
 export { SUBAGENT_DIRECTOR_RPC_CLOSE };
 /** Endpoint that returns the actual provider/model of one child session. */
 export { SUBAGENT_DIRECTOR_RPC_MODEL };
+/** Endpoint that returns the model-visible tool catalog for role tool-set editing. */
+export { SUBAGENT_DIRECTOR_RPC_TOOLS };
 /** Request payload for the settingsMutate bridge endpoint. */
-export type { DirectorMutateRequest, DirectorViewSuccess, DirectorCloseRequest, DirectorModelRequest, DirectorModelSuccess };
+export type { DirectorMutateRequest, DirectorViewSuccess, DirectorCloseRequest, DirectorModelRequest, DirectorModelSuccess, DirectorToolsSuccess };
 
 /**
  * The services the bridge dispatch needs beyond settings. Kept structural so
@@ -96,6 +100,8 @@ export interface BridgeDeps {
   subagents?: { drainContinuableChildren(parent: unknown, childIds: readonly SessionId[]): Promise<void> };
   /** Unified session query (dsh-session-query ctx.sessionQuery). */
   sessionQuery?: { readSession(sessionId: SessionId): Promise<{ events: readonly unknown[] }> };
+  /** Tool registry (dsh-tools ctx.tools), for the role tool-set catalog. */
+  tools?: { schemas(): readonly { name: string }[] };
 }
 
 /**
@@ -362,7 +368,26 @@ async function dispatchBridgeEndpoint(
   if (endpoint === SUBAGENT_DIRECTOR_RPC_MODEL) {
     return dispatchSubagentModel(deps, payload);
   }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_TOOLS) {
+    return dispatchSubagentTools(deps);
+  }
   throw new Error('unknown bridge endpoint ' + JSON.stringify(endpoint));
+}
+
+/**
+ * Return the distinct model-visible tool names for the role tool-set editor.
+ * Degrades to an empty catalog when the tool registry is not mounted, so the
+ * settings page still renders (the tool-set row shows "no tools available").
+ */
+export function dispatchSubagentTools(deps: BridgeDeps): RpcResult<DirectorToolsSuccess> {
+  const schemas = deps.tools?.schemas() ?? [];
+  const names = new Set<string>();
+  for (const schema of schemas) {
+    if (schema !== null && typeof schema === 'object' && typeof schema.name === 'string' && schema.name !== '') {
+      names.add(schema.name);
+    }
+  }
+  return { ok: true, value: { tools: [...names].sort() } };
 }
 
 /**
@@ -488,6 +513,7 @@ export function installDirectorRemoteBridge(ctx: Context): () => void {
     agents: ctx.get('agents') as BridgeDeps['agents'],
     subagents: ctx.get('subagents') as BridgeDeps['subagents'],
     sessionQuery: ctx.get('sessionQuery') as BridgeDeps['sessionQuery'],
+    tools: ctx.get('tools') as BridgeDeps['tools'],
   };
 
   const handler = (req: IncomingMessage, res: ServerResponse): Promise<void> | void => {

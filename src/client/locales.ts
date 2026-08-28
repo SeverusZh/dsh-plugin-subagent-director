@@ -50,6 +50,10 @@ export type SubagentDirectorKey =
   | 'personaPlaceholder'
   | 'modelOptional'
   | 'providerMissing'
+  | 'toolFilter'
+  | 'toolFilterHint'
+  | 'toolFilterNone'
+  | 'toolFilterEmpty'
   | 'restoreDone'
   | 'invalidRoleId'
   | 'bridgeUnavailable'
@@ -109,6 +113,10 @@ export const en: Record<SubagentDirectorKey, string> = {
   "personaPlaceholder": "Optional behavior/identity text injected into the subagent…",
   "modelOptional": "Save the card to apply changes",
   "providerMissing": "No provider selected",
+  "toolFilter": "Tool set",
+  "toolFilterHint": "Restrict the subagent to these tools. Leave empty to inherit the parent's full tool set.",
+  "toolFilterNone": "Inherit parent tools (no restriction)",
+  "toolFilterEmpty": "No tools available",
   "restoreDone": "Defaults restored",
   "invalidRoleId": "Role id must be kebab-case (lowercase letters, digits, single hyphens).",
   "bridgeUnavailable": "The Subagent Director settings bridge is not available on this server. Please update/restart the web application so it installs the /subagent-director channel.",
@@ -169,6 +177,10 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "personaPlaceholder": "注入子代理的可选行为/身份文案……",
   "modelOptional": "保存卡片以应用更改",
   "providerMissing": "未选择供应商",
+  "toolFilter": "工具集",
+  "toolFilterHint": "将子代理限制为这些工具。留空则继承父代理的完整工具集。",
+  "toolFilterNone": "继承父代理工具（不限制）",
+  "toolFilterEmpty": "无可用工具",
   "restoreDone": "已恢复默认",
   "invalidRoleId": "角色 id 必须为 kebab-case（小写字母、数字、单个连字符）。",
   "bridgeUnavailable": "此服务器尚未提供 Subagent Director 设置桥接通道（/subagent-director）。请重启 Web 应用以安装该通道后再试。",

@@ -19,6 +19,7 @@ import {
   restoreDefaultsOps,
   roleIdFromName,
   setDefaultRoleOps,
+  toolFilterOps,
   updateRoleOps,
   type DefaultModelEdits,
   type RevisionState,
@@ -243,5 +244,71 @@ describe('revision state machine', () => {
 
   it('adoptRevision rebases to a freshly described revision', () => {
     expect(adoptRevision({ revision: 3, conflicted: true }, 9)).toEqual({ revision: 9, conflicted: false });
+  });
+});
+
+describe('toolFilter ops（工具集行）', () => {
+  const base = ['roles', 'coder'] as const;
+
+  it('addRoleOps writes toolFilter only when the allow list is non-empty', () => {
+    const withTools = addRoleOps('coder', { ...draft(), toolFilter: { allow: ['bash', 'read'] } });
+    expect(withTools[0].value).toMatchObject({
+      toolFilter: { allow: ['bash', 'read'], deny: [] },
+    });
+    const withoutTools = addRoleOps('coder', draft());
+    expect((withoutTools[0].value as Record<string, unknown>).toolFilter).toBeUndefined();
+  });
+
+  it('toolFilterOps emits no op when the allow list is unchanged', () => {
+    const stored: StoredRole = { displayName: 'Coder', description: 'x', toolFilter: { allow: ['bash'] } };
+    expect(toolFilterOps(base, stored, { ...stored, toolFilter: { allow: ['bash'] } })).toBeUndefined();
+  });
+
+  it('toolFilterOps unstets when the draft clears the filter entirely', () => {
+    const stored: StoredRole = { displayName: 'Coder', description: 'x', toolFilter: { allow: ['bash'] } };
+    expect(toolFilterOps(base, stored, { ...stored, toolFilter: undefined })).toEqual({
+      op: 'unset',
+      path: ['roles', 'coder', 'toolFilter'],
+    });
+  });
+
+  it('toolFilterOps sets the filter when the allow list grows', () => {
+    const stored: StoredRole = { displayName: 'Coder', description: 'x', toolFilter: { allow: ['bash'] } };
+    const op = toolFilterOps(base, stored, { ...stored, toolFilter: { allow: ['bash', 'read'] } });
+    expect(op).toEqual({
+      op: 'set',
+      path: ['roles', 'coder', 'toolFilter'],
+      value: { allow: ['bash', 'read'] },
+    });
+  });
+
+  it('toolFilterOps preserves an existing deny list on set', () => {
+    const stored: StoredRole = {
+      displayName: 'Coder',
+      description: 'x',
+      toolFilter: { allow: ['bash'], deny: ['kill'] },
+    };
+    const op = toolFilterOps(base, stored, { ...stored, toolFilter: { allow: ['bash', 'read'] } });
+    expect(op).toEqual({
+      op: 'set',
+      path: ['roles', 'coder', 'toolFilter'],
+      value: { allow: ['bash', 'read'], deny: ['kill'] },
+    });
+  });
+
+  it('toolFilterOps unstets the whole filter when the allow list is cleared', () => {
+    const stored: StoredRole = { displayName: 'Coder', description: 'x', toolFilter: { allow: ['bash'] } };
+    const op = toolFilterOps(base, stored, { ...stored, toolFilter: { allow: [] } });
+    expect(op).toEqual({ op: 'unset', path: ['roles', 'coder', 'toolFilter'] });
+  });
+
+  it('updateRoleOps folds the toolFilter op in with the field edits', () => {
+    const stored: StoredRole = { displayName: 'Coder', description: 'x' };
+    const ops = updateRoleOps('coder', stored, { ...stored, toolFilter: { allow: ['bash'] } });
+    expect(ops).toContainEqual({
+      op: 'set',
+      path: ['roles', 'coder', 'toolFilter'],
+      value: { allow: ['bash'] },
+    });
   });
 });

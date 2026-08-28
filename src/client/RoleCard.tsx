@@ -27,6 +27,8 @@ export interface RoleCardProps {
   isDefault: boolean;
   /** Available providers (for the provider select). */
   groups: readonly ModelProviderGroup[];
+  /** Distinct model-visible tool names (for the tool-set row). */
+  tools: readonly string[];
   /** Section copy. */
   t: (key: SubagentDirectorKey) => string;
   /** Commit an edited role; returns a localized failure message or undefined. */
@@ -44,7 +46,7 @@ function effortsFor(groups: readonly ModelProviderGroup[], provider: string | un
   return entry?.reasoning?.efforts ?? [];
 }
 
-export function RoleCard({ id, role, isDefault, groups, t, onSave, onDelete, onSetDefault }: RoleCardProps): JSX.Element {
+export function RoleCard({ id, role, isDefault, groups, tools, t, onSave, onDelete, onSetDefault }: RoleCardProps): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -55,6 +57,7 @@ export function RoleCard({ id, role, isDefault, groups, t, onSave, onDelete, onS
     provider: role.provider ?? '',
     model: role.model ?? '',
     reasoningEffort: role.reasoningEffort ?? '',
+    toolFilter: { allow: role.toolFilter?.allow ?? [] },
   });
 
   const provider = draft.provider || role.provider;
@@ -92,6 +95,16 @@ export function RoleCard({ id, role, isDefault, groups, t, onSave, onDelete, onS
   const setField = (field: keyof RoleDraft, value: string): void => {
     setDraft((d) => ({ ...d, [field]: value }));
   };
+
+  const toggleTool = (name: string): void => {
+    setDraft((d) => {
+      const allow = d.toolFilter?.allow ?? [];
+      const next = allow.includes(name) ? allow.filter((n) => n !== name) : [...allow, name];
+      return { ...d, toolFilter: { allow: next } };
+    });
+  };
+
+  const allowList = draft.toolFilter?.allow ?? [];
 
   if (editing) {
     return (
@@ -156,6 +169,27 @@ export function RoleCard({ id, role, isDefault, groups, t, onSave, onDelete, onS
             </select>
           </div>
         </div>
+        <div style={rowStyle}>
+          <label style={fieldLabelStyle}>{t('toolFilter')}</label>
+          {tools.length === 0 ? (
+            <span style={{ color: token.labelTertiary, fontSize: 12 }}>{t('toolFilterEmpty')}</span>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+              {tools.map((name) => (
+                <label
+                  key={name}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: token.labelSecondary, cursor: 'pointer' }}
+                >
+                  <input type="checkbox" checked={allowList.includes(name)} onChange={() => toggleTool(name)} />
+                  {name}
+                </label>
+              ))}
+            </div>
+          )}
+          <span style={{ color: token.labelTertiary, fontSize: 11, lineHeight: '15px' }}>
+            {allowList.length === 0 ? t('toolFilterNone') : t('toolFilterHint')}
+          </span>
+        </div>
         {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={primaryButtonStyle} disabled={busy} onClick={save}>{t('save')}</button>
@@ -182,6 +216,9 @@ export function RoleCard({ id, role, isDefault, groups, t, onSave, onDelete, onS
         <Metadata label={t('model')} value={role.model} />
         <Metadata label={t('reasoningEffort')} value={role.reasoningEffort} />
         {role.persona ? <Metadata label={t('persona')} value={role.persona} /> : null}
+        {role.toolFilter?.allow?.length ? (
+          <Metadata label={t('toolFilter')} value={role.toolFilter.allow.join(', ')} />
+        ) : null}
       </div>
       {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
       <div style={{ display: 'flex', gap: 8 }}>

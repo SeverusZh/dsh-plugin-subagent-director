@@ -22,6 +22,8 @@ export interface RoleDraft {
   provider?: string;
   model?: string;
   reasoningEffort?: string;
+  /** Tool scoping: the allow list the editor manages (deny is preserved, not edited). */
+  toolFilter?: { allow?: string[]; deny?: string[] };
 }
 
 /** A persisted role template. */
@@ -32,6 +34,7 @@ export interface StoredRole {
   provider?: string;
   model?: string;
   reasoningEffort?: string;
+  toolFilter?: { allow?: string[]; deny?: string[] };
 }
 
 /** The persisted user-layer section (fields optional). */
@@ -93,7 +96,8 @@ export function addRoleOps(id: string, role: RoleDraft | StoredRole): SettingsPa
         ...optional(role.persona) !== undefined ? { persona: optional(role.persona) } : {},
         ...optional(role.provider) !== undefined ? { provider: optional(role.provider) } : {},
         ...optional(role.model) !== undefined ? { model: optional(role.model) } : {},
-        ...optional(role.reasoningEffort) !== undefined ? { reasoningEffort: optional(role.reasoningEffort) } : {}
+        ...optional(role.reasoningEffort) !== undefined ? { reasoningEffort: optional(role.reasoningEffort) } : {},
+        ...(role.toolFilter?.allow?.length ?? 0) > 0 ? { toolFilter: { allow: role.toolFilter!.allow, deny: [] } } : {}
       }
     }
   ];
@@ -106,6 +110,35 @@ function fieldEdit(path: string[], stored: unknown, next: string | undefined): S
   if (normalized === store) return undefined;
   if (normalized === undefined) return { op: 'unset', path: [...path] } as SettingsPathOpView;
   return { op: 'set', path: [...path], value: normalized } as SettingsPathOpView;
+}
+
+/**
+ * Diff the tool-set (allow list) between the stored role and the edited draft.
+ * The editor manages only `allow`; an existing `deny` is preserved on set and
+ * the whole filter is removed when the allow list is cleared. An empty allow
+ * list means "inherit the parent's full tool set" (issue #2 semantics).
+ * @param base - the role's field path (e.g. ['roles', id]).
+ */
+export function toolFilterOps(
+  base: readonly string[],
+  before: StoredRole | undefined,
+  draft: RoleDraft,
+): SettingsPathOpView | undefined {
+  const storedAllow = before?.toolFilter?.allow ?? [];
+  const nextAllow = draft.toolFilter?.allow ?? [];
+  const storedDeny = before?.toolFilter?.deny;
+  const same =
+    storedAllow.length === nextAllow.length &&
+    storedAllow.every((name, i) => name === nextAllow[i]);
+  if (same) return undefined;
+  if (nextAllow.length === 0) {
+    return { op: 'unset', path: [...base, 'toolFilter'] } as SettingsPathOpView;
+  }
+  return {
+    op: 'set',
+    path: [...base, 'toolFilter'],
+    value: { allow: [...nextAllow], ...(storedDeny !== undefined ? { deny: storedDeny } : {}) },
+  } as SettingsPathOpView;
 }
 
 /**
@@ -124,6 +157,7 @@ export function updateRoleOps(id: string, before: StoredRole | undefined, draft:
   push(fieldEdit([...base, 'provider'], b.provider, draft.provider));
   push(fieldEdit([...base, 'model'], b.model, draft.model));
   push(fieldEdit([...base, 'reasoningEffort'], b.reasoningEffort, draft.reasoningEffort));
+  push(toolFilterOps(base, before, draft));
   return ops;
 }
 

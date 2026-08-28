@@ -23,6 +23,8 @@ import {
   SUBAGENT_DIRECTOR_RPC_CHANNEL,
   SUBAGENT_DIRECTOR_RPC_VIEW,
   SUBAGENT_DIRECTOR_RPC_MUTATE,
+  SUBAGENT_DIRECTOR_RPC_TOOLS,
+  type DirectorToolsSuccess,
   type DirectorViewSuccess,
 } from '../bridge-contract.js';
 import type { SubagentDirectorKey } from './locales.js';
@@ -62,6 +64,8 @@ export interface SubagentOptionsState {
   providers: readonly ConfigurableProviderView[];
   /** Model catalog groups (provider → models → reasoning efforts). */
   models: readonly ModelProviderGroup[];
+  /** Distinct model-visible tool names for role tool-set editing. */
+  tools: readonly string[];
   /** The plugin name surfaced to the section. */
   loading: boolean;
 }
@@ -77,6 +81,7 @@ export function initialSubagentOptionsState(): SubagentOptionsState {
     revision: 0,
     providers: [],
     models: [],
+    tools: [],
     loading: false,
   };
 }
@@ -155,10 +160,16 @@ export class SubagentOptionsStore {
       s.loading = true;
     });
     try {
-      const [providersResponse, modelsResponse, viewResult] = await Promise.all([
+      const [providersResponse, modelsResponse, viewResult, toolsResult] = await Promise.all([
         this.wire.llm.providers({}),
         this.wire.llm.models({}),
         this.callBridge<DirectorViewSuccess>(SUBAGENT_DIRECTOR_RPC_VIEW),
+        // The tool catalog is best-effort: a bridge without the endpoint (or a
+        // registry-less host) degrades to an empty list, never blocks the page.
+        this.callBridge<DirectorToolsSuccess>(SUBAGENT_DIRECTOR_RPC_TOOLS).catch(() => ({
+          ok: false as const,
+          error: { code: 'internal', message: 'tool catalog unavailable' },
+        })),
       ]);
       if (!providersResponse.result.ok) throw new Error(providersResponse.result.error.message);
       if (!modelsResponse.result.ok) throw new Error(modelsResponse.result.error.message);
@@ -169,12 +180,14 @@ export class SubagentOptionsStore {
       const writable = viewResult.value.writable;
       const providers = providersResponse.result.value.providers;
       const models = modelsResponse.result.value.groups;
+      const tools = toolsResult.ok ? toolsResult.value.tools : [];
       this.store.update((s) => {
         s.status = 'ready';
         s.error = null;
         s.writable = writable;
         s.providers = providers;
         s.models = models;
+        s.tools = tools;
         s.namespace = view;
         s.section = section;
         s.revision = view?.revision ?? 0;

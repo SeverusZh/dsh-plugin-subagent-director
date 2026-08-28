@@ -22,6 +22,8 @@ export const SUBAGENT_DIRECTOR_RPC_MUTATE = 'settingsMutate';
 export const SUBAGENT_DIRECTOR_RPC_CLOSE = 'subagentClose';
 /** Endpoint that returns the actual provider/model of one child session. */
 export const SUBAGENT_DIRECTOR_RPC_MODEL = 'subagentModel';
+/** Endpoint that returns the model-visible tool catalog for role tool-set editing. */
+export const SUBAGENT_DIRECTOR_RPC_TOOLS = 'toolCatalog';
 
 /** Successful settingsView bridge response. */
 export interface DirectorViewSuccess {
@@ -55,3 +57,9 @@ export interface DirectorModelRequest {
 
 /** Successful subagentModel bridge response. */
 export type DirectorModelSuccess = { found: true; provider: string; model: string } | { found: false };
+
+/** Successful toolCatalog bridge response. */
+export interface DirectorToolsSuccess {
+  /** Distinct model-visible tool names, sorted. */
+  tools: string[];
+}

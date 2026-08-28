@@ -22,6 +22,7 @@ import {
   directorMutate,
   dispatchSubagentClose,
   dispatchSubagentModel,
+  dispatchSubagentTools,
   latestRequestHeaderModel,
 } from '../src/remote.js';
 import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE } from '../src/settings.js';
@@ -476,5 +477,23 @@ describe('dispatchSubagentModel', () => {
     const result = await dispatchSubagentModel(modelDeps() as never, {});
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('bad-request');
+  });
+});
+
+describe('dispatchSubagentTools', () => {
+  const toolsDeps = (overrides: Partial<import('../src/remote.js').BridgeDeps> = {}) => ({
+    settings: { writable: true, describe: () => [], mutate: async () => {} } as never,
+    tools: { schemas: () => [{ name: 'bash' }, { name: 'read' }, { name: 'bash' }, { name: '' }] },
+    ...overrides,
+  });
+
+  it('returns distinct sorted tool names from the registry', async () => {
+    const result = await dispatchSubagentTools(toolsDeps() as never);
+    expect(result).toEqual({ ok: true, value: { tools: ['bash', 'read'] } });
+  });
+
+  it('degrades to an empty catalog when the tool registry is absent', async () => {
+    const result = await dispatchSubagentTools(toolsDeps({ tools: undefined }) as never);
+    expect(result).toEqual({ ok: true, value: { tools: [] } });
   });
 });

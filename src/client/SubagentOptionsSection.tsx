@@ -110,6 +110,7 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
     const roles = section?.roles ?? {};
     const entries = Object.entries(roles) as [string, StoredRole][];
     const groups = state.models;
+    const tools = state.tools;
 
     return (
         <div style={sectionWidth}>
@@ -128,6 +129,7 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
             <RolesBlock
                 controller={controller}
                 groups={groups}
+                tools={tools}
                 writable={writable}
                 roles={entries}
                 defaultRole={section?.defaultRole}
@@ -267,9 +269,10 @@ function DefaultModelRow({ controller, groups, writable, current, t }: {
 }
 
 /** The role-template roster: cards plus an inline add form. */
-function RolesBlock({ controller, groups, writable, roles, defaultRole, t }: {
+function RolesBlock({ controller, groups, tools, writable, roles, defaultRole, t }: {
     controller: SubagentOptionsStore;
     groups: readonly ModelProviderGroup[];
+    tools: readonly string[];
     writable: boolean;
     roles: [string, StoredRole][];
     defaultRole: string | undefined;
@@ -283,12 +286,13 @@ function RolesBlock({ controller, groups, writable, roles, defaultRole, t }: {
         provider: '',
         model: '',
         reasoningEffort: '',
+        toolFilter: { allow: [] },
     });
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<string | undefined>(undefined);
 
     const beginAdd = (): void => {
-        setDraft({ displayName: '', description: '', persona: '', provider: '', model: '', reasoningEffort: '' });
+        setDraft({ displayName: '', description: '', persona: '', provider: '', model: '', reasoningEffort: '', toolFilter: { allow: [] } });
         setFailure(undefined);
         setAdding(true);
     };
@@ -338,6 +342,37 @@ function RolesBlock({ controller, groups, writable, roles, defaultRole, t }: {
                             onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                         />
                     </div>
+                    <div style={rowStyle}>
+                        <label style={fieldLabelStyle}>{t('toolFilter')}</label>
+                        {tools.length === 0 ? (
+                            <span style={{ color: token.labelTertiary, fontSize: 12 }}>{t('toolFilterEmpty')}</span>
+                        ) : (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+                                {tools.map((name) => (
+                                    <label
+                                        key={name}
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: token.labelSecondary, cursor: 'pointer' }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={(draft.toolFilter?.allow ?? []).includes(name)}
+                                            onChange={() =>
+                                                setDraft((d) => {
+                                                    const allow = d.toolFilter?.allow ?? [];
+                                                    const next = allow.includes(name) ? allow.filter((n) => n !== name) : [...allow, name];
+                                                    return { ...d, toolFilter: { allow: next } };
+                                                })
+                                            }
+                                        />
+                                        {name}
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                        <span style={{ color: token.labelTertiary, fontSize: 11, lineHeight: '15px' }}>
+                            {(draft.toolFilter?.allow?.length ?? 0) === 0 ? t('toolFilterNone') : t('toolFilterHint')}
+                        </span>
+                    </div>
                     {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
                     <div style={{ display: 'flex', gap: 8 }}>
                         <button style={primaryButtonStyle} disabled={!writable || busy} onClick={() => void saveAdd()}>{t('addRole')}</button>
@@ -356,6 +391,7 @@ function RolesBlock({ controller, groups, writable, roles, defaultRole, t }: {
                         role={role}
                         isDefault={defaultRole === id}
                         groups={groups}
+                        tools={tools}
                         t={t}
                         onSave={(d: RoleDraft) => controller.updateRole(id, role, d)}
                         onDelete={() => controller.removeRole(id)}
