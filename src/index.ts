@@ -21,6 +21,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent';
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 
+import { registerCloseSubagent } from './close-subagent.js';
 import { createDelegationTool } from './delegation-tool.js';
 import { applyDefaultRouteSeam } from './default-route.js';
 import { applyGuidance } from './guidance.js';
@@ -28,6 +29,15 @@ import { createSettingsSnapshot, installDirectorSettings } from './settings.js';
 
 export { Config } from './config.js';
 export type { DirectorConfig } from './config.js';
+export {
+  CLOSE_SUBAGENT_TOOL_NAME,
+  createCloseSubagentOutputSchema,
+  createCloseSubagentParameters,
+  createCloseSubagentTool,
+  registerCloseSubagent,
+  renderCloseResult,
+  type CloseSubagentArgs,
+} from './close-subagent.js';
 export {
   assertDelegationCapabilities,
   buildSubagentRequest,
@@ -85,6 +95,13 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
 
   // ---- role guidance ----------------------------------------------------
   applyGuidance(ctx, getSettings, toolName);
+
+  // ---- close_subagent lifecycle tool ------------------------------------
+  // Model-visible teardown for resident continuable children (issue #1): thin
+  // adapter over ctx.subagents.drainContinuableChildren(parent, [childId]).
+  // Registered unconditionally (a no-op in one-shot compositions) and guarded
+  // against double registration so several plugin instances share one tool.
+  registerCloseSubagent(ctx);
 
   // ---- delegation tool registration ------------------------------------
   if (typeof config.maxDepth === 'number') assertSubagentMaxDepth(config.maxDepth);

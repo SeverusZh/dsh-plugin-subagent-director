@@ -27,6 +27,9 @@
 - **主代理指引** —— 系统提示自动注入角色清单，主代理知道何时委派给谁；
 - **设置界面** —— DSH 设置面板内可视化配置（默认模型 + 角色卡片增删改）；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
+- **生命周期管理** —— `close_subagent(subagent_id)` 主动关闭/释放驻留的
+  continuable 子代理（`drainContinuableChildren`），与 `list_agents` /
+  `send_message` / `interrupt_agent` 形成完整闭环；
 - **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型。⚠️ 该功能暂不可用，正在开发中；
 
 ## 快速开始
@@ -120,6 +123,17 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 `role` 参数支持用角色 id 或显示名引用：未命中 id 时会按 `displayName` 精确匹配
 （多个同名角色取定义顺序第一个并提示）；建议始终用 id，见系统提示中的 Delegate 行。
 
+`backgroundMode: continuable` 下，任务完成的子代理会保持驻留直到父会话结束或
+DSH 重启。若只想保留其中几个长期存活的子代理，主代理可主动释放：
+
+```text
+close_subagent({ subagent_id: "child-xxx" })   # 释放后不再驻留、不能再用 send_message 续聊
+```
+
+`close_subagent` 只释放调用者名下的直接 continuable 子代理（缺失 id 为无操作，
+其他父代理名下的子代理会被拒绝），与 `list_agents` / `send_message` /
+`interrupt_agent` 一起构成完整的生命周期管理闭环。
+
 ## 术语
 
 - **subagentProvider（传输）**：`spawn` / `fork` / `acp`——子代理跑在哪条传输链路上；
@@ -131,7 +145,7 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 ```bash
 npm install
-npm test          # vitest（129 用例）
+npm test          # vitest（158 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
@@ -164,6 +178,7 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 - **Four-layer resolution** — call args > role binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
 - **Settings UI** — manage defaults and role cards in the DSH settings panel;
 - **Continuable background** — durable subagent ids with send_message follow-ups;
+- **Lifecycle management** — `close_subagent(subagent_id)` releases a resident continuable child on demand (`drainContinuableChildren`), completing the loop with `list_agents` / `send_message` / `interrupt_agent`;
 - **Observability** — the addressed subagent’s actual provider/model shown under the composer. ⚠️ Not yet available — under development.
 
 **Install** — `dsh plugin --profile <name> add dsh-plugin-subagent-director` mounts the main and bridge entries automatically from the package's bundle patch (`cordis.patch.yml`); optionally override the main entry's config in your profile's cordis.patch.yml (see the Chinese section above). License: MIT.

@@ -2,6 +2,28 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **`close_subagent(subagent_id)` 模型可见工具**：主动关闭/释放主代理名下
+  驻留的 continuable 子代理，内部调用
+  `ctx.subagents.drainContinuableChildren(parent, [subagent_id])`；与
+  `list_agents` / `send_message` / `interrupt_agent` 形成完整的子代理生命周期
+  管理闭环。与 `interrupt_agent` 不同，这是拆卸操作：释放后子代理不再驻留、
+  不能再续聊（issue #1）。
+
+### 兼容性
+
+- `@deepseek-ai/dsh-subagent` peer 依赖下限由 `^0.1.0-rc.6` 提升至
+  `^0.1.0-rc.8`（`drainContinuableChildren` 在该版本引入）；新增
+  `@deepseek-ai/dsh-session` peer 依赖（`SessionId` 品牌化 id 构造）。
+
+### 测试
+
+- 单元测试由 150 增至 158：close_subagent 的 schema、结果渲染、执行契约
+  （父代理授权、子 id 转发、服务错误透传）与注册守卫。
+
 ## [0.2.0] - 2026-08-17
 
 ### 新增
