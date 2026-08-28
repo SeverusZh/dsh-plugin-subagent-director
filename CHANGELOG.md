@@ -2,12 +2,12 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
-## [0.3.0] - 2026-08-28
+## [0.3.0] - 2026-08-29
 
 ### 新增
 
-- **`close_subagent` 模型可见工具**：主代理可按需释放「已完成但仍驻留」的
-  continuable 子代理（内部调用 DSH 核心 `drainContinuableChildren`，与
+- **`close_subagent` 模型可见工具**：主代理可按需释放驻留的 continuable
+  子代理（内部调用 DSH 核心 `drainContinuableChildren`，与
   `send_message`/`interrupt_agent` 构成完整生命周期闭环；非驻留目标是安全
   no-op）——[issue #1](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/1)；
 - **子代理会话页「终止可持续状态」按钮**：打开 continuable 子代理会话时，
@@ -16,14 +16,21 @@
 - **可观测性打通**：composer 下方实际运行供应商/模型读数不再依赖尚未填充的
   assistant provenance 字段，改为读取子代理会话的 `request/header` 记录
   （`subagentModel` 桥端点），快照内已有 provenance 时仍走零请求快速路径，
-  读不到时优雅降级——移除 README「暂不可用」标注。
+  读不到时优雅降级——移除 README「暂不可用」标注；
+- **角色「工具集」编辑**：角色编辑/添加卡片支持可视化配置 `toolFilter.allow`
+  ——搜索过滤、全选/全不选（仅作用于过滤结果）、已选计数、收起展开、
+  可滚动列表（`toolCatalog` 桥端点枚举完整 agent 视图，含 bash/read/write
+  等基础工具，实测 88 个）。
 
 ### 修复
 
 - 未配置 `toolFilter` 的角色被 dsh-settings 物化为 `{allow:[],deny:[]}` 后
   清空子代理全部工具（tools=0、「只执行一步」假象）：空 filter 视为未配置，
   schema 层不再物化空对象（`hasToolFilter` + `.default(undefined)`）——
-  [issue #2](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/2)。
+  [issue #2](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/2)；
+- `toolCatalog` 原先只枚举全局注册表（56 个），遗漏 preset 层的
+  bash/read/write/grep 等基础工具：改经 `agent.ctx.get('tools').schemas(agent)`
+  枚举完整 agent 视图（88 个）。
 
 ### 兼容性
 
@@ -32,12 +39,14 @@
 
 ### 测试
 
-- 单元测试由 150 增至 178：空 toolFilter 语义、close_subagent 工具、
-  桥接 `subagentClose`/`subagentModel` 端点、可观测性数据源合并。
+- 单元测试由 150 增至 197：空 toolFilter 语义、close_subagent 工具、
+  桥接 `subagentClose`/`subagentModel`/`toolCatalog` 端点、可观测性数据源
+  合并、工具集纯逻辑（过滤/全选/集合代数）。
 
 ### 文档
 
-- README：新增「释放可持续子代理」特性、更新可观测性描述（中英双语）。
+- README：新增「释放可持续子代理」「工具集」特性、更新可观测性描述（中英
+  双语）；CHANGELOG 0.3.0 汇总 beta.1–beta.4 的全部变更。
 
 [0.3.0]: https://github.com/SeverusZh/dsh-plugin-subagent-director/releases/tag/v0.3.0
 
