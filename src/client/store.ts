@@ -124,6 +124,8 @@ export class SubagentOptionsStore {
   readonly store: SnapshotStore<SubagentOptionsState>;
   private readonly wire: StoreWire;
   private generation = 0;
+  /** Last session id used for the tool catalog (reused by refreshes). */
+  private lastSessionId: string | undefined;
 
   constructor(wire: StoreWire) {
     this.wire = wire;
@@ -152,8 +154,10 @@ export class SubagentOptionsStore {
   }
 
   /** Refresh the whole page snapshot: provider directory + model catalog + own namespace. */
-  async load(): Promise<void> {
+  async load(sessionId?: string): Promise<void> {
     const generation = ++this.generation;
+    if (sessionId !== undefined) this.lastSessionId = sessionId;
+    const effectiveSessionId = this.lastSessionId;
     this.store.update((s) => {
       s.status = 'loading';
       s.error = null;
@@ -166,7 +170,10 @@ export class SubagentOptionsStore {
         this.callBridge<DirectorViewSuccess>(SUBAGENT_DIRECTOR_RPC_VIEW),
         // The tool catalog is best-effort: a bridge without the endpoint (or a
         // registry-less host) degrades to an empty list, never blocks the page.
-        this.callBridge<DirectorToolsSuccess>(SUBAGENT_DIRECTOR_RPC_TOOLS).catch(() => ({
+        // Passing the current session id lets the Host enumerate the agent's
+        // FULL tool view (preset tools like bash/read/write live in the agent
+        // scope, not the global registry).
+        this.callBridge<DirectorToolsSuccess>(SUBAGENT_DIRECTOR_RPC_TOOLS, { sessionId: effectiveSessionId }).catch(() => ({
           ok: false as const,
           error: { code: 'internal', message: 'tool catalog unavailable' },
         })),

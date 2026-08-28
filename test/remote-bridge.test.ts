@@ -488,12 +488,39 @@ describe('dispatchSubagentTools', () => {
   });
 
   it('returns distinct sorted tool names from the registry', async () => {
-    const result = await dispatchSubagentTools(toolsDeps() as never);
+    const result = await dispatchSubagentTools(toolsDeps() as never, {});
     expect(result).toEqual({ ok: true, value: { tools: ['bash', 'read'] } });
   });
 
   it('degrades to an empty catalog when the tool registry is absent', async () => {
-    const result = await dispatchSubagentTools(toolsDeps({ tools: undefined }) as never);
+    const result = await dispatchSubagentTools(toolsDeps({ tools: undefined }) as never, {});
     expect(result).toEqual({ ok: true, value: { tools: [] } });
+  });
+
+  it('enumerates the agent tool view (preset tools) when a session id is supplied', async () => {
+    // The agent's own ctx carries a tools instance whose schemas(agent) view
+    // includes the preset tools (bash/read/write) beyond the global registry.
+    const agentTools = {
+      schemas: (scope: unknown) => [
+        { name: 'bash' },
+        { name: 'read' },
+        { name: 'write' },
+        { name: scope !== undefined ? 'agent-only' : 'wrong-scope' },
+      ],
+    };
+    const deps = toolsDeps({
+      agents: { get: () => ({ id: 'session-1', ctx: { get: (name: string) => (name === 'tools' ? agentTools : undefined) } }) },
+    });
+    const result = await dispatchSubagentTools(deps as never, { sessionId: 'session-1' });
+    expect(result).toEqual({
+      ok: true,
+      value: { tools: ['agent-only', 'bash', 'read', 'write'] },
+    });
+  });
+
+  it('falls back to the global registry view when the session has no live agent', async () => {
+    const deps = toolsDeps({ agents: { get: () => undefined } });
+    const result = await dispatchSubagentTools(deps as never, { sessionId: 'session-gone' });
+    expect(result).toEqual({ ok: true, value: { tools: ['bash', 'read'] } });
   });
 });

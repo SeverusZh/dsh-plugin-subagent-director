@@ -52,8 +52,14 @@ const style: { [key: string]: React.CSSProperties } = {
   },
   grid: {
     display: 'flex',
-    flexWrap: 'wrap',
-    gap: '4px 14px',
+    flexDirection: 'column',
+    gap: 2,
+    maxHeight: 260,
+    overflowY: 'auto',
+    border: '1px solid ' + token.border,
+    borderRadius: 6,
+    padding: '6px 8px',
+    background: token.bgLayer1,
   },
   item: {
     display: 'inline-flex',
@@ -62,6 +68,8 @@ const style: { [key: string]: React.CSSProperties } = {
     fontSize: 12,
     color: token.labelSecondary,
     cursor: 'pointer',
+    padding: '2px 4px',
+    borderRadius: 4,
   },
   hint: {
     color: token.labelTertiary,

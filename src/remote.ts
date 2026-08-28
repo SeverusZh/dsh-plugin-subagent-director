@@ -369,20 +369,44 @@ async function dispatchBridgeEndpoint(
     return dispatchSubagentModel(deps, payload);
   }
   if (endpoint === SUBAGENT_DIRECTOR_RPC_TOOLS) {
-    return dispatchSubagentTools(deps);
+    return dispatchSubagentTools(deps, payload);
   }
   throw new Error('unknown bridge endpoint ' + JSON.stringify(endpoint));
 }
 
 /**
- * Return the distinct model-visible tool names for the role tool-set editor.
- * Degrades to an empty catalog when the tool registry is not mounted, so the
- * settings page still renders (the tool-set row shows "no tools available").
+ * Return the distinct tool names for the role tool-set editor.
+ *
+ * The FULL model-visible set (preset tools such as bash/read/write/grep plus
+ * registry tools) only exists in the calling agent's scope: preset tool
+ * plugins register into the agent's ctx layers, so the global registry view
+ * misses them. When the client supplies its session id, we enumerate through
+ * that agent's own tools instance (`agent.ctx.get('tools').schemas(agent)`);
+ * without a live agent we degrade to the global registry view so the page
+ * still renders.
  */
-export function dispatchSubagentTools(deps: BridgeDeps): RpcResult<DirectorToolsSuccess> {
-  const schemas = deps.tools?.schemas() ?? [];
+export function dispatchSubagentTools(
+  deps: BridgeDeps,
+  payload: unknown,
+): RpcResult<DirectorToolsSuccess> {
+  const request = (payload ?? {}) as { sessionId?: unknown } | null;
+  let view: readonly { name: string }[] | undefined;
+  if (request !== null && typeof request === 'object' && typeof request.sessionId === 'string' && request.sessionId !== '') {
+    const agent = deps.agents?.get(SessionId(request.sessionId)) as
+      | { ctx?: { get(name: string): unknown } }
+      | undefined;
+    const agentTools = agent?.ctx?.get('tools') as
+      | { schemas(scope?: unknown): readonly { name: string }[] }
+      | undefined;
+    if (agentTools !== undefined) {
+      view = agentTools.schemas(agent);
+    }
+  }
+  if (view === undefined) {
+    view = deps.tools?.schemas() ?? [];
+  }
   const names = new Set<string>();
-  for (const schema of schemas) {
+  for (const schema of view) {
     if (schema !== null && typeof schema === 'object' && typeof schema.name === 'string' && schema.name !== '') {
       names.add(schema.name);
     }
