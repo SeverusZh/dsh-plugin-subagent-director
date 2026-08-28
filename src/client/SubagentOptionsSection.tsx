@@ -18,6 +18,7 @@ import type { SubagentOptionsState, SubagentOptionsStore } from './store.js';
 import type { RoleDraft, StoredRole } from './store-logic.js';
 import { roleIdFromName } from './store-logic.js';
 import { RoleCard } from './RoleCard.js';
+import { ToolSetPicker } from './ToolSetPicker.js';
 import {
   cardStyle,
   fieldLabelStyle,
@@ -343,35 +344,12 @@ function RolesBlock({ controller, groups, tools, writable, roles, defaultRole, t
                         />
                     </div>
                     <div style={rowStyle}>
-                        <label style={fieldLabelStyle}>{t('toolFilter')}</label>
-                        {tools.length === 0 ? (
-                            <span style={{ color: token.labelTertiary, fontSize: 12 }}>{t('toolFilterEmpty')}</span>
-                        ) : (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
-                                {tools.map((name) => (
-                                    <label
-                                        key={name}
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: token.labelSecondary, cursor: 'pointer' }}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={(draft.toolFilter?.allow ?? []).includes(name)}
-                                            onChange={() =>
-                                                setDraft((d) => {
-                                                    const allow = d.toolFilter?.allow ?? [];
-                                                    const next = allow.includes(name) ? allow.filter((n) => n !== name) : [...allow, name];
-                                                    return { ...d, toolFilter: { allow: next } };
-                                                })
-                                            }
-                                        />
-                                        {name}
-                                    </label>
-                                ))}
-                            </div>
-                        )}
-                        <span style={{ color: token.labelTertiary, fontSize: 11, lineHeight: '15px' }}>
-                            {(draft.toolFilter?.allow?.length ?? 0) === 0 ? t('toolFilterNone') : t('toolFilterHint')}
-                        </span>
+                        <ToolSetPicker
+                            tools={tools}
+                            selected={draft.toolFilter?.allow ?? []}
+                            t={t}
+                            onChange={(allow) => setDraft((d) => ({ ...d, toolFilter: { allow } }))}
+                        />
                     </div>
                     {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
                     <div style={{ display: 'flex', gap: 8 }}>

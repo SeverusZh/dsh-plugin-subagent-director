@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-client-connection/client';
 import type { SubagentDirectorKey } from './locales.js';
 import type { RoleDraft, StoredRole } from './store-logic.js';
+import { ToolSetPicker } from './ToolSetPicker.js';
 import {
   cardStyle,
   dangerButtonStyle,
@@ -96,14 +97,6 @@ export function RoleCard({ id, role, isDefault, groups, tools, t, onSave, onDele
     setDraft((d) => ({ ...d, [field]: value }));
   };
 
-  const toggleTool = (name: string): void => {
-    setDraft((d) => {
-      const allow = d.toolFilter?.allow ?? [];
-      const next = allow.includes(name) ? allow.filter((n) => n !== name) : [...allow, name];
-      return { ...d, toolFilter: { allow: next } };
-    });
-  };
-
   const allowList = draft.toolFilter?.allow ?? [];
 
   if (editing) {
@@ -170,25 +163,12 @@ export function RoleCard({ id, role, isDefault, groups, tools, t, onSave, onDele
           </div>
         </div>
         <div style={rowStyle}>
-          <label style={fieldLabelStyle}>{t('toolFilter')}</label>
-          {tools.length === 0 ? (
-            <span style={{ color: token.labelTertiary, fontSize: 12 }}>{t('toolFilterEmpty')}</span>
-          ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
-              {tools.map((name) => (
-                <label
-                  key={name}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: token.labelSecondary, cursor: 'pointer' }}
-                >
-                  <input type="checkbox" checked={allowList.includes(name)} onChange={() => toggleTool(name)} />
-                  {name}
-                </label>
-              ))}
-            </div>
-          )}
-          <span style={{ color: token.labelTertiary, fontSize: 11, lineHeight: '15px' }}>
-            {allowList.length === 0 ? t('toolFilterNone') : t('toolFilterHint')}
-          </span>
+          <ToolSetPicker
+            tools={tools}
+            selected={allowList}
+            t={t}
+            onChange={(allow) => setDraft((d) => ({ ...d, toolFilter: { allow } }))}
+          />
         </div>
         {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
         <div style={{ display: 'flex', gap: 8 }}>
