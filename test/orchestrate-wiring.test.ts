@@ -29,7 +29,7 @@ const settings = {
 const getSettings = () => settings;
 const toolName = 'subagent_role';
 
-function makeFakeCtx() {
+function makeFakeCtx(opts: { withoutProjections?: boolean } = {}) {
   const state = { mode: 'off' as string, throws: false };
   const registeredSections: any[] = [];
   const registeredCommands: any[] = [];
@@ -61,6 +61,15 @@ function makeFakeCtx() {
   const ctx: any = {
     logger,
     get(name: string) {
+      if (opts.withoutProjections) {
+        // Simulate a host that does not provide the sessionProjections
+        // service (P0 silent-degradation path): commands/systemPrompt may
+        // still exist, but sessionProjections is absent.
+        if (name === 'sessionProjections') return undefined;
+        if (name === 'systemPrompt') return systemPrompt;
+        if (name === 'commands') return commands;
+        return undefined;
+      }
       if (name === 'sessionProjections') return sessionProjections;
       if (name === 'systemPrompt') return systemPrompt;
       if (name === 'commands') return commands;
@@ -173,6 +182,35 @@ describe('applyOrchestrate — command handler', () => {
     const bad = handler({ rawInput: 'maybe', agent: { session: { append: () => {} } } });
     expect(bad.kind).toBe('error');
     expect(bad.text).toContain('Valid: on|off');
+  });
+});
+
+describe('applyOrchestrate — missing sessionProjections service (P0)', () => {
+  it('logs a loud warning when sessionProjections is missing', () => {
+    const { ctx, logger } = makeFakeCtx({ withoutProjections: true });
+    applyOrchestrate(ctx, getSettings, toolName);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const msg = String(logger.warn.mock.calls[0][0]);
+    expect(msg).toContain('sessionProjections');
+    expect(msg).toMatch(/orchestrate|will NOT take effect|not take effect/i);
+  });
+
+  it('does NOT falsely report success for /orchestrate on when the service is missing', () => {
+    const { ctx, registeredCommands } = makeFakeCtx({ withoutProjections: true });
+    applyOrchestrate(ctx, getSettings, toolName);
+    const handler = registeredCommands[0].handler;
+    const res = handler({ rawInput: 'on', agent: { session: { append: () => {} } } });
+    expect(res.text).not.toContain('Orchestrator mode: on');
+    expect(res.text).toMatch(/NOT applied|will NOT take effect|missing|not take effect/i);
+  });
+
+  it('warns for the off path too when the service is missing', () => {
+    const { ctx, registeredCommands } = makeFakeCtx({ withoutProjections: true });
+    applyOrchestrate(ctx, getSettings, toolName);
+    const handler = registeredCommands[0].handler;
+    const res = handler({ rawInput: 'off', agent: { session: { append: () => {} } } });
+    expect(res.text).not.toContain('Orchestrator mode: off');
+    expect(res.text).toMatch(/NOT applied|will NOT take effect|missing|not take effect/i);
   });
 });
 

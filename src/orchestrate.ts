@@ -140,6 +140,15 @@ export function applyOrchestrate(
       },
       view: (state: OrchestrateState) => ({ mode: state.mode }),
     });
+    ctx.logger.info('[orchestrate] host active (command + projection + prompt section)');
+  } else {
+    // Loud failure (P0 silent-degradation fix): without sessionProjections the
+    // projection can never be registered, so /orchestrate is a silent no-op.
+    // Surface it instead of letting /orchestrate on claim success while nothing
+    // actually takes effect.
+    ctx.logger.warn(
+      '[orchestrate] sessionProjections service is missing on this host — the /orchestrate command will NOT take effect (no projection registered, orchestrator prompt will not inject). Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.',
+    );
   }
 
   const commands: any = ctx.get('commands');
@@ -152,6 +161,17 @@ export function applyOrchestrate(
         const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
         if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
           return { kind: 'error', text: `Invalid: "${invocation.rawInput}". Valid: on|off` };
+        }
+        // Without sessionProjections the projection is never registered, so
+        // /orchestrate cannot take effect. Refuse with an honest message
+        // instead of falsely reporting success (P0 silent-degradation fix).
+        if (projections === undefined) {
+          return {
+            kind: 'error',
+            text:
+              `Orchestrator mode "${mode}" was NOT applied: the sessionProjections service is missing on this host, so /orchestrate has no effect and the orchestrator prompt will not inject. ` +
+              `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
+          };
         }
         invocation.agent.session.append(ORCHESTRATE_EVENT_TYPE, { mode });
         return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
@@ -184,6 +204,5 @@ export function applyOrchestrate(
       },
     });
   }
-
-  ctx.logger.info('[orchestrate] host active (command + projection + prompt section)');
 }
+
