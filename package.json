@@ -65,6 +65,9 @@
     "model",
     "role-template"
   ],
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "license": "MIT",
   "peerDependencies": {
     "react": "^18.2.0",

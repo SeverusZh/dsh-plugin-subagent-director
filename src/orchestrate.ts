@@ -18,6 +18,7 @@
  * `undefined` guards, so the wiring no-ops cleanly on surfaces that lack them.
  */
 import type { Context } from '@deepseek-ai/cordis';
+import { z } from 'zod';
 import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session';
 
 import type { SubagentDirectorSettings } from './settings.js';
@@ -125,6 +126,11 @@ export function applyOrchestrate(
     projections.register({
       key: ORCHESTRATE_PROJECTION_KEY,
       stateVersion: 1,
+      // Wire-shape contract: the framework calls `schema.parse(view(state))` on
+      // every snapshot (see dsh-session-projection SessionProjectionRegistry).
+      // Omitting it throws at snapshot time — which the section's read used to
+      // swallow silently, so /orchestrate on never injected. Keep it.
+      schema: z.object({ mode: z.enum(ORCHESTRATE_VALID_MODES) }),
       init: (): OrchestrateState => ({ mode: 'off' }),
       apply: (state: OrchestrateState, event: any): OrchestrateState => {
         if (!event || event.type !== ORCHESTRATE_EVENT_TYPE) return state;
@@ -140,8 +146,8 @@ export function applyOrchestrate(
   if (commands !== undefined) {
     commands.register({
       name: 'orchestrate',
-      description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team.',
-      input: { hint: 'on|off' },
+      description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team. No args defaults to "on".',
+      input: { hint: 'on|off (no args = on)' },
       handler: (invocation: any) => {
         const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
         if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
@@ -159,13 +165,18 @@ export function applyOrchestrate(
       name: ORCHESTRATE_SECTION_NAME,
       order: ORCHESTRATE_SECTION_ORDER,
       text: (context: any) => {
-        const agent = context && context.agent;
-        if (!agent || projections === undefined) return '';
+        // Host passes the assembly context (AssembleContext) with `agent` set
+        // at runtime (see dsh-agent assembleContextFor). Some hosts may instead
+        // hand `session` directly, so accept either shape (D2).
+        const session = context?.session || context?.agent?.session;
+        if (!session || projections === undefined) return '';
         let mode: OrchestrateMode = 'off';
         try {
-          const value = projections.snapshot(agent.session).values[ORCHESTRATE_PROJECTION_KEY];
+          const value = projections.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY];
           if (value && typeof value.mode === 'string') mode = value.mode as OrchestrateMode;
-        } catch {
+        } catch (err) {
+          // Surface the failure instead of silently dropping the prompt (D1).
+          ctx.logger.warn('[orchestrate] could not read orchestrator mode from projection:', (err as Error)?.message);
           mode = 'off';
         }
         if (mode === 'off') return '';
