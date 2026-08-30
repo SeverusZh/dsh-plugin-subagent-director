@@ -5,7 +5,7 @@
  * delegation tool. Reads user settings live; a deployment without a settings
  * provider degrades to an empty resolved section (zero intrusion).
  *
- * Dependency posture: tools/subagents/llm/settings are required through inject
+ * Dependency posture: tools/subagents/agents/llm/settings are required through inject
  * (both web and headless bundles mount the settings service); systemPrompt
  * remains optional and is acquired lazily so its absence does not block the
  * rest. The /orchestrate command's `commands` dependency likewise stays
@@ -29,6 +29,7 @@ import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.
 import { applyDefaultRouteSeam } from './default-route.js';
 import { applyGuidance } from './guidance.js';
 import { applyOrchestrate } from './orchestrate.js';
+import { applyDirectorHostApi } from './host-api.js';
 import { createSettingsSnapshot, installDirectorSettings } from './settings.js';
 
 export { Config } from './config.js';
@@ -63,6 +64,15 @@ export {
 } from './orchestrate.js';
 export { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 export {
+  applyDirectorActivityEvent,
+} from './activity.js';
+export {
+  type DirectorActivityEntry,
+  type DirectorActivityProjection,
+  type DirectorActivitySnapshot,
+  type SubagentDirectorHost,
+} from './blue-contract.js';
+export {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
   SettingsSchema,
   validateDirectorSettings,
@@ -73,7 +83,7 @@ export {
 
 export const name = 'subagent-director';
 
-export const inject = ['tools', 'subagents', 'llm', 'settings'];
+export const inject = ['tools', 'subagents', 'agents', 'llm', 'settings'];
 
 export function apply(ctx: Context, config: import('./config.js').DirectorConfig) {
   const backgroundMode = config.backgroundMode ?? 'one-shot';
@@ -93,6 +103,10 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   installDirectorSettings(ctx, {}, settingsSnapshot.hooks);
   const getSettings = settingsSnapshot.get;
 
+  // Host-owned mutations and renderer-neutral activity reads are shared by
+  // native frontends without changing the Web bridge/client path.
+  const directorHost = applyDirectorHostApi(ctx, config, getSettings);
+
   // ---- default route seam ------------------------------------------------
   // 把 settings 里的默认 provider/model 应用到一切未显式指定模型的子代理
   // 启动（内置 subagent/subagent_fork 等），实现"无感生效"；卸载时由
@@ -105,7 +119,9 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   applyGuidance(ctx, getSettings, toolName);
 
   // ---- orchestrate command + projection + prompt section ----------------
-  applyOrchestrate(ctx, getSettings, toolName);
+  applyOrchestrate(ctx, getSettings, toolName, (session, mode) => {
+    directorHost.setOrchestrate(session as import('@deepseek-ai/dsh-session').Session, mode);
+  });
 
   // ---- close_subagent tool ----------------------------------------------
   // Provider-independent (drain is a global subagents operation), so it

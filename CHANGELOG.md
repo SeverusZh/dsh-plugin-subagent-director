@@ -2,6 +2,32 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- Blue Public Beta `1.0.0-beta.1` frontend：由 `/orchestrate on|off` 控制显隐的
+  只读 Director pane，以及由 `/director` 打开的 tabs 表单式角色 CRUD overlay；
+- canonical `blue.plugin.json`、`./blue` package export、精确 capability/resource 声明；
+- Host 侧 renderer-neutral activity snapshot 与 action service。
+
+### 兼容性
+
+- Blue entry 与 Web bridge 均采用 headless-safe child Fiber，互不替换；原 React
+  settings、remote bridge、model dock 和 Web close action 保持原实现；
+- activity 只折叠既有 `tool/call` / `tool/result`，不新增会话事件类型。
+
+### 修复
+
+- Blue frontend 早于 Director Host service 激活时改为响应式订阅，`/orchestrate on|off`
+  能可靠刷新 pane 显隐；
+- 角色 overlay 在窄终端固定保留 tabs 行并限制高度，表单内部滚动且不覆盖编辑器。
+- Blue 侧栏、角色管理、通知、校验错误与 `/orchestrate` 用户文案统一为中文；协议标识保持原值。
+
+### 测试
+
+- 新增 activity fold 和真实 Cordis Blue entry 生命周期测试；总计 243 个用例。
+
 ## [0.4.0-beta.1] - 2026-08-30
 
 ### 新增

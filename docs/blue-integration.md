@@ -1,164 +1,257 @@
-# Subagent Director x Blue 联调草案
+# Subagent Director x Blue Public Beta 联调
 
-> 状态：协作草案（P0）。本文用于与 Subagent Director 作者确认集成方向，不代表
-> Blue 原生 UI 或插件契约已经定稿。
+> 状态：本地协作实现，目标 Blue `0.1.1-rc.2` / protocol
+> `1.0.0-beta.1`。当前不修改 Blue，不代表稳定版兼容承诺。
 
-## 目标与边界
+## 已实现
 
-这次集成优先验证 Subagent Director 的 Host 领域能力能否作为普通 Harness 插件在
-Blue 中运行，并提供可重复的本地安装、回归和手工验收路径。当前不修改 Blue，也不
-引入 `@dsh-blue/*` 依赖；Blue 仍在独立演进，插件 API 的 P5+ 能力稳定后再决定原生
-TUI surface、manifest 和 marketplace 的最终形态。
+本分支保留原有 Host、Web bridge 和 React client，并新增一个独立的 Blue frontend：
 
-验证基线：
+- `/orchestrate on` 时显示只读 Director pane，`off` 时隐藏，窄终端自动移到底部；
+- `/director` 打开中文角色管理 overlay，以左右键选择角色或 `+ 新建角色` tab，按 Enter 激活；
+- 每个角色 tab 是可保存、删除的表单；
+- pane 只显示当前 session、模型、委派配置、角色数和 Director activity；
+- 角色保存/删除结果通知；
+- canonical `blue.plugin.json`、`./blue` export 和 capability/resource 声明；
+- Blue/Web/headless 三种宿主的独立生命周期。
 
-- Subagent Director：`585fd090969b9b33dd91971f98127837ae1779b4`
-  （`0.4.0-beta.1`，本分支从该提交开始）；
-- Blue：`1b080a6f517020e4a1af78be684c1074e049d5e1`；
-- DeepSeek Harness：`0.1.1-rc.2`。
+Activity 数据由 Director Host 自有的 renderer-neutral snapshot 提供：Host 按当前
+Agent 的既有 `tool/call` / `tool/result` 增量折叠，Blue frontend 只读取这个窄化
+service，不读取 raw session events。Blue 通过 Public Beta `session.read` 确定当前
+session，并订阅 owner 恢复后的 replay。仅在尚未拿到 identity 且 Host 恰好只有一个
+非 subagent 根 Agent 时，Host 才采用该唯一根 Agent，不在多会话之间猜测。
+`subagent_role` 的结果通过官方 `presentationMeta` 保存结构化
+child/job/run id；模型可见 output 和原 Web render 文本没有变化，也不写新的自定义
+activity event。
 
-## 结论
+## 为什么不影响 Web
 
-项目的核心设计适合接入 Blue。角色解析、路由回退、默认 subagent route、设置热更新、
-工具注册和 `/orchestrate` 都位于 Host/Cordis 层，没有与 React 设置页强耦合。将 Web
-bridge 临时禁用后，已经在隔离 Blue profile 中确认：Blue 能正常启动和退出，
-`/orchestrate on` 可执行，`close_subagent` 能进入工具目录。
+bundle 中三个 entry 各自拥有生命周期：
 
-原版的唯一 P0 启动阻塞是 bridge 把 `webServer` 声明成 loader entry 的必需依赖。
-Blue 是 headless/TUI host，不提供该服务，于是 Harness 启动审计报告：
+| Entry | 作用 | 非目标宿主行为 |
+| --- | --- | --- |
+| `dsh-plugin-subagent-director` | Host 工具、路由、activity snapshot、action service | 所有宿主正常运行 |
+| `dsh-plugin-subagent-director/bridge` | Web settings HTTP bridge | 无 `webServer` 时由 child Fiber 等待 |
+| `dsh-plugin-subagent-director/blue` | Blue 只读 pane、角色 overlay、command | 无 `bluePluginHost` 时由 child Fiber 等待 |
+
+Blue entry 的运行时代码不导入 `@dsh-blue/*`；相关 import 全部是 TypeScript
+type-only。因此只安装 Web profile 时，不会因缺少 Blue 包而发生模块加载失败。原有
+React client 的 `dsh.client` 配置、remote route、settings section、model dock 和
+close action 均未替换。
+
+## 最快看到效果
+
+下面是给项目维护者的主测试路径。它只创建一个 Blue profile，并把 fork checkout 以
+`link:` 方式装进去，不修改 Blue 源码，也不发布任何 npm 包。
+
+### 1. 准备环境
+
+- Node.js `^22.19.0 || >=24.0.0`；
+- Git；
+- npm 可访问 npm registry。
+
+安装 pnpm 和精确版本的 Blue，不能使用 `latest` 或浮动的 `rc` tag：
+
+```bash
+npm i -g pnpm@11
+npm i -g @dsh-blue/blue-cli@0.1.1-rc.2
+blue
+```
+
+第一次启动会初始化 `blue` profile。看到 Blue 主界面后输入 `/quit` 退出。
+
+> 如果 npm 返回 `E404`，说明 `0.1.1-rc.2` 尚未发布，请等待该精确版本发布，不要换用
+> 其他 Blue 版本测试这个分支。
+
+### 2. 下载并构建插件
+
+复制执行下面整段命令：
+
+```bash
+mkdir director-blue-preview
+cd director-blue-preview
+
+git clone https://github.com/dsh-blue/blue.git blue
+git -C blue checkout 1b080a6f517020e4a1af78be684c1074e049d5e1
+
+git clone https://github.com/dsh-blue/dsh-plugin-subagent-director.git subagent-director-blue
+git -C subagent-director-blue switch blue-integration-p0
+
+npm --prefix subagent-director-blue install
+npm --prefix subagent-director-blue run build
+```
+
+最终目录应为：
 
 ```text
-dsh: 1 entry did not activate
-dsh-plugin-subagent-director/bridge: pending (waiting for service: webServer)
+director-blue-preview/
+  blue/
+  subagent-director-blue/
 ```
 
-本分支将 bridge entry 改成正常激活，再由 Cordis child fiber 动态等待
-`webServer`。因此 headless profile 不再留下 pending loader entry；Web profile 中
-route 仍会在服务出现时挂载，并随服务或插件卸载自动清理。
+同级 `blue/` 只用于提供 `0.1.1-rc.2` Public Beta 的编译期 TypeScript 类型；插件
+不会修改或从该 checkout 启动 Blue。等 `@dsh-blue/blue-api@0.1.1-rc.2` 发布并将
+devDependency 切换到 registry 版本后，这个临时步骤即可删除。
 
-## 兼容与适配矩阵
+### 3. 安装插件并启动
 
-| 能力 | 当前状态 | Blue 集成判断 |
-| --- | --- | --- |
-| Host 主条目 | 已兼容 | `tools`、`settings`、`llm`、`subagents` 均走 Harness 公共服务 |
-| `subagent_role` | 已兼容 | 可被模型调用，角色 persona、route 和 tool filter 在 Host 层生效 |
-| 默认 route | 已兼容 | `applyDefaultRoute` 能覆盖未显式选模型的内置 subagent 调用 |
-| `close_subagent` | 已兼容 | 已进入 Blue 工具目录；依赖官方 subagent/agent 服务 |
-| `/orchestrate` | 基本兼容 | 命令与 projection 可运行，但会话可移植性仍有上游限制 |
-| 设置热更新 | 已兼容 | 可直接编辑 profile 的 `settings.yaml`，无需重启 |
-| Web bridge | 本分支修复 P0 | loader headless-safe；只让 route child fiber 等待 `webServer` |
-| React 设置页 | 尚未适配 | Blue 是 TUI，不能复用 DSH Web 的 React slots/settings surface |
-| Blue `/settings` | 尚未适配 | 当前不会自动渲染第三方 namespace 的角色 CRUD |
-| Agents pane | 尚未适配 | 当前事实模型只识别 `subagent` / `subagent_fork`，不会识别可配置的 `subagent_role` |
-| 模型 dock / close action | 尚未适配 | Web client slot 不会自动迁移到 Blue TUI，需要独立 surface 或扩展点 |
-| Blue manifest / marketplace | 暂缓 | 等 Blue 插件契约继续稳定，避免提前绑定 P5+ API |
-
-## 本地安装与测试
-
-以下命令使用一个隔离 profile，不修改 Blue 源码。两个 source 变量必须是绝对路径；
-本地 checkout 需要先构建，并保留自己的 `node_modules` 以解析 peer dependencies。
+仍在 `director-blue-preview/` 目录执行：
 
 ```bash
-export BLUE_SOURCE=/absolute/path/to/blue
-export DIRECTOR_SOURCE=/absolute/path/to/dsh-plugin-subagent-director
-export BLUE_TEST_PROFILE=blue-director-dev
-
-npm --prefix "$DIRECTOR_SOURCE" ci
-npm --prefix "$DIRECTOR_SOURCE" run build
-
-PROFILE="$BLUE_TEST_PROFILE" \
-DSH_BIN="$(command -v dsh)" \
-bash "$BLUE_SOURCE/script/install-dev.sh"
-
-dsh plugin --profile "$BLUE_TEST_PROFILE" add "link:$DIRECTOR_SOURCE"
-dsh --profile "$BLUE_TEST_PROFILE"
+blue plugin add "link:$PWD/subagent-director-blue"
+blue
 ```
 
-`install-dev.sh` 只负责把当前 Blue checkout 安装到指定 profile；随后 `link:` 安装
-Subagent Director 自己的 bundle patch。重复联调时，在代码改动后重新执行插件的
-`build`，再重启该 profile；bundle patch 变更时应重新执行 `dsh plugin add`。
+成功启动时不应出现 `entry did not activate`、pending entry 或
+`ERR_MODULE_NOT_FOUND`。Director pane 默认隐藏，这是正常状态。
 
-### 自动回归
+### 4. 创建两个演示角色
 
-在 Subagent Director checkout 中运行：
+1. 输入 `/director` 打开“角色管理”。
+2. 用左右键选中 `+ 新建角色`，按 Enter 打开表单。
+3. 按下面的字段创建并保存两个角色；供应商、模型和工具过滤可以留空。
+
+| 角色 ID | 显示名称 | 职责描述 | 角色设定 |
+| --- | --- | --- | --- |
+| `researcher` | 研究分析员 | 调研明确的问题、比较证据并报告包含不确定性的结论 | 优先使用一手证据，区分事实与推断，并说明不确定性。 |
+| `code-reviewer` | 代码审查员 | 审查正确性、回归风险、安全性、可维护性与测试缺口 | 按严重程度列出问题，引用具体证据，并区分阻塞项与改进建议。 |
+
+保存后关闭角色管理，再次执行 `/director` 应能看到两个角色 tab。
+
+### 5. 运行双角色委派演示
+
+输入 `/orchestrate on`。宽终端右侧应出现只读“子代理编排器”面板；然后发送：
+
+```text
+请勿亲自分析。请在同一轮并行调用两次 subagent_role：
+1. role=researcher，description="调研交互取舍"，分析左右键选择后 Enter 激活的优缺点；
+2. role=code-reviewer，description="审查集成风险"，检查启动竞态、状态同步和 Web 回归风险；
+两次调用都设置 run_in_background=false。等待两者完成后，只汇总它们的结论并列出剩余风险。
+```
+
+测试通过的判断：
+
+- 模型确实调用了两次 `subagent_role`；
+- “委派活动”出现“调研交互取舍”和“审查集成风险”两条记录；
+- 两个子代理结果返回后，主代理只汇总结果；
+- `/orchestrate off` 能立即隐藏状态面板，再次 `on` 能重新显示。
+
+![Blue 预览测试效果](assets/blue-preview.png)
+
+### 6. 后续重测或卸载
+
+修改插件源码后，只需重新构建并重启：
 
 ```bash
+npm --prefix subagent-director-blue run build
+blue
+```
+
+如果改动了 `package.json`、`cordis.patch.yml` 或 `blue.plugin.json`，先重新执行
+`blue plugin add "link:$PWD/subagent-director-blue"`。测试结束后可卸载：
+
+```bash
+blue plugin remove dsh-plugin-subagent-director
+```
+
+## 维护者自动验证
+
+在上述双 checkout 布局中执行：
+
+```bash
+cd /absolute/path/to/director-blue-preview/subagent-director-blue
 npm test
 npm run typecheck
 npm run build
+
+node ../blue/script/blue-plugin-validate.mjs "$PWD"
+npm pack --dry-run
 ```
 
-新增的真实 Cordis 测试会验证 bridge entry 在没有 `webServer` 时已经 ACTIVE，
-服务稍后出现时 route 能注册，服务或插件卸载时 route disposer 会执行。
+预期结果：243 个测试通过；validator 报告 `valid: true`，并且
+`manifest.discovered`、`manifest.valid`、`lifecycle` 均为 `true`。打包清单应包含
+`blue.plugin.json`、`lib/blue-entry.js`、`lib/activity.js`、本文档和预览截图。
 
-### 手工验收
+## 已知 UI 缺陷
 
-1. 启动时不出现 `pending (waiting for service: webServer)` 或
-   `entry did not activate`。
-2. 在 `/tools` 中确认 `subagent_role` 和 `close_subagent` 可见。
-3. 分别执行 `/orchestrate on` 和 `/orchestrate off`，确认返回成功。
-4. 在 profile 的 `settings.yaml` 中配置至少一个角色，让模型通过
-   `subagent_role` 完成一次真实委派。
-5. 运行期间修改该角色的 persona 或 route，再次委派，确认无需重启即可生效。
-6. 用 `/quit` 退出，再恢复刚才的普通会话，确认 session 基本流程正常。
+这是供维护者评估交互方向的预览 UI，不是最终设计。`/director` 面板目前仍在调整：
 
-建议测试配置：
+- 窄终端会将放不下的角色 tab 折叠为 `+N`，信息可见性仍需优化；
+- 长表单依赖内部滚动，焦点位置与滚动反馈仍可继续打磨；
+- Public Beta 只在 Enter 激活后发送 `tab-change`，所以左右键移动不能立即换表单。
 
-```yaml
-subagent-director:
-  roles:
-    reviewer:
-      displayName: Reviewer
-      description: Review a change and return prioritized findings
-      persona: Review rigorously. Lead with findings and cite concrete evidence.
-```
+维护者可以选择不合并本 PR，也可以在现有 Host/API 接线基础上自行修改或替换 UI；
+预览实现不要求项目接受当前视觉方案。
 
-## 针对 Blue 仍需完成的适配
+## 真人验收清单
 
-### 1. 配置 surface
+### Blue TUI
 
-Host namespace 和热更新已经可用，但 Blue 用户目前只能手动编辑 `settings.yaml`。
-后续应基于 Blue 的稳定插件 surface 提供默认 provider/model、角色 CRUD、persona 与
-tool filter 编辑。这里应复用 Subagent Director 的 schema/领域逻辑，不复制一套配置
-状态，也不能假设 Web React 组件可以直接运行在 TUI。
+1. 启动时没有 `entry did not activate` 或 pending entry，Director pane 默认不显示。
+2. 执行 `/director`，确认出现角色 tabs；左右键选择现有角色或 `+ 新建角色`，按 Enter 后切换表单。
+3. 每个现有角色显示一张完整表单；修改角色设定、模型供应商或模型后选择“保存”，再次打开确认值一致。
+4. 在 `+ 新建角色` 新建角色，确认中文通知成功、tab 立即出现、`settings.yaml` 已持久化。
+5. 删除测试角色，确认需要二次确认，随后 tab 消失。
+6. 执行 `/orchestrate on`，确认宽终端右侧出现只读 Director pane；其中没有 tabs、选择项或操作按钮。
+7. 让模型调用 `subagent_role`，确认 pane 的“委派活动”区出现任务说明、角色和状态。
+8. 执行 `/orchestrate off`，确认 pane 隐藏；再次 on 后恢复显示。
+9. 窄终端 on 时 pane 移到底部且文字不重叠，off 时不占布局空间。
+10. 用 `/quit` 退出，再以同一条普通委派 session 执行 `--resume`，确认 Activity 从 session log 重建。
 
-### 2. Subagent 可观测性
+建议至少检查 `120x36`、`80x28`、`40x24` 三种终端尺寸。
 
-Blue 当前 agents pane 在事实提取层硬编码识别 `subagent` 和 `subagent_fork`。
-`subagent_role` 的工具名又允许配置，因此简单把第三个名字写入 Blue 仍不够通用。
-更合适的方向是由插件声明/发布 delegation activity，或由 Blue 提供可扩展的事实与
-pane surface。这样角色名、任务、运行状态、实际 provider/model 和 close action 都能
-由插件按自己的语义呈现。
+### Web 回归
 
-### 3. Web 专属交互
+在独立 Web profile 用同一 checkout 安装并启动：
 
-现有 React client 提供角色设置、实际模型 dock 和关闭 continuable subagent 的按钮。
-这些能力依赖 DSH Web 的 slots、connection 和 remote bridge，不会因为 Host 插件安装
-而自动出现在 Blue。Blue 侧需要等价的 TUI 交互，但 Host API 应继续复用现有
-settings/subagent/session seams，避免建立第二套业务协议。
+1. 启动时 Blue entry 不应 pending，也不应报 `@dsh-blue/*` 模块缺失。
+2. 原 Subagent Director 设置页可打开，角色 CRUD 正常。
+3. 修改角色后 Host 热更新正常。
+4. 子代理模型 dock 和 Web close action 正常。
+5. `/subagent-director` bridge route 随 Web 启动挂载，profile 退出时清理。
 
-### 4. `/orchestrate` 会话可移植性
+### Headless 回归
 
-命令会写入自定义 `orchestrate/change` 事件。没有安装插件的 profile 无法识别该事件，
-可能拒绝加载相应会话；这不是 Blue 专属问题。建议等待 Harness 提供第三方事件注册或
-ignorable 事件的正式 API，再把它视为跨 profile 可移植能力。在此之前，测试时不要用
-重要会话验证卸载流程。
+启动普通 headless profile，确认：
 
-### 5. 打包与生态元数据
+- Host delegation 工具正常注册；
+- Web bridge 和 Blue frontend 的外层 entry 均为 ACTIVE；
+- 它们各自的可选 child Fiber 等待宿主服务，不阻塞启动或退出。
 
-当前 Harness bundle 已足以用 `dsh plugin add link:...` 联调。Blue 原生 manifest、
-能力声明、兼容版本和 marketplace 信息应在相关契约稳定后补充；当前分支不添加
-Blue 私有依赖，也不要求 Blue 仓库为该插件增加特例。
+## Public Beta 边界
 
-## 希望与作者确认
+当前仍不能实现的是接入 Blue 原生 agents pane/tool presentation。Blue Public Beta
+catalog 没有第三方 tool-presentation 或 conversation-extension capability，现有 agents
+事实提取也只理解内置 `subagent` / `subagent_fork`。本实现因此使用独立 Director
+pane，不在 Blue 仓库硬编码可配置的 `subagent_role` 工具名。
 
-1. 是否认可把 bridge 改为“entry 正常激活 + child fiber 动态 attach Web”的生命周期
-   语义，并作为上游通用 headless 修复？
-2. Blue 的配置 surface 是否应该完整复刻角色 CRUD，还是先以 settings 文件和只读状态
-   为主，等真实使用反馈后再扩展？
-3. Subagent Director 的 activity 是否适合拥有独立 pane/surface，而不是让 Blue 将
-   可配置工具名硬编码为内置 subagent？
-4. `/orchestrate` 的跨 profile 会话可移植性是否同意记录为 Harness 上游能力等待项？
+### Blue API/renderer 待补能力
 
-我们的倾向是保持作者现有领域边界：Subagent Director 继续拥有角色、路由与编排语义，
-Blue 只提供稳定的 TUI surface 和宿主能力，不在 Blue 内复制插件逻辑。
+Public Beta 的 tabs 仅在用户按 Enter 激活后向插件发送 `tab-change`；左右键移动的
+只是 renderer 内部焦点，插件收不到焦点变化事件，也没有“焦点即激活”的声明选项。
+因此当前交互必须是“左右键选择、Enter 切换表单”。若要做到左右键移动时立即切换，
+Blue 后续需要补充 tab focus-change 事件或等价的 activate-on-focus 契约，插件再据此
+刷新 active tab。这是已记录的 API/renderer 能力缺口，不通过修改 Blue 私有实现绕过。
+
+另外还有三个非功能阻塞：
+
+- Marketplace 一键安装属于后续生态阶段，本地用 `link:` 安装；
+- API 仍为 Public Beta，Blue 后续版本可能要求迁移 manifest/API；
+- one-shot background 的 activity 只能确认 job 已委派，当前 snapshot 不冒充 job
+  已完成状态；Blue pane 刻意保持只读。continuable child 仍可通过项目原有的
+  `close_subagent` 工具释放，Web 会话页原有 Release action 保持不变。
+
+恢复测试还有一个项目既有边界：写入过 `/orchestrate` 的 session 当前不能可靠
+resume，Harness 可能在插件注册 `orchestrate/change` 事件类型之前校验日志并报告
+unknown event。普通 `subagent_role` 委派 session 可以恢复。真人验收第 10 项必须使用
+未执行过 `/orchestrate` 的 session；该限制不应被 Blue 适配文档掩盖。
+
+## 希望作者确认
+
+1. 由 `/orchestrate on|off` 控制只读 Director pane 显隐，是否符合项目的运行期产品意图？
+2. Blue 角色表单当前编辑核心字段并保留既有 `toolFilter`，是否应在下一步加入完整
+   allow/deny 工具选择器？
+3. Host activity snapshot 基于现有 tool events 和 `presentationMeta`，不新增 session
+   event，这个持久化边界是否合适？
+4. 是否认可 Web bridge、Blue frontend 都采用“外层 entry 正常激活 + child Fiber
+   等待宿主能力”的对称生命周期？

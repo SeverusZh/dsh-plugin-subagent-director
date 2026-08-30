@@ -433,6 +433,10 @@ export function createDelegationTool(options: {
         ],
       },
       render: (_args, value) => [{ type: 'text', text: renderDelegationResult(value, toolName) }],
+      // Persist the already-validated result as tool-private metadata. Host
+      // projections can correlate async child/job ids without parsing display
+      // text; model-visible output and the existing Web UI remain unchanged.
+      presentationMeta: (_args, value) => value,
     },
     isConcurrencySafe: () => true,
     async execute(args: DelegationToolArgs, exec) {

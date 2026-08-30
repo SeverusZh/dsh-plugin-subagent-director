@@ -1,7 +1,8 @@
 # dsh-plugin-subagent-director bundle patch.
 #
-# Adds the plugin's two entries: the main entry and the settings bridge that
-# exposes the `subagent-director` settings namespace to the Web UI.
+# Adds the main entry, the Web settings bridge, and a headless-safe Blue entry.
+# The Blue entry waits in a child Fiber when bluePluginHost is absent, so Web
+# and headless profiles keep their existing activation path.
 # Install: dsh plugin --profile <name> add dsh-plugin-subagent-director
 # Restart `dsh --profile <name>` after installing.
 - insert:
@@ -10,3 +11,6 @@
 - insert:
     - id: subagent-director-bridge
       name: dsh-plugin-subagent-director/bridge
+- insert:
+    - id: subagent-director-blue
+      name: dsh-plugin-subagent-director/blue

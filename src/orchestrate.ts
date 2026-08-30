@@ -149,6 +149,7 @@ export function applyOrchestrate(
   ctx: Context,
   getSettings: () => SubagentDirectorSettings,
   toolName: string,
+  onModeChange?: (session: { append(type: string, data: unknown): unknown }, mode: OrchestrateMode) => void,
 ): void {
   // Register our event type on the shared KNOWN set so session logs carrying
   // `orchestrate/change` load in any boot that mounts this plugin.
@@ -248,12 +249,12 @@ export function applyOrchestrate(
     const commands: any = injectedCtx.get('commands');
     commands.register({
       name: 'orchestrate',
-      description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team. No args defaults to "on".',
-      input: { hint: 'on|off (no args = on)' },
+      description: '开启或关闭纯编排模式，将任务委派给子代理团队；不填参数时默认为 on。',
+      input: { hint: 'on|off（不填默认为 on）' },
       handler: (invocation: any) => {
         const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
         if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
-          return { kind: 'error', text: `Invalid: "${invocation.rawInput}". Valid: on|off` };
+          return { kind: 'error', text: `无效参数：“${invocation.rawInput}”。可用值：on|off` };
         }
         // Without sessionProjections the projection is never registered, so
         // /orchestrate cannot take effect. Refuse with an honest message
@@ -266,8 +267,8 @@ export function applyOrchestrate(
           return {
             kind: 'error',
             text:
-              `Orchestrator mode "${mode}" was NOT applied: the sessionProjections service is missing on this host, so /orchestrate has no effect and the orchestrator prompt will not inject. ` +
-              `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
+              `编排模式“${mode}”未生效：当前宿主缺少 sessionProjections 服务，因此 /orchestrate 无法写入状态，也不会注入编排提示。` +
+              `请提供 dsh-session-projection 的 sessionProjections 服务后重试。`,
           };
         }
         const session = invocation?.agent?.session;
@@ -275,11 +276,12 @@ export function applyOrchestrate(
           return {
             kind: 'error',
             text:
-              `Orchestrator mode "${mode}" was NOT applied: this command invocation carries no agent session to append the mode change to.`,
+              `编排模式“${mode}”未生效：当前命令调用没有可写入模式变更的代理会话。`,
           };
         }
         session.append(ORCHESTRATE_EVENT_TYPE, { mode });
-        return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
+        onModeChange?.(session, mode as OrchestrateMode);
+        return { kind: 'success', text: mode === 'off' ? '编排模式：已关闭' : '编排模式：已开启' };
       },
     });
   });
@@ -365,4 +367,3 @@ export function applyOrchestrate(
     });
   }
 }
-
