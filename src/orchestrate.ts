@@ -121,9 +121,26 @@ export function applyOrchestrate(
     ctx.logger.warn('[orchestrate] could not register event type:', (err as Error)?.message);
   }
 
-  const projections: any = ctx.get('sessionProjections');
-  if (projections !== undefined) {
-    projections.register({
+  // Resolve sessionProjections *reactively*. At plugin apply time the host
+  // may not have mounted the sessionProjections service yet — that is the P0
+  // timing root cause: a one-shot `ctx.get` here returned undefined and
+  // silently no-op'd the projection registration, so /orchestrate never
+  // injected. Instead we register the projection the moment the service becomes
+  // available via ctx.inject, and keep `projections` in a closure so the
+  // command handler and prompt section observe it once it resolves. If the
+  // service is genuinely absent the handler (and the apply-time fallback)
+  // surface an honest error instead of a silent no-op.
+  let projections: any = undefined;
+
+  const missing = (): void =>
+    ctx.logger.warn(
+      '[orchestrate] sessionProjections service is missing on this host — the /orchestrate command will NOT take effect (no projection registered, orchestrator prompt will not inject). Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.',
+    );
+
+  const registerProjection = (sp: any): void => {
+    if (projections !== undefined) return; // idempotent: inject may re-fire
+    projections = sp;
+    sp.register({
       key: ORCHESTRATE_PROJECTION_KEY,
       stateVersion: 1,
       // Wire-shape contract: the framework calls `schema.parse(view(state))` on
@@ -141,14 +158,27 @@ export function applyOrchestrate(
       view: (state: OrchestrateState) => ({ mode: state.mode }),
     });
     ctx.logger.info('[orchestrate] host active (command + projection + prompt section)');
+  };
+
+  const spNow: any = ctx.get('sessionProjections');
+  if (spNow !== undefined) {
+    registerProjection(spNow);
+  } else if (typeof (ctx as any).inject === 'function') {
+    // Reactive path: register once the host mounts sessionProjections. The
+    // callback only runs when the dependency is present, so this also covers
+    // the "ready slightly later" case that the one-shot get missed. If the
+    // service never appears, the handler below returns an honest error — no
+    // silent no-op.
+    const fiber = (ctx as any).inject(['sessionProjections'], (injectedCtx: Context) => {
+      registerProjection(injectedCtx.get('sessionProjections'));
+    });
+    if (fiber && typeof (fiber as any).dispose === 'function') {
+      ctx.effect(() => (fiber as any).dispose(), 'subagent-director:orchestrate-projection-inject');
+    }
   } else {
-    // Loud failure (P0 silent-degradation fix): without sessionProjections the
-    // projection can never be registered, so /orchestrate is a silent no-op.
-    // Surface it instead of letting /orchestrate on claim success while nothing
-    // actually takes effect.
-    ctx.logger.warn(
-      '[orchestrate] sessionProjections service is missing on this host — the /orchestrate command will NOT take effect (no projection registered, orchestrator prompt will not inject). Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.',
-    );
+    // No reactive mechanism available and the service is absent now: surface
+    // the missing service loudly (P0 honest-degradation guard).
+    missing();
   }
 
   const commands: any = ctx.get('commands');
@@ -166,6 +196,10 @@ export function applyOrchestrate(
         // /orchestrate cannot take effect. Refuse with an honest message
         // instead of falsely reporting success (P0 silent-degradation fix).
         if (projections === undefined) {
+          // Service never became available (truly absent host): refuse with an
+          // honest message and warn, instead of falsely reporting success (P0
+          // silent-degradation fix).
+          missing();
           return {
             kind: 'error',
             text:

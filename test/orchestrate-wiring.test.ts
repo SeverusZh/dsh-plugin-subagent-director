@@ -222,3 +222,101 @@ describe('applyOrchestrate — event registration', () => {
     expect(KNOWN_SESSION_EVENT_TYPES.has(ORCHESTRATE_EVENT_TYPE)).toBe(true);
   });
 });
+
+describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing fix)', () => {
+  // Simulates a host where sessionProjections is absent at apply time but the
+  // ctx.inject callback fires once the host mounts the service *later*. Mirrors
+  // the cordis ctx.inject contract: callback runs with an injected ctx once the
+  // dependency is present, and returns a disposable fiber.
+  function makeFakeCtxDeferred() {
+    const state = { mode: 'off' as string, throws: false };
+    const registeredSections: any[] = [];
+    const registeredCommands: any[] = [];
+    let projectionDef: any = undefined;
+    let mounted = false;
+    let injectCb: ((ctx: any) => void) | undefined;
+
+    const sessionProjections = {
+      register(def: any) {
+        projectionDef = def;
+        return () => {};
+      },
+      snapshot(_session: any) {
+        if (state.throws) throw new Error('forced snapshot failure');
+        return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: { mode: state.mode } } };
+      },
+    };
+    const systemPrompt = { section(def: any) { registeredSections.push(def); return () => {}; } };
+    const commands = { register(def: any) { registeredCommands.push(def); return () => {}; } };
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const ctx: any = {
+      logger,
+      get(name: string) {
+        if (name === 'sessionProjections') return mounted ? sessionProjections : undefined;
+        if (name === 'systemPrompt') return systemPrompt;
+        if (name === 'commands') return commands;
+        return undefined;
+      },
+      inject(_deps: string[], cb: (ctx: any) => void) {
+        injectCb = cb;
+        return { dispose: () => { injectCb = undefined; } };
+      },
+      effect: () => () => {},
+    };
+    return {
+      ctx,
+      registeredSections,
+      registeredCommands,
+      getProjectionDef: () => projectionDef,
+      state,
+      logger,
+      // Simulate the host mounting the service after apply time.
+      mountSessionProjections: () => {
+        mounted = true;
+        injectCb?.(ctx);
+      },
+    };
+  }
+
+  it('does not register the projection until the service becomes available', () => {
+    const fake = makeFakeCtxDeferred();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    // Service absent at apply time → no projection yet, no false warning.
+    expect(fake.getProjectionDef()).toBeUndefined();
+    expect(fake.logger.warn).not.toHaveBeenCalled();
+    // Host mounts the service later → inject callback registers it.
+    fake.mountSessionProjections();
+    expect(fake.getProjectionDef()).toBeDefined();
+    expect(fake.getProjectionDef().key).toBe(ORCHESTRATE_PROJECTION_KEY);
+    expect(typeof fake.getProjectionDef().schema?.parse).toBe('function');
+  });
+
+  it('returns an honest error before the service is ready, success after', () => {
+    const fake = makeFakeCtxDeferred();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const handler = fake.registeredCommands[0].handler;
+    const before = handler({ rawInput: 'on', agent: { session: { append: () => {} } } });
+    expect(before.kind).toBe('error');
+    expect(before.text).toMatch(/NOT applied|missing|will NOT take effect/i);
+    fake.mountSessionProjections();
+    const appended: any[] = [];
+    const after = handler({
+      rawInput: 'on',
+      agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } },
+    });
+    expect(after.kind).toBe('success');
+    expect(after.text).toContain('on');
+    expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'on' }]]);
+  });
+
+  it('injects the orchestrator prompt only after the projection is registered', () => {
+    const fake = makeFakeCtxDeferred();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    fake.state.mode = 'on';
+    // Before the service mounts, the section cannot read the projection.
+    expect(fake.registeredSections[0].text({ agent: { session: { id: 's1' } } })).toBe('');
+    fake.mountSessionProjections();
+    expect(fake.registeredSections[0].text({ agent: { session: { id: 's1' } } })).toContain('PURE ORCHESTRATOR');
+  });
+});
+
