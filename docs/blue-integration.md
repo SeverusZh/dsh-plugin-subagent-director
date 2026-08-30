@@ -60,45 +60,24 @@ blue
 
 第一次启动会初始化 `blue` profile。看到 Blue 主界面后输入 `/quit` 退出。
 
-> 如果 npm 返回 `E404`，说明 `0.1.1-rc.2` 尚未发布，请等待该精确版本发布，不要换用
-> 其他 Blue 版本测试这个分支。
-
 ### 2. 下载并构建插件
 
 复制执行下面整段命令：
 
 ```bash
-mkdir director-blue-preview
-cd director-blue-preview
-
-git clone https://github.com/dsh-blue/blue.git blue
-git -C blue checkout 1b080a6f517020e4a1af78be684c1074e049d5e1
-
-git clone https://github.com/dsh-blue/dsh-plugin-subagent-director.git subagent-director-blue
-git -C subagent-director-blue switch blue-integration-p0
-
-npm --prefix subagent-director-blue install
-npm --prefix subagent-director-blue run build
+git clone https://github.com/dsh-blue/dsh-plugin-subagent-director.git
+cd dsh-plugin-subagent-director
+git switch blue-integration-p0
+npm install
+npm run build
 ```
-
-最终目录应为：
-
-```text
-director-blue-preview/
-  blue/
-  subagent-director-blue/
-```
-
-同级 `blue/` 只用于提供 `0.1.1-rc.2` Public Beta 的编译期 TypeScript 类型；插件
-不会修改或从该 checkout 启动 Blue。等 `@dsh-blue/blue-api@0.1.1-rc.2` 发布并将
-devDependency 切换到 registry 版本后，这个临时步骤即可删除。
 
 ### 3. 安装插件并启动
 
-仍在 `director-blue-preview/` 目录执行：
+仍在插件仓库目录执行：
 
 ```bash
-blue plugin add "link:$PWD/subagent-director-blue"
+blue plugin add "link:$PWD"
 blue
 ```
 
@@ -143,12 +122,12 @@ blue
 修改插件源码后，只需重新构建并重启：
 
 ```bash
-npm --prefix subagent-director-blue run build
+npm run build
 blue
 ```
 
 如果改动了 `package.json`、`cordis.patch.yml` 或 `blue.plugin.json`，先重新执行
-`blue plugin add "link:$PWD/subagent-director-blue"`。测试结束后可卸载：
+`blue plugin add "link:$PWD"`。测试结束后可卸载：
 
 ```bash
 blue plugin remove dsh-plugin-subagent-director
@@ -156,21 +135,19 @@ blue plugin remove dsh-plugin-subagent-director
 
 ## 维护者自动验证
 
-在上述双 checkout 布局中执行：
+在插件仓库中执行：
 
 ```bash
-cd /absolute/path/to/director-blue-preview/subagent-director-blue
 npm test
 npm run typecheck
 npm run build
-
-node ../blue/script/blue-plugin-validate.mjs "$PWD"
 npm pack --dry-run
 ```
 
-预期结果：243 个测试通过；validator 报告 `valid: true`，并且
-`manifest.discovered`、`manifest.valid`、`lifecycle` 均为 `true`。打包清单应包含
-`blue.plugin.json`、`lib/blue-entry.js`、`lib/activity.js`、本文档和预览截图。
+预期结果：243 个测试通过，打包清单包含 `blue.plugin.json`、
+`lib/blue-entry.js`、`lib/activity.js`、本文档和预览截图。若本地还有 Blue 源码
+checkout，可以额外运行它的 `script/blue-plugin-validate.mjs <插件绝对路径>`；本分支
+当前验证结果为 `valid: true`，且 manifest 与 lifecycle 检查均通过。
 
 ## 已知 UI 缺陷
 

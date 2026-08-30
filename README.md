@@ -61,25 +61,18 @@ blue
 首次进入后执行 `/quit`。然后复制执行下面整段命令来构建、安装并再次启动：
 
 ```bash
-mkdir director-blue-preview
-cd director-blue-preview
-git clone https://github.com/dsh-blue/blue.git blue
-git -C blue checkout 1b080a6f517020e4a1af78be684c1074e049d5e1
-git clone https://github.com/dsh-blue/dsh-plugin-subagent-director.git subagent-director-blue
-git -C subagent-director-blue switch blue-integration-p0
-
-npm --prefix subagent-director-blue install
-npm --prefix subagent-director-blue run build
-blue plugin add "link:$PWD/subagent-director-blue"
+git clone https://github.com/dsh-blue/dsh-plugin-subagent-director.git
+cd dsh-plugin-subagent-director
+git switch blue-integration-p0
+npm install
+npm run build
+blue plugin add "link:$PWD"
 blue
 ```
 
 进入 Blue 后执行 `/director` 新建角色，再执行 `/orchestrate on` 显示只读状态面板。
 完整的角色字段、双角色并行委派提示词、成功判断和卸载方法见
 [Blue Public Beta 联调文档](docs/blue-integration.md)。
-
-> 当前分支只在编译期从同级 `blue/` 读取 Public Beta API 类型，不会修改或运行这份
-> Blue 源码。API npm 包发布并切换 devDependency 后即可去掉这一步。
 
 ![Blue 预览测试效果](docs/assets/blue-preview.png)
 
