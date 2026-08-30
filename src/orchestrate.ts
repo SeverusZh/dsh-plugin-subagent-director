@@ -143,11 +143,15 @@ export function applyOrchestrate(
     sp.register({
       key: ORCHESTRATE_PROJECTION_KEY,
       stateVersion: 1,
-      // Wire-shape contract: the framework calls `schema.parse(view(state))` on
-      // every snapshot (see dsh-session-projection SessionProjectionRegistry).
-      // Omitting it throws at snapshot time — which the section's read used to
-      // swallow silently, so /orchestrate on never injected. Keep it.
-      schema: z.object({ mode: z.enum(ORCHESTRATE_VALID_MODES) }),
+      // Real @deepseek-ai/dsh-session-projection contract (SessionProjectionRegistry):
+      // `stateSchema` validates host state (persisted-cache restore path); a
+      // client-visible unit MUST declare `wire: { viewSchema, view }` or
+      // `snapshot()` SKIPS it entirely (`if (def.wire === undefined) continue`),
+      // so `snapshot().values['orchestrate']` is never populated and the prompt
+      // section always reads undefined → no injection. The prior `schema` + bare
+      // `view` made this a host-only unit — the actual root cause of the
+      // on==off byte-identical system prompts. Fix: declare both correctly.
+      stateSchema: z.object({ mode: z.enum(ORCHESTRATE_VALID_MODES) }),
       init: (): OrchestrateState => ({ mode: 'off' }),
       apply: (state: OrchestrateState, event: any): OrchestrateState => {
         if (!event || event.type !== ORCHESTRATE_EVENT_TYPE) return state;
@@ -155,7 +159,10 @@ export function applyOrchestrate(
         if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode) || state.mode === mode) return state;
         return { mode: mode as OrchestrateMode };
       },
-      view: (state: OrchestrateState) => ({ mode: state.mode }),
+      wire: {
+        viewSchema: z.object({ mode: z.enum(ORCHESTRATE_VALID_MODES) }),
+        view: (state: OrchestrateState) => ({ mode: state.mode }),
+      },
     });
     ctx.logger.info('[orchestrate] host active (command + projection + prompt section)');
   };

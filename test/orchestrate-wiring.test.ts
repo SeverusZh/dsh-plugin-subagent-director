@@ -3,9 +3,10 @@
  *
  * Pins the real host contracts discovered in @deepseek-ai/dsh-session-projection
  * and @deepseek-ai/dsh-system-prompt:
- *  - the projection `register` definition MUST carry a `schema` (the framework
- *    calls `schema.parse(view(state))` on every snapshot; without it the
- *    section silently fails to inject — the D1 root cause);
+ *  - the projection `register` definition MUST carry `stateSchema` (host-state
+ *    validation) AND `wire: { viewSchema, view }`; without `wire` the unit is
+ *    host-only and `snapshot()` skips it, so the section silently fails to
+ *    inject (the actual root cause — the prior `schema`+bare-`view` mock hid it);
  *  - the system-prompt section `text(context)` receives an AssembleContext that
  *    carries `agent` at runtime (dsh-agent assembleContextFor), and must also
  *    accept a bare `context.session` (D2 fallback);
@@ -54,8 +55,14 @@ function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boole
     },
     snapshot(sessionArg: any) {
       if (state.throws) throw new Error('forced snapshot failure');
+      // Faithful mirror of SessionProjectionRegistry.snapshot: client-visible
+      // units (with `wire`) appear in values; host-only units (no `wire`) are
+      // skipped — the real root-cause skip that hid the bug.
+      if (!projectionDef || projectionDef.wire === undefined) {
+        return { asOfSeq: -1, values: {} };
+      }
       if (!opts.identityKeyed) {
-        return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: { mode: state.mode } } };
+        return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: projectionDef.wire.viewSchema.parse(projectionDef.wire.view({ mode: state.mode })) } };
       }
       let cell = cells.get(sessionArg);
       if (!cell) {
@@ -65,7 +72,7 @@ function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boole
         }
         cells.set(sessionArg, cell);
       }
-      const value = projectionDef.schema.parse(projectionDef.view({ mode: cell.mode }));
+      const value = projectionDef.wire.viewSchema.parse(projectionDef.wire.view({ mode: cell.mode }));
       return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: value } };
     },
   };
@@ -185,10 +192,14 @@ describe('applyOrchestrate — projection register', () => {
     const def = getProjectionDef();
     expect(def).toBeDefined();
     expect(def.key).toBe(ORCHESTRATE_PROJECTION_KEY);
-    expect(typeof def.schema?.parse).toBe('function');
-    // the schema validates the view output the framework re-parses on snapshot
-    expect(def.schema.parse({ mode: 'on' })).toEqual({ mode: 'on' });
-    expect(() => def.schema.parse({ mode: 'bad' })).toThrow();
+    // Real contract: host-state validation lives in `stateSchema`; the
+    // client-visible unit MUST also declare `wire: { viewSchema, view }`.
+    expect(typeof def.stateSchema?.parse).toBe('function');
+    expect(def.stateSchema.parse({ mode: 'on' })).toEqual({ mode: 'on' });
+    expect(() => def.stateSchema.parse({ mode: 'bad' })).toThrow();
+    expect(typeof def.wire?.viewSchema?.parse).toBe('function');
+    expect(def.wire.viewSchema.parse({ mode: 'on' })).toEqual({ mode: 'on' });
+    expect(() => def.wire.viewSchema.parse({ mode: 'bad' })).toThrow();
   });
 
   it('apply folds the orchestrate/change event into the mode state', () => {
@@ -334,7 +345,10 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
       },
       snapshot(_session: any) {
         if (state.throws) throw new Error('forced snapshot failure');
-        return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: { mode: state.mode } } };
+        if (!projectionDef || projectionDef.wire === undefined) {
+          return { asOfSeq: -1, values: {} };
+        }
+        return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: projectionDef.wire.viewSchema.parse(projectionDef.wire.view({ mode: state.mode })) } };
       },
     };
     const systemPrompt = { section(def: any) { registeredSections.push(def); return () => {}; } };
@@ -379,7 +393,7 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
     fake.mountSessionProjections();
     expect(fake.getProjectionDef()).toBeDefined();
     expect(fake.getProjectionDef().key).toBe(ORCHESTRATE_PROJECTION_KEY);
-    expect(typeof fake.getProjectionDef().schema?.parse).toBe('function');
+    expect(typeof fake.getProjectionDef().wire?.viewSchema?.parse).toBe('function');
   });
 
   it('returns an honest error before the service is ready, success after', () => {
