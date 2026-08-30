@@ -9,7 +9,7 @@
   <img alt="Awesome DSH Plugin" src="https://awesome-dsh-plugin.com/badge.svg">
 </p>
 
-[English](#english) · [特性](#特性) · [快速开始](#快速开始) · [角色模板](#角色模板) · [术语](#术语) · [开发](#开发) · [FAQ](#faq)
+[English](#english) · [特性](#特性) · [快速开始](#快速开始) · [角色模板](#角色模板) · [Blue 联调](docs/blue-integration.md) · [术语](#术语) · [开发](#开发) · [FAQ](#faq)
 
 ---
 
@@ -156,7 +156,7 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 ```bash
 npm install
-npm test          # vitest（233 用例）
+npm test          # vitest（235 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
@@ -164,7 +164,7 @@ npm run build     # host(tsc) + client(rolldown bundle)
 ## FAQ
 
 **为什么需要两个插件条目？**
-DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插件通过自注册的 `/subagent-director` HTTP 路由桥接自己的命名空间，而该路由依赖的 webServer 服务只能经 cordis `inject` 获取，因此拆成独立的 `subagent-director-bridge` 条目（无 Web 的 headless 场景它会自动不激活，主条目不受影响）。
+DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插件通过自注册的 `/subagent-director` HTTP 路由桥接自己的命名空间，而该路由依赖的 webServer 服务只能经 cordis `inject` 获取，因此拆成独立的 `subagent-director-bridge` 条目。bridge 条目本身在无 Web 的 headless 场景也会正常激活，只有负责 HTTP route 的子 Fiber 等待可选的 `webServer`，不会阻塞 profile 启动。
 
 **未配置任何角色时行为如何？**
 未配置任何角色且未配置默认模型时与未安装本插件完全一致（零侵入）。配置了
