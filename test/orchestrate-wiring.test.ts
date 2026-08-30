@@ -22,6 +22,7 @@ import {
   ORCHESTRATE_PROJECTION_KEY,
   ORCHESTRATE_EVENT_TYPE,
 } from '../src/orchestrate.js';
+import { inject as pluginInject, name as pluginName } from '../src/index.js';
 import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session';
 
 const settings = {
@@ -30,11 +31,21 @@ const settings = {
 const getSettings = () => settings;
 const toolName = 'subagent_role';
 
-function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boolean } = {}) {
+function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boolean; withoutCommands?: boolean } = {}) {
   const state = { mode: 'off' as string, throws: false };
   const registeredSections: any[] = [];
   const registeredCommands: any[] = [];
   let projectionDef: any = undefined;
+  // When `withoutCommands` is set, the host does NOT provide the `commands`
+  // service at apply time; it can be mounted later via `mountCommands()` to
+  // exercise the reactive (ctx.inject) registration path.
+  let commandsMounted = !opts.withoutCommands;
+  const pendingInjects: { deps: string[]; cb: (ctx: any) => void }[] = [];
+  const mountCommands = () => {
+    commandsMounted = true;
+    const pending = pendingInjects.splice(0, pendingInjects.length);
+    pending.forEach((p) => p.cb(ctx));
+  };
   // Mirrors @deepseek-ai/dsh-session-projection's real WeakMap keyed by the
   // session OBJECT (cellFor reads registration.cells.get(session) and folds
   // session.events). When identityKeyed, snapshot() resolves the mode from the
@@ -92,20 +103,31 @@ function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boole
   const ctx: any = {
     logger,
     get(name: string) {
+      if (name === 'commands') return commandsMounted ? commands : undefined;
       if (opts.withoutProjections) {
         // Simulate a host that does not provide the sessionProjections
         // service (P0 silent-degradation path): commands/systemPrompt may
         // still exist, but sessionProjections is absent.
         if (name === 'sessionProjections') return undefined;
         if (name === 'systemPrompt') return systemPrompt;
-        if (name === 'commands') return commands;
         return undefined;
       }
       if (name === 'sessionProjections') return sessionProjections;
       if (name === 'systemPrompt') return systemPrompt;
-      if (name === 'commands') return commands;
       return undefined;
     },
+    inject(deps: string[], cb: (ctx: any) => void) {
+      // Faithful cordis ctx.inject contract: fire immediately when every dep
+      // is resolvable; otherwise defer (capture) until the host mounts it.
+      if (deps.every((d) => ctx.get(d) !== undefined)) {
+        cb(ctx);
+      } else {
+        pendingInjects.push({ deps, cb });
+      }
+      return { dispose: () => {} };
+    },
+    // No-op effect: test fakes don't need real lifecycle tracking.
+    effect: () => () => {},
   };
   return {
     ctx,
@@ -115,6 +137,7 @@ function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boole
     sessionProjections,
     state,
     logger,
+    mountCommands,
   };
 }
 
@@ -288,13 +311,18 @@ describe('applyOrchestrate — command handler', () => {
 });
 
 describe('applyOrchestrate — missing sessionProjections service (P0)', () => {
-  it('logs a loud warning when sessionProjections is missing', () => {
-    const { ctx, logger } = makeFakeCtx({ withoutProjections: true });
+  it('surfaces an honest error (with warning) when /orchestrate is used without sessionProjections', () => {
+    const { ctx, registeredCommands, logger } = makeFakeCtx({ withoutProjections: true });
     applyOrchestrate(ctx, getSettings, toolName);
-    expect(logger.warn).toHaveBeenCalledTimes(1);
-    const msg = String(logger.warn.mock.calls[0][0]);
+    // The command still registers (commands service is present on this host).
+    expect(registeredCommands[0]).toBeDefined();
+    const res = registeredCommands[0].handler({ rawInput: 'on', agent: { session: { append: () => {} } } });
+    expect(res.kind).toBe('error');
+    expect(res.text).toMatch(/NOT applied|will NOT take effect|missing|not take effect/i);
+    // The honest-degradation warning fires when the command is actually used.
+    expect(logger.warn).toHaveBeenCalled();
+    const msg = String(logger.warn.mock.calls.at(-1)?.[0]);
     expect(msg).toContain('sessionProjections');
-    expect(msg).toMatch(/orchestrate|will NOT take effect|not take effect/i);
   });
 
   it('does NOT falsely report success for /orchestrate on when the service is missing', () => {
@@ -337,6 +365,7 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
     let projectionDef: any = undefined;
     let mounted = false;
     let injectCb: ((ctx: any) => void) | undefined;
+    const pending: ((ctx: any) => void)[] = [];
 
     const sessionProjections = {
       register(def: any) {
@@ -363,8 +392,13 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
         return undefined;
       },
       inject(_deps: string[], cb: (ctx: any) => void) {
-        injectCb = cb;
-        return { dispose: () => { injectCb = undefined; } };
+        // Faithful cordis contract: fire immediately when resolvable, else defer.
+        if (_deps.every((d) => ctx.get(d) !== undefined)) {
+          cb(ctx);
+        } else {
+          pending.push(cb);
+        }
+        return { dispose: () => {} };
       },
       effect: () => () => {},
     };
@@ -378,7 +412,8 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
       // Simulate the host mounting the service after apply time.
       mountSessionProjections: () => {
         mounted = true;
-        injectCb?.(ctx);
+        const toFire = pending.splice(0, pending.length);
+        toFire.forEach((cb) => cb(ctx));
       },
     };
   }
@@ -422,6 +457,49 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
     expect(fake.registeredSections[0].text({ agent: { session: { id: 's1' } } })).toBe('');
     fake.mountSessionProjections();
     expect(fake.registeredSections[0].text({ agent: { session: { id: 's1' } } })).toContain('PURE ORCHESTRATOR');
+  });
+});
+
+describe('plugin entry — inject contract (blocker #1: commands service declared)', () => {
+  it('declares the commands service in inject so cordis can satisfy it before apply', () => {
+    expect(pluginName).toBe('subagent-director');
+    // The headless/web host mounts `commands`; declaring it in inject makes the
+    // dependency explicit (cordis required-service semantics) instead of a
+    // silent ctx.get that no-ops on hosts where it mounts late.
+    expect(pluginInject).toContain('commands');
+    expect(pluginInject).toContain('tools');
+    expect(pluginInject).toContain('subagents');
+    expect(pluginInject).toContain('llm');
+    expect(pluginInject).toContain('settings');
+  });
+});
+
+describe('applyOrchestrate — command registration is reactive (delayed commands service)', () => {
+  // Pins the blocker #1 fix: the /orchestrate command is registered through
+  // ctx.inject, so it appears only once the `commands` service is ready — not
+  // via a one-shot ctx.get guard that silently no-ops.
+  it('does not register until the commands service becomes available, then registers', () => {
+    const { ctx, registeredCommands, mountCommands } = makeFakeCtx({ withoutCommands: true });
+    applyOrchestrate(ctx, getSettings, toolName);
+    // At apply time the commands service is absent — no command registered yet.
+    expect(registeredCommands).toHaveLength(0);
+    // Host mounts the commands service later → the ctx.inject callback fires.
+    mountCommands();
+    expect(registeredCommands).toHaveLength(1);
+    expect(registeredCommands[0].name).toBe('orchestrate');
+  });
+
+  it('command handler works after the commands service arrives (full happy path)', () => {
+    const { ctx, registeredCommands, mountCommands, logger } = makeFakeCtx({ withoutCommands: true });
+    applyOrchestrate(ctx, getSettings, toolName);
+    mountCommands();
+    const handler = registeredCommands[0].handler;
+    const appended: any[] = [];
+    const res = handler({ rawInput: 'on', agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } } });
+    expect(res.kind).toBe('success');
+    expect(res.text).toContain('on');
+    expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'on' }]]);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
 

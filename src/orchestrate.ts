@@ -21,9 +21,12 @@
  * reconfigures roles. When no roles are configured the prompt tells the user
  * to configure them rather than silently emitting an empty section.
  *
- * Service posture mirrors `guidance.ts`: `commands`, `sessionProjections` and
- * `systemPrompt` are optional host-plane rows acquired through `ctx.get` with
- * `undefined` guards, so the wiring no-ops cleanly on surfaces that lack them.
+ * Service posture mirrors `guidance.ts`: `commands` and `sessionProjections` are
+ * acquired reactively through `ctx.inject` (so the `/orchestrate` command and the
+ * projection register as soon as the host service is ready, even if it mounts
+ * slightly after `apply`), while `systemPrompt` is still read lazily via
+ * `ctx.get`. A host that never provides `sessionProjections` degrades to an
+ * honest error from the command handler rather than a silent no-op.
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { z } from 'zod';
@@ -196,36 +199,52 @@ export function applyOrchestrate(
     missing();
   }
 
-  const commands: any = ctx.get('commands');
-  if (commands !== undefined) {
-    commands.register({
-      name: 'orchestrate',
-      description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team. No args defaults to "on".',
-      input: { hint: 'on|off (no args = on)' },
-      handler: (invocation: any) => {
-        const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
-        if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
-          return { kind: 'error', text: `Invalid: "${invocation.rawInput}". Valid: on|off` };
-        }
-        // Without sessionProjections the projection is never registered, so
-        // /orchestrate cannot take effect. Refuse with an honest message
-        // instead of falsely reporting success (P0 silent-degradation fix).
-        if (projections === undefined) {
-          // Service never became available (truly absent host): refuse with an
-          // honest message and warn, instead of falsely reporting success (P0
-          // silent-degradation fix).
-          missing();
-          return {
-            kind: 'error',
-            text:
-              `Orchestrator mode "${mode}" was NOT applied: the sessionProjections service is missing on this host, so /orchestrate has no effect and the orchestrator prompt will not inject. ` +
-              `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
-          };
-        }
-        invocation.agent.session.append(ORCHESTRATE_EVENT_TYPE, { mode });
-        return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
-      },
-    });
+  // Register the `/orchestrate` slash command *reactively*: the host's `commands`
+  // service is declared in this plugin's `inject` (so cordis guarantees it is
+  // present before `apply` runs), but we still register through `ctx.inject`
+  // to mirror the sessionProjections fix and the dsh-plan-mode precedent — a
+  // one-shot `ctx.get('commands')` guard is dead code once the dependency is
+  // declared, and cannot recover from a host that mounts `commands` slightly
+  // after `apply`. The handler reads `projections` from the closure, so command
+  // availability and projection availability are decoupled: the handler still
+  // refuses honestly (with a warning) if the projection service never came up.
+  const cmdFiber =
+    typeof (ctx as any).inject === 'function'
+      ? (ctx as any).inject(['commands'], (injectedCtx: Context) => {
+          const commands: any = injectedCtx.get('commands');
+          commands.register({
+            name: 'orchestrate',
+            description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team. No args defaults to "on".',
+            input: { hint: 'on|off (no args = on)' },
+            handler: (invocation: any) => {
+              const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
+              if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
+                return { kind: 'error', text: `Invalid: "${invocation.rawInput}". Valid: on|off` };
+              }
+              // Without sessionProjections the projection is never registered, so
+              // /orchestrate cannot take effect. Refuse with an honest message
+              // instead of falsely reporting success (P0 silent-degradation fix).
+              if (projections === undefined) {
+                // Service never became available (truly absent host): refuse with an
+                // honest message and warn, instead of falsely reporting success (P0
+                // silent-degradation fix).
+                missing();
+                return {
+                  kind: 'error',
+                  text:
+                    `Orchestrator mode "${mode}" was NOT applied: the sessionProjections service is missing on this host, so /orchestrate has no effect and the orchestrator prompt will not inject. ` +
+                    `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
+                };
+              }
+              invocation.agent.session.append(ORCHESTRATE_EVENT_TYPE, { mode });
+              return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
+            },
+          });
+        })
+      : undefined;
+
+  if (cmdFiber && typeof (cmdFiber as any).dispose === 'function') {
+    ctx.effect(() => (cmdFiber as any).dispose(), 'subagent-director:orchestrate-command-inject');
   }
 
   const systemPrompt: any = ctx.get('systemPrompt');
