@@ -8,7 +8,7 @@
  * delegation tool, whose model-facing name is `config.toolName` (default
  * `subagent_role`) and is threaded in here as `toolName`.
  *
- * Naming caveat (observed on a live rc.8 web host): the assembled tool catalog
+ * Naming caveat (observed on a live 0.1.1-rc.x web host): the assembled tool catalog
  * contains BOTH this plugin's `subagent_role` and the base bundle's built-in
  * `subagent` / `subagent_fork`. They are distinct tools, not two names for one
  * wire entry. The prompt below names `toolName` explicitly precisely because a
@@ -199,15 +199,17 @@ export function applyOrchestrate(
     missing();
   }
 
-  // Register the `/orchestrate` slash command *reactively*: the host's `commands`
-  // service is declared in this plugin's `inject` (so cordis guarantees it is
-  // present before `apply` runs), but we still register through `ctx.inject`
-  // to mirror the sessionProjections fix and the dsh-plan-mode precedent — a
-  // one-shot `ctx.get('commands')` guard is dead code once the dependency is
-  // declared, and cannot recover from a host that mounts `commands` slightly
-  // after `apply`. The handler reads `projections` from the closure, so command
-  // availability and projection availability are decoupled: the handler still
-  // refuses honestly (with a warning) if the projection service never came up.
+  // Register the `/orchestrate` slash command *reactively* through a
+  // `ctx.inject` child fiber (the dsh-plan-mode precedent). `commands` is NOT a
+  // required entry-inject: standard profiles mount it via dsh-base (so the
+  // child fiber activates immediately there), but non-dsh-base assemblies (ACP
+  // hosts, UI-less demo spines, custom harnesses) may never provide it, and a
+  // required inject would leave the whole main entry PENDING on those hosts —
+  // the core delegation features would never load. The child-fiber shape also
+  // recovers from a host that mounts `commands` slightly after `apply`. The
+  // handler reads `projections` from the closure, so command availability and
+  // projection availability are decoupled: the handler still refuses honestly
+  // (with a warning) if the projection service never came up.
   const cmdFiber =
     typeof (ctx as any).inject === 'function'
       ? (ctx as any).inject(['commands'], (injectedCtx: Context) => {
@@ -236,7 +238,15 @@ export function applyOrchestrate(
                     `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
                 };
               }
-              invocation.agent.session.append(ORCHESTRATE_EVENT_TYPE, { mode });
+              const session = invocation?.agent?.session;
+              if (session === undefined || typeof session.append !== 'function') {
+                return {
+                  kind: 'error',
+                  text:
+                    `Orchestrator mode "${mode}" was NOT applied: this command invocation carries no agent session to append the mode change to.`,
+                };
+              }
+              session.append(ORCHESTRATE_EVENT_TYPE, { mode });
               return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
             },
           });

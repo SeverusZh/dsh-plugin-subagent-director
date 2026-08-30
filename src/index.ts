@@ -8,7 +8,10 @@
  * Dependency posture: tools/subagents/llm/settings are required through inject
  * (both web and headless bundles mount the settings service); systemPrompt
  * remains optional and is acquired lazily so its absence does not block the
- * rest. The webServer-dependent HTTP bridge lives in the separate
+ * rest. The /orchestrate command's `commands` dependency likewise stays
+ * optional — acquired reactively (ctx.inject child fiber) in orchestrate.ts,
+ * so hosts without a command registry lose only that command. The
+ * webServer-dependent HTTP bridge lives in the separate
  * \`subagent-director-bridge\` entry (src/bridge-entry.ts).
  *
  * Background modes: 'one-shot' defaults calls to foreground and runs background
@@ -70,7 +73,7 @@ export {
 
 export const name = 'subagent-director';
 
-export const inject = ['tools', 'subagents', 'llm', 'settings', 'commands'];
+export const inject = ['tools', 'subagents', 'llm', 'settings'];
 
 export function apply(ctx: Context, config: import('./config.js').DirectorConfig) {
   const backgroundMode = config.backgroundMode ?? 'one-shot';

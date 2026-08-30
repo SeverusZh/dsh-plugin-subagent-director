@@ -308,6 +308,16 @@ describe('applyOrchestrate — command handler', () => {
     expect(bad.kind).toBe('error');
     expect(bad.text).toContain('Valid: on|off');
   });
+
+  it('returns an honest error when the invocation carries no agent session', () => {
+    const { ctx, registeredCommands } = makeFakeCtx();
+    applyOrchestrate(ctx, getSettings, toolName);
+    const handler = registeredCommands[0].handler;
+    const res = handler({ rawInput: 'on' });
+    expect(res.kind).toBe('error');
+    expect(res.text).toContain('was NOT applied');
+    expect(res.text).toContain('no agent session');
+  });
 });
 
 describe('applyOrchestrate — missing sessionProjections service (P0)', () => {
@@ -460,13 +470,18 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
   });
 });
 
-describe('plugin entry — inject contract (blocker #1: commands service declared)', () => {
-  it('declares the commands service in inject so cordis can satisfy it before apply', () => {
+describe('plugin entry — inject contract (commands stays optional)', () => {
+  it('keeps the main entry free of the commands requirement and acquires it reactively', () => {
     expect(pluginName).toBe('subagent-director');
-    // The headless/web host mounts `commands`; declaring it in inject makes the
-    // dependency explicit (cordis required-service semantics) instead of a
-    // silent ctx.get that no-ops on hosts where it mounts late.
-    expect(pluginInject).toContain('commands');
+    // Standard profiles mount `commands` via dsh-base, but non-dsh-base
+    // assemblies (ACP hosts, UI-less demo spines, custom harnesses) may never
+    // provide it. cordis `inject` is a required-service declaration: listing
+    // `commands` there would leave the whole main entry PENDING on those hosts
+    // (the core delegation features would never load). The /orchestrate command
+    // is instead registered through the reactive `ctx.inject` child fiber in
+    // applyOrchestrate — the dsh-plan-mode precedent — so a missing `commands`
+    // only means no command, not a dead plugin.
+    expect(pluginInject).not.toContain('commands');
     expect(pluginInject).toContain('tools');
     expect(pluginInject).toContain('subagents');
     expect(pluginInject).toContain('llm');

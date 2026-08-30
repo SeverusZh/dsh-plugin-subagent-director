@@ -141,8 +141,9 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 打开后会注入一段「纯编排者」系统提示：主代理只允许通过委派工具派活，角色清单
 从当前 `subagent-director.roles` 动态渲染（无硬编码 role id），未配置角色时提示
-先去配置。该模式依赖宿主的 `commands` 与 `sessionProjections` 服务；服务缺失时
-命令会返回明确错误而不是假装成功。
+先去配置。该模式依赖宿主的 `commands` 与 `sessionProjections` 服务：标准 profile
+（dsh-base）都会提供二者；`sessionProjections` 缺失时命令返回明确错误而不是假装
+成功，`commands` 缺失时命令不注册，插件其余功能不受影响。
 
 ## 术语
 
@@ -155,7 +156,7 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 ```bash
 npm install
-npm test          # vitest（226 用例）
+npm test          # vitest（230 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
