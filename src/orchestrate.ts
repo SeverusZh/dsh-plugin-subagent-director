@@ -30,7 +30,8 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { z } from 'zod';
-import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session';
+import { KNOWN_SESSION_EVENT_TYPES, type SessionEvent } from '@deepseek-ai/dsh-session';
+import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection';
 
 import type { SubagentDirectorSettings } from './settings.js';
 
@@ -52,6 +53,33 @@ export type OrchestrateMode = (typeof ORCHESTRATE_VALID_MODES)[number];
 
 interface OrchestrateState {
   mode: OrchestrateMode;
+}
+
+// Merge the orchestrate unit into the real projection registry maps
+// (@deepseek-ai/dsh-session-projection, 0.1.1 line). This restores
+// compile-time contract protection: register() below is typed against the
+// REAL ProjectionDefinition (stateSchema + wire), so a field-shape drift —
+// like the old `schema`+`view` shape vs the 0.1.1 `stateSchema`+`wire`
+// contract — fails typecheck instead of silently skipping snapshot().
+// Merge the custom event into the session event vocabulary (the plan-mode
+// precedent): 'orchestrate/change' becomes a typed member of SessionEventMap,
+// so the projection's `apply` below narrows event.data to { mode } at compile
+// time instead of reaching through `any`.
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    'orchestrate/change': { mode: OrchestrateMode };
+  }
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionStateMap {
+    /** /orchestrate mode state, folded from `orchestrate/change` events. */
+    orchestrate: OrchestrateState;
+  }
+  interface SessionProjectionMap {
+    /** Client-visible wire payload of the orchestrate projection unit. */
+    orchestrate: { mode: OrchestrateMode };
+  }
 }
 
 /**
@@ -141,17 +169,17 @@ export function applyOrchestrate(
   // command handler and prompt section observe it once it resolves. If the
   // service is genuinely absent the handler (and the apply-time fallback)
   // surface an honest error instead of a silent no-op.
-  let projections: any = undefined;
+  let projections: SessionProjectionRegistry | undefined = undefined;
 
   const missing = (): void =>
     ctx.logger.warn(
       '[orchestrate] sessionProjections service is missing on this host — the /orchestrate command will NOT take effect (no projection registered, orchestrator prompt will not inject). Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.',
     );
 
-  const registerProjection = (sp: any): void => {
+  const registerProjection = (sp: SessionProjectionRegistry): void => {
     if (projections !== undefined) return; // idempotent: inject may re-fire
     projections = sp;
-    sp.register({
+    sp.register<'orchestrate', OrchestrateState>({
       key: ORCHESTRATE_PROJECTION_KEY,
       stateVersion: 1,
       // Real @deepseek-ai/dsh-session-projection contract (SessionProjectionRegistry):
@@ -164,11 +192,11 @@ export function applyOrchestrate(
       // on==off byte-identical system prompts. Fix: declare both correctly.
       stateSchema: z.object({ mode: z.enum(ORCHESTRATE_VALID_MODES) }),
       init: (): OrchestrateState => ({ mode: 'off' }),
-      apply: (state: OrchestrateState, event: any): OrchestrateState => {
+      apply: (state: OrchestrateState, event: SessionEvent): OrchestrateState => {
         if (!event || event.type !== ORCHESTRATE_EVENT_TYPE) return state;
-        const mode = event.data && typeof event.data.mode === 'string' ? event.data.mode : '';
-        if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode) || state.mode === mode) return state;
-        return { mode: mode as OrchestrateMode };
+        const mode = event.data.mode;
+        if (!ORCHESTRATE_VALID_MODES.includes(mode) || state.mode === mode) return state;
+        return { mode };
       },
       wire: {
         viewSchema: z.object({ mode: z.enum(ORCHESTRATE_VALID_MODES) }),
@@ -178,25 +206,26 @@ export function applyOrchestrate(
     ctx.logger.info('[orchestrate] host active (command + projection + prompt section)');
   };
 
-  const spNow: any = ctx.get('sessionProjections');
+  const spNow = ctx.get('sessionProjections') as SessionProjectionRegistry | undefined;
   if (spNow !== undefined) {
     registerProjection(spNow);
-  } else if (typeof (ctx as any).inject === 'function') {
-    // Reactive path: register once the host mounts sessionProjections. The
-    // callback only runs when the dependency is present, so this also covers
-    // the "ready slightly later" case that the one-shot get missed. If the
-    // service never appears, the handler below returns an honest error — no
-    // silent no-op.
-    const fiber = (ctx as any).inject(['sessionProjections'], (injectedCtx: Context) => {
-      registerProjection(injectedCtx.get('sessionProjections'));
-    });
-    if (fiber && typeof (fiber as any).dispose === 'function') {
-      ctx.effect(() => (fiber as any).dispose(), 'subagent-director:orchestrate-projection-inject');
-    }
   } else {
-    // No reactive mechanism available and the service is absent now: surface
-    // the missing service loudly (P0 honest-degradation guard).
-    missing();
+    // Reactive path: register once the host mounts sessionProjections. The
+    // child fiber's callback only runs when the dependency is present, so
+    // this also covers the "ready slightly later" case that the one-shot get
+    // missed. If the service never appears, the handler below returns an
+    // honest error — no silent no-op.
+    //
+    // The child fiber is owned by this plugin's fiber lifecycle (its
+    // registration effect lives on the parent fiber), so it unloads
+    // automatically with the plugin. Do NOT wrap it in ctx.effect: cordis
+    // effects run their callback immediately and treat the return value as
+    // the disposer, so `ctx.effect(() => fiber.dispose())` would unload the
+    // child at birth — pinned by the real-cordis probe in
+    // test/orchestrate-cordis.test.ts.
+    ctx.inject(['sessionProjections'], (injectedCtx: Context) => {
+      registerProjection(injectedCtx.get('sessionProjections')!);
+    });
   }
 
   // Register the `/orchestrate` slash command *reactively* through a
@@ -210,52 +239,50 @@ export function applyOrchestrate(
   // handler reads `projections` from the closure, so command availability and
   // projection availability are decoupled: the handler still refuses honestly
   // (with a warning) if the projection service never came up.
-  const cmdFiber =
-    typeof (ctx as any).inject === 'function'
-      ? (ctx as any).inject(['commands'], (injectedCtx: Context) => {
-          const commands: any = injectedCtx.get('commands');
-          commands.register({
-            name: 'orchestrate',
-            description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team. No args defaults to "on".',
-            input: { hint: 'on|off (no args = on)' },
-            handler: (invocation: any) => {
-              const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
-              if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
-                return { kind: 'error', text: `Invalid: "${invocation.rawInput}". Valid: on|off` };
-              }
-              // Without sessionProjections the projection is never registered, so
-              // /orchestrate cannot take effect. Refuse with an honest message
-              // instead of falsely reporting success (P0 silent-degradation fix).
-              if (projections === undefined) {
-                // Service never became available (truly absent host): refuse with an
-                // honest message and warn, instead of falsely reporting success (P0
-                // silent-degradation fix).
-                missing();
-                return {
-                  kind: 'error',
-                  text:
-                    `Orchestrator mode "${mode}" was NOT applied: the sessionProjections service is missing on this host, so /orchestrate has no effect and the orchestrator prompt will not inject. ` +
-                    `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
-                };
-              }
-              const session = invocation?.agent?.session;
-              if (session === undefined || typeof session.append !== 'function') {
-                return {
-                  kind: 'error',
-                  text:
-                    `Orchestrator mode "${mode}" was NOT applied: this command invocation carries no agent session to append the mode change to.`,
-                };
-              }
-              session.append(ORCHESTRATE_EVENT_TYPE, { mode });
-              return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
-            },
-          });
-        })
-      : undefined;
-
-  if (cmdFiber && typeof (cmdFiber as any).dispose === 'function') {
-    ctx.effect(() => (cmdFiber as any).dispose(), 'subagent-director:orchestrate-command-inject');
-  }
+  // The child fiber is owned by this plugin's fiber lifecycle and unloads
+  // with the plugin — never wrap it in ctx.effect (cordis effects run their
+  // callback immediately and treat the return value as the disposer, so
+  // `ctx.effect(() => fiber.dispose())` would unload the child at birth;
+  // pinned by the real-cordis probe in test/orchestrate-cordis.test.ts).
+  ctx.inject(['commands'], (injectedCtx: Context) => {
+    const commands: any = injectedCtx.get('commands');
+    commands.register({
+      name: 'orchestrate',
+      description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team. No args defaults to "on".',
+      input: { hint: 'on|off (no args = on)' },
+      handler: (invocation: any) => {
+        const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
+        if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
+          return { kind: 'error', text: `Invalid: "${invocation.rawInput}". Valid: on|off` };
+        }
+        // Without sessionProjections the projection is never registered, so
+        // /orchestrate cannot take effect. Refuse with an honest message
+        // instead of falsely reporting success (P0 silent-degradation fix).
+        if (projections === undefined) {
+          // Service never became available (truly absent host): refuse with an
+          // honest message and warn, instead of falsely reporting success (P0
+          // silent-degradation fix).
+          missing();
+          return {
+            kind: 'error',
+            text:
+              `Orchestrator mode "${mode}" was NOT applied: the sessionProjections service is missing on this host, so /orchestrate has no effect and the orchestrator prompt will not inject. ` +
+              `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
+          };
+        }
+        const session = invocation?.agent?.session;
+        if (session === undefined || typeof session.append !== 'function') {
+          return {
+            kind: 'error',
+            text:
+              `Orchestrator mode "${mode}" was NOT applied: this command invocation carries no agent session to append the mode change to.`,
+          };
+        }
+        session.append(ORCHESTRATE_EVENT_TYPE, { mode });
+        return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
+      },
+    });
+  });
 
   const systemPrompt: any = ctx.get('systemPrompt');
   if (systemPrompt !== undefined) {

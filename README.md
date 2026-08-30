@@ -156,7 +156,7 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 ```bash
 npm install
-npm test          # vitest（230 用例）
+npm test          # vitest（233 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
@@ -170,6 +170,14 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 未配置任何角色且未配置默认模型时与未安装本插件完全一致（零侵入）。配置了
 `defaultProvider`/`defaultModel` 且未关闭 `applyDefaultRoute` 时，所有未显式
 指定模型的子代理（含内置工具发起的）都会使用该默认模型。
+
+**用过 `/orchestrate` 的会话，卸载插件后还能打开吗？**
+不能。`/orchestrate` 会在会话日志写入 `orchestrate/change` 事件，而宿主的持久化
+加载校验遇到「未知且未标记 ignorable」的事件类型时会拒绝加载整个日志（避免误解
+日志语义）。插件挂载时会动态注册该事件类型，正常使用不受影响；但在未挂载本插件
+的环境（卸载后、其他 profile）中，这些会话将无法打开。上游暂未提供第三方事件
+类型的官方注册或 `ignorable` 写入 API，此为已知取舍，详见
+[issue #6](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/6)。
 
 **新供应商/API 会自动出现吗？**
 会。设置页订阅了供应商与设置变更事件，在 Models 页新增供应商/API key 后，下拉列表自动刷新，无需重启。
