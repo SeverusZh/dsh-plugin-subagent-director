@@ -2,6 +2,27 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0-beta.1] - 2026-08-30
+
+### 新增
+
+- **纯编排模式（`/orchestrate`）**（PR #3，@WinterSold1er）：`/orchestrate on|off` 命令（无参数默认 on），开启后注入「纯编排者」系统提示——主代理只允许通过 `subagent_role` 委派、禁止亲自读/写/执行，角色清单从 `subagent-director.roles` 动态渲染（无硬编码 role id），未配置角色时提示先配置；`sessionProjections` 服务缺失时命令返回明确错误而非假装成功。
+
+### 修复
+
+- **真实 cordis 探针发现的隐性 bug**（issue #5）：cordis 的 `ctx.effect(fn)` 契约是「立即执行 fn、以返回值为 disposer」，原先包在 effect 里的 `fiber.dispose()` 清理块会把 `/orchestrate` 命令与 projection 的 `ctx.inject` 子 fiber **在创建瞬间卸载**——真实宿主上命令从未注册成功过（既有测试全基于 fake，未覆盖该契约）；子 fiber 本就随父 fiber 生命周期自动卸载，清理块已移除，并由新增的真实 cordis 探针测试永久钉住；
+- **开发/测试环境对齐真实宿主 0.1.1 线**（issue #5）：devDeps 与 peer ranges 由 `0.1.0-rc.6/rc.8` 升至 `^0.1.1-rc.2`（新增 `dsh-session-projection` peer）；projection 注册改用真实类型契约（`SessionEventMap` / `SessionProjectionStateMap` / `SessionProjectionMap` 声明合并 + 类型化 `register`），契约形状漂移现在在 typecheck 期暴露，而不是运行期被 `snapshot()` 静默跳过；
+- 顶层 `inject` 移除 `'commands'`（非 dsh-base 装配上主条目会永久 PENDING、核心委派功能全失效）；命令 handler 增加 `invocation.agent.session` 可选链守卫；
+- 移除未使用的 `@deepseek-ai/dsh-client-schema-form` 依赖（源码零引用，且其 0.1.0 线 peer 链与 0.1.1 线冲突）。
+
+### 测试
+
+- 单元/集成测试由 197 增至 233：`/orchestrate` 功能与接线用例、handler 守卫用例，以及**真实 cordis `Context` + 真实 `SessionProjectionRegistry` 集成探针**（无 commands 服务时主条目正常激活、核心服务缺失时保持 PENDING、commands 后到时命令经真实 `ctx.inject` 子 fiber 响应式注册、projection 经真实 `snapshot()` 驱动 on→off 折叠）。
+
+### 已知取舍
+
+- 用过 `/orchestrate` 的会话在未挂载本插件的 boot（卸载后、其他 profile）中无法加载：上游暂无第三方事件注册 / `ignorable` 写入 API，已在 README FAQ 与 issue #6 记录。
+
 ## [0.3.0] - 2026-08-29
 
 ### 新增
