@@ -25,6 +25,7 @@ import { createDelegationTool } from './delegation-tool.js';
 import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 import { applyDefaultRouteSeam } from './default-route.js';
 import { applyGuidance } from './guidance.js';
+import { applyOrchestrate } from './orchestrate.js';
 import { createSettingsSnapshot, installDirectorSettings } from './settings.js';
 
 export { Config } from './config.js';
@@ -45,6 +46,18 @@ export {
   type SubagentRequestParts,
 } from './delegation-tool.js';
 export { applyGuidance, renderRolesGuidance, GUIDANCE_SECTION_ORDER, GUIDANCE_SECTION_NAME } from './guidance.js';
+export {
+  applyOrchestrate,
+  renderOrchestratorPrompt,
+  renderOrchestratorRoles,
+  buildOrchestratorFrame,
+  ORCHESTRATE_SECTION_NAME,
+  ORCHESTRATE_SECTION_ORDER,
+  ORCHESTRATE_PROJECTION_KEY,
+  ORCHESTRATE_EVENT_TYPE,
+  ORCHESTRATE_VALID_MODES,
+  type OrchestrateMode,
+} from './orchestrate.js';
 export { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 export {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
@@ -57,7 +70,7 @@ export {
 
 export const name = 'subagent-director';
 
-export const inject = ['tools', 'subagents', 'llm', 'settings'];
+export const inject = ['tools', 'subagents', 'llm', 'settings', 'commands'];
 
 export function apply(ctx: Context, config: import('./config.js').DirectorConfig) {
   const backgroundMode = config.backgroundMode ?? 'one-shot';
@@ -87,6 +100,9 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
 
   // ---- role guidance ----------------------------------------------------
   applyGuidance(ctx, getSettings, toolName);
+
+  // ---- orchestrate command + projection + prompt section ----------------
+  applyOrchestrate(ctx, getSettings, toolName);
 
   // ---- close_subagent tool ----------------------------------------------
   // Provider-independent (drain is a global subagents operation), so it
