@@ -293,7 +293,7 @@ describe('applyOrchestrate — command handler', () => {
       agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } },
     });
     expect(res.kind).toBe('success');
-    expect(res.text).toContain('on');
+    expect(res.text).toContain('已开启');
     expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'on' }]]);
   });
 
@@ -303,10 +303,10 @@ describe('applyOrchestrate — command handler', () => {
     const handler = registeredCommands[0].handler;
     const off = handler({ rawInput: 'off', agent: { session: { append: () => {} } } });
     expect(off.kind).toBe('success');
-    expect(off.text).toContain('off');
+    expect(off.text).toContain('已关闭');
     const bad = handler({ rawInput: 'maybe', agent: { session: { append: () => {} } } });
     expect(bad.kind).toBe('error');
-    expect(bad.text).toContain('Valid: on|off');
+    expect(bad.text).toContain('可用值：on|off');
   });
 
   it('returns an honest error when the invocation carries no agent session', () => {
@@ -315,8 +315,8 @@ describe('applyOrchestrate — command handler', () => {
     const handler = registeredCommands[0].handler;
     const res = handler({ rawInput: 'on' });
     expect(res.kind).toBe('error');
-    expect(res.text).toContain('was NOT applied');
-    expect(res.text).toContain('no agent session');
+    expect(res.text).toContain('未生效');
+    expect(res.text).toContain('代理会话');
   });
 });
 
@@ -328,7 +328,7 @@ describe('applyOrchestrate — missing sessionProjections service (P0)', () => {
     expect(registeredCommands[0]).toBeDefined();
     const res = registeredCommands[0].handler({ rawInput: 'on', agent: { session: { append: () => {} } } });
     expect(res.kind).toBe('error');
-    expect(res.text).toMatch(/NOT applied|will NOT take effect|missing|not take effect/i);
+    expect(res.text).toMatch(/未生效|缺少|无法/);
     // The honest-degradation warning fires when the command is actually used.
     expect(logger.warn).toHaveBeenCalled();
     const msg = String(logger.warn.mock.calls.at(-1)?.[0]);
@@ -340,8 +340,8 @@ describe('applyOrchestrate — missing sessionProjections service (P0)', () => {
     applyOrchestrate(ctx, getSettings, toolName);
     const handler = registeredCommands[0].handler;
     const res = handler({ rawInput: 'on', agent: { session: { append: () => {} } } });
-    expect(res.text).not.toContain('Orchestrator mode: on');
-    expect(res.text).toMatch(/NOT applied|will NOT take effect|missing|not take effect/i);
+    expect(res.text).not.toContain('编排模式：已开启');
+    expect(res.text).toMatch(/未生效|缺少|无法/);
   });
 
   it('warns for the off path too when the service is missing', () => {
@@ -349,8 +349,8 @@ describe('applyOrchestrate — missing sessionProjections service (P0)', () => {
     applyOrchestrate(ctx, getSettings, toolName);
     const handler = registeredCommands[0].handler;
     const res = handler({ rawInput: 'off', agent: { session: { append: () => {} } } });
-    expect(res.text).not.toContain('Orchestrator mode: off');
-    expect(res.text).toMatch(/NOT applied|will NOT take effect|missing|not take effect/i);
+    expect(res.text).not.toContain('编排模式：已关闭');
+    expect(res.text).toMatch(/未生效|缺少|无法/);
   });
 });
 
@@ -447,7 +447,7 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
     const handler = fake.registeredCommands[0].handler;
     const before = handler({ rawInput: 'on', agent: { session: { append: () => {} } } });
     expect(before.kind).toBe('error');
-    expect(before.text).toMatch(/NOT applied|missing|will NOT take effect/i);
+    expect(before.text).toMatch(/未生效|缺少|无法/);
     fake.mountSessionProjections();
     const appended: any[] = [];
     const after = handler({
@@ -455,7 +455,7 @@ describe('applyOrchestrate — reactive (deferred) sessionProjections (P0 timing
       agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } },
     });
     expect(after.kind).toBe('success');
-    expect(after.text).toContain('on');
+    expect(after.text).toContain('已开启');
     expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'on' }]]);
   });
 
@@ -484,6 +484,7 @@ describe('plugin entry — inject contract (commands stays optional)', () => {
     expect(pluginInject).not.toContain('commands');
     expect(pluginInject).toContain('tools');
     expect(pluginInject).toContain('subagents');
+    expect(pluginInject).toContain('agents');
     expect(pluginInject).toContain('llm');
     expect(pluginInject).toContain('settings');
   });
@@ -506,15 +507,16 @@ describe('applyOrchestrate — command registration is reactive (delayed command
 
   it('command handler works after the commands service arrives (full happy path)', () => {
     const { ctx, registeredCommands, mountCommands, logger } = makeFakeCtx({ withoutCommands: true });
-    applyOrchestrate(ctx, getSettings, toolName);
+    const onModeChange = vi.fn();
+    applyOrchestrate(ctx, getSettings, toolName, onModeChange);
     mountCommands();
     const handler = registeredCommands[0].handler;
     const appended: any[] = [];
     const res = handler({ rawInput: 'on', agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } } });
     expect(res.kind).toBe('success');
-    expect(res.text).toContain('on');
+    expect(res.text).toContain('已开启');
     expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'on' }]]);
+    expect(onModeChange).toHaveBeenCalledOnce();
     expect(logger.warn).not.toHaveBeenCalled();
   });
 });
-

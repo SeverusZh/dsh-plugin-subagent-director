@@ -8,11 +8,10 @@
  * dsh-client-connection/lib/index.js:479, and a third-party plugin probing
  * ctx.get("webServer") never registers its routes).
  *
- * Load this entry in Web profiles alongside the main entry to enable the
+ * Load this entry alongside the main entry to enable the
  * "/subagent-director" settings bridge that bypasses the apiproxy
- * exposedNamespaces() allowlist. In headless profiles this entry simply never
- * activates (cordis inject waits for webServer, which is absent), so the main
- * entry keeps working there unchanged.
+ * exposedNamespaces() allowlist. The entry itself remains active in headless
+ * profiles; only its child route fiber waits for the optional webServer.
  *
  * Profile patch example (cordis.patch.yml):
  *   - insert:
@@ -25,14 +24,16 @@ import { installDirectorRemoteBridge } from './remote.js';
 /** Cordis plugin name for the bridge entry. */
 export const name = 'subagent-director-bridge';
 
-/** Required services: webServer (route owner), settings (data seam), and the
- * agent/subagent services backing the subagentClose endpoint (drain needs the
- * exact live parent Agent). agents/subagents are dsh-base-level services that
- * every profile mounts; headless profiles never activate this entry because
- * webServer is absent. */
-export const inject = ['webServer', 'settings', 'agents', 'subagents'];
+/** Required host services. webServer is intentionally optional: headless
+ * profiles must activate this loader entry cleanly instead of leaving it in a
+ * PENDING state that fails the host's startup audit. */
+export const inject = ['settings', 'agents', 'subagents'];
 
-/** Register the settings bridge route; dispose on unload. */
+/** Attach the route whenever a webServer is present. Cordis owns the child
+ * fiber, so removing/replacing webServer disposes and re-registers the route,
+ * and unloading this entry cleans the child up as well. */
 export function apply(ctx: Context): void {
-  installDirectorRemoteBridge(ctx);
+  ctx.inject(['webServer'], (webCtx: Context) => {
+    installDirectorRemoteBridge(webCtx);
+  });
 }

@@ -15,8 +15,10 @@
   },
   "files": [
     "lib",
+    "blue.plugin.json",
     "CHANGELOG.md",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "docs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
@@ -37,7 +39,16 @@
     "./bridge": {
       "types": "./lib/bridge-entry.d.ts",
       "default": "./lib/bridge-entry.js"
-    }
+    },
+    "./blue": {
+      "types": "./lib/blue-entry.d.ts",
+      "default": "./lib/blue-entry.js"
+    },
+    "./blue.plugin.json": "./blue.plugin.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "blue": {
+    "manifest": "./blue.plugin.json"
   },
   "dsh": {
     "bundle": {
@@ -85,7 +96,13 @@
     "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-host-apiproxy": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-session-projection": "^0.1.1-rc.2"
+    "@deepseek-ai/dsh-session-projection": "^0.1.1-rc.2",
+    "@dsh-blue/blue-api": "^0.1.1-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@dsh-blue/blue-api": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "react": "^18.2.0",
@@ -110,6 +127,7 @@
     "@deepseek-ai/dsh-host-apiproxy": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-session-projection": "^0.1.1-rc.2",
+    "@dsh-blue/blue-api": "0.1.1-rc.2",
     "rolldown": "^1.2.4",
     "@types/node": "^26.2.0",
     "typescript": "^7.0.2",

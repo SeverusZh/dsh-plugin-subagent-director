@@ -9,7 +9,7 @@
   <img alt="Awesome DSH Plugin" src="https://awesome-dsh-plugin.com/badge.svg">
 </p>
 
-[English](#english) · [特性](#特性) · [快速开始](#快速开始) · [角色模板](#角色模板) · [术语](#术语) · [开发](#开发) · [FAQ](#faq)
+[English](#english) · [特性](#特性) · [快速开始](#快速开始) · [角色模板](#角色模板) · [Blue 联调](docs/blue-integration.md) · [术语](#术语) · [开发](#开发) · [FAQ](#faq)
 
 ---
 
@@ -32,6 +32,9 @@
   （内部调用 DSH 核心 `drainContinuableChildren`）；
 - **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型
   （从会话 `request/header` 记录读取真实路由；读不到时优雅降级）；
+- **Blue Public Beta 前端** —— `/orchestrate on|off` 控制只读 Director pane，
+  `/director` 提供 tabs 表单式角色 CRUD（左右键选择、Enter 激活）；Web UI 保持原实现（本地安装与验收见
+  [Blue 联调文档](docs/blue-integration.md)）；
 
 ## 快速开始
 
@@ -44,11 +47,43 @@ dsh plugin --profile <name> add dsh-plugin-subagent-director
 或本地开发时以 `dsh plugin --profile <name> add link:<绝对路径>` 挂载本地 checkout
 （配置示例见下）。
 
+### Blue Public Beta 预览
+
+本分支提供面向 Blue `0.1.1-rc.2` 的预览实现。先安装 pnpm 和精确版本的 Blue
+启动器：
+
+```bash
+npm i -g pnpm@11
+npm i -g @dsh-blue/blue-cli@0.1.1-rc.2
+blue
+```
+
+首次进入后执行 `/quit`。然后复制执行下面整段命令来构建、安装并再次启动：
+
+```bash
+git clone https://github.com/dsh-blue/dsh-plugin-subagent-director.git
+cd dsh-plugin-subagent-director
+git switch blue-integration-p0
+npm install
+npm run build
+blue plugin add "link:$PWD"
+blue
+```
+
+进入 Blue 后执行 `/director` 新建角色，再执行 `/orchestrate on` 显示只读状态面板。
+完整的角色字段、双角色并行委派提示词、成功判断和卸载方法见
+[Blue Public Beta 联调文档](docs/blue-integration.md)。
+
+![Blue 预览测试效果](docs/assets/blue-preview.png)
+
+> 这是预览 UI。`/director` 面板仍有已知的窄屏 tabs 折叠、表单滚动与焦点呈现问题，
+> 正在继续调整；维护者可以选择暂不合并，也可以直接在此实现上修改或替换 UI。
+
 ### 配置（cordis.patch.yml，可选）
 
-`dsh plugin add` 会通过插件包自带的 `cordis.patch.yml` 自动挂载主条目与桥接条目
-（`subagent-director` / `subagent-director-bridge`，桥接条目用于把设置命名空间
-暴露给 Web UI），**不需要**手动 `insert`。需要覆盖默认配置时按 id 覆盖主条目：
+`dsh plugin add` 会通过插件包自带的 `cordis.patch.yml` 自动挂载 Host 主条目、Web
+桥接条目和可选 Blue 前端条目（`subagent-director` / `subagent-director-bridge` /
+`subagent-director-blue`），**不需要**手动 `insert`。需要覆盖默认配置时按 id 覆盖主条目：
 
 ```yaml
 - id: subagent-director
@@ -62,7 +97,7 @@ dsh plugin --profile <name> add dsh-plugin-subagent-director
     applyDefaultRoute: true      # 默认 true：把默认模型应用到所有未显式指定模型的子代理
 ```
 
-> 注意：不要再用 `- insert:` 添加这两个条目，否则启动会报
+> 注意：不要再用 `- insert:` 添加这三个条目，否则启动会报
 > `duplicate loader entry id`。
 
 ### 安装注意事项
@@ -156,15 +191,15 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 ```bash
 npm install
-npm test          # vitest（233 用例）
+npm test          # vitest（243 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
 
 ## FAQ
 
-**为什么需要两个插件条目？**
-DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插件通过自注册的 `/subagent-director` HTTP 路由桥接自己的命名空间，而该路由依赖的 webServer 服务只能经 cordis `inject` 获取，因此拆成独立的 `subagent-director-bridge` 条目（无 Web 的 headless 场景它会自动不激活，主条目不受影响）。
+**为什么需要三个插件条目？**
+Host 领域逻辑、Web HTTP bridge 和 Blue TUI frontend 依赖不同的宿主能力，因此各自拥有 Cordis 生命周期。bridge 仅在 `webServer` 到达后挂载 route；Blue entry 仅在 `bluePluginHost` 到达后挂载 pane/overlay。两者在能力缺失的 Web、Blue 或 headless 宿主中都不会阻塞主条目启动。
 
 **未配置任何角色时行为如何？**
 未配置任何角色且未配置默认模型时与未安装本插件完全一致（零侵入）。配置了

@@ -6,7 +6,7 @@
  * for the projection seam, the REAL `SessionProjectionRegistry` from the
  * 0.1.1 host line. Three contracts the fakes cannot prove:
  *
- *  1. activation: the plugin entry loads and applies with exactly its four
+ *  1. activation: the plugin entry loads and applies with exactly its five
  *     required services and NO `commands` service — if 'commands' were still
  *     a required entry-inject, this probe's apply() would never run;
  *  2. reactivity: the real `ctx.inject` child fiber fires when a `commands`
@@ -33,6 +33,7 @@ function provideCoreStubs(ctx: Context, toolsRegister: (def: unknown) => () => v
     start: async () => ({}) as never,
     startContinuable: async () => ({}) as never,
   });
+  ctx.provide('agents', { get: () => undefined, list: () => [] });
   ctx.provide('llm', { listProviders: () => [] });
   // installSettingsSection (dsh-settings) only needs register() to return a
   // scope with get()/watch(); there is no settings.yaml behind this probe.
@@ -80,6 +81,7 @@ describe('real cordis probe — entry activation', () => {
       start: async () => ({}) as never,
       startContinuable: async () => ({}) as never,
     });
+    ctx.provide('agents', { get: () => undefined, list: () => [] });
     ctx.provide('settings', {
       register: (_ns: unknown, _schema: unknown, opts: { base: unknown }) => ({
         get: () => opts.base,
