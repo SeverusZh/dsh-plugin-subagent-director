@@ -55,7 +55,7 @@ dsh plugin --profile <name> add dsh-plugin-subagent-director
   name: dsh-plugin-subagent-director
   config:
     subagentProvider: spawn      # 传输：spawn（无父上下文）/ fork（继承父历史）
-    toolName: subagent_role      # 模型可见工具名
+    toolName: subagent_role      # 本插件注册的模型可见工具名（不是内置 subagent）
     enableRunInBackground: true
     backgroundMode: one-shot     # one-shot 或 continuable
     maxDepth: 3
@@ -124,6 +124,26 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 `role` 参数支持用角色 id 或显示名引用：未命中 id 时会按 `displayName` 精确匹配
 （多个同名角色取定义顺序第一个并提示）；建议始终用 id，见系统提示中的 Delegate 行。
 
+> **`subagent_role` 与内置 `subagent` 是两个不同的工具。** 本插件注册的是
+> `subagent_role`（工具名由 `toolName` 配置，默认 `subagent_role`）；DSH 基础
+> bundle 另有内置的 `subagent` / `subagent_fork`，两者在同一次请求的工具清单里
+> **并存**。只有走 `subagent_role` 才会应用角色 persona 与 `toolFilter`；模型改用
+> 内置 `subagent` 时这两项不生效（`applyDefaultRoute` 开启时默认模型仍会生效）。
+> 因此需要角色语义时，请在提示里明确要求调用 `subagent_role`。
+
+### 纯编排模式（`/orchestrate`）
+
+```text
+/orchestrate        # 等价于 /orchestrate on
+/orchestrate on     # 进入纯编排模式
+/orchestrate off    # 退出
+```
+
+打开后会注入一段「纯编排者」系统提示：主代理只允许通过委派工具派活，角色清单
+从当前 `subagent-director.roles` 动态渲染（无硬编码 role id），未配置角色时提示
+先去配置。该模式依赖宿主的 `commands` 与 `sessionProjections` 服务；服务缺失时
+命令会返回明确错误而不是假装成功。
+
 ## 术语
 
 - **subagentProvider（传输）**：`spawn` / `fork` / `acp`——子代理跑在哪条传输链路上；
@@ -135,7 +155,7 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 ```bash
 npm install
-npm test          # vitest（129 用例）
+npm test          # vitest（226 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```

@@ -29,7 +29,17 @@ export interface DirectorConfig {
    */
   subagentProvider?: string;
 
-  /** Model-facing tool name, default 'subagent_role'. Each loaded instance must use a distinct name. */
+  /**
+   * Model-facing tool name for THIS plugin's delegation tool, default
+   * 'subagent_role'. Each loaded instance must use a distinct name.
+   *
+   * Not the same tool as DSH's built-in `subagent` / `subagent_fork`: those are
+   * registered by the base bundle and coexist with this one in the same request
+   * tool catalog. Only calls that go through this name apply role persona and
+   * role `toolFilter`; a model that picks the built-in `subagent` instead gets
+   * neither (the default model route still applies when `applyDefaultRoute` is
+   * on — see below).
+   */
   toolName?: string;
 
   /** Expose `run_in_background` (default true). Disabled instances omit the argument. */

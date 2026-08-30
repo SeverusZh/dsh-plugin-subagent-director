@@ -5,7 +5,15 @@
  * Adds a `/orchestrate on|off` slash command that flips a per-session
  * projection and, when on, injects a pure-orchestrator system-prompt section.
  * The orchestrator delegates exclusively through the subagent-director
- * delegation tool (`subagent_role` by default).
+ * delegation tool, whose model-facing name is `config.toolName` (default
+ * `subagent_role`) and is threaded in here as `toolName`.
+ *
+ * Naming caveat (observed on a live rc.8 web host): the assembled tool catalog
+ * contains BOTH this plugin's `subagent_role` and the base bundle's built-in
+ * `subagent` / `subagent_fork`. They are distinct tools, not two names for one
+ * wire entry. The prompt below names `toolName` explicitly precisely because a
+ * model that reaches for the built-in `subagent` bypasses role persona and role
+ * toolFilter.
  *
  * The role list rendered into the prompt is derived dynamically from the live
  * plugin settings (`subagent-director.roles`) — the same source `guidance.ts`
