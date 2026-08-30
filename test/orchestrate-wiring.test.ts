@@ -29,20 +29,44 @@ const settings = {
 const getSettings = () => settings;
 const toolName = 'subagent_role';
 
-function makeFakeCtx(opts: { withoutProjections?: boolean } = {}) {
+function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boolean } = {}) {
   const state = { mode: 'off' as string, throws: false };
   const registeredSections: any[] = [];
   const registeredCommands: any[] = [];
   let projectionDef: any = undefined;
+  // Mirrors @deepseek-ai/dsh-session-projection's real WeakMap keyed by the
+  // session OBJECT (cellFor reads registration.cells.get(session) and folds
+  // session.events). When identityKeyed, snapshot() resolves the mode from the
+  // candidate session's own event log, so a DIFFERENT session object yields the
+  // init default 'off' — reproducing the render-time silent no-op exactly.
+  const cells = new WeakMap<any, { mode: string }>();
 
   const sessionProjections = {
     register(def: any) {
       projectionDef = def;
       return () => {};
     },
-    snapshot(_session: any) {
+    // Simulate the command appending an event into a (render- or command-time)
+    // session's log, exactly as invocation.agent.session.append does at runtime.
+    appendEvent(sessionArg: any, type: string, data: any) {
+      sessionArg.events = sessionArg.events || [];
+      sessionArg.events.push({ type, data });
+    },
+    snapshot(sessionArg: any) {
       if (state.throws) throw new Error('forced snapshot failure');
-      return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: { mode: state.mode } } };
+      if (!opts.identityKeyed) {
+        return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: { mode: state.mode } } };
+      }
+      let cell = cells.get(sessionArg);
+      if (!cell) {
+        cell = { mode: projectionDef.init().mode };
+        if (sessionArg && Array.isArray(sessionArg.events)) {
+          for (const ev of sessionArg.events) cell.mode = projectionDef.apply({ mode: cell.mode }, ev).mode;
+        }
+        cells.set(sessionArg, cell);
+      }
+      const value = projectionDef.schema.parse(projectionDef.view({ mode: cell.mode }));
+      return { asOfSeq: -1, values: { [ORCHESTRATE_PROJECTION_KEY]: value } };
     },
   };
   const systemPrompt = {
@@ -86,6 +110,73 @@ function makeFakeCtx(opts: { withoutProjections?: boolean } = {}) {
     logger,
   };
 }
+
+describe('applyOrchestrate — render path (session-identity resolution)', () => {
+  // These cases use an identity-keyed fake whose snapshot() folds the candidate
+  // session's own event log, mirroring the real WeakMap-backed registry. They
+  // pin the P0 render-time fix: the section must resolve the mode from a stable
+  // session reference (on wins across candidate references) and must NEVER
+  // silently return '' when the mode cannot be resolved.
+  function buildOnSessions() {
+    const fake = makeFakeCtx({ identityKeyed: true });
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const cmdSession = { id: 'cmd-session', events: [] };
+    // Simulate /orchestrate on: command appends the event to cmdSession's log.
+    fake.sessionProjections.appendEvent(cmdSession, ORCHESTRATE_EVENT_TYPE, { mode: 'on' });
+    return { fake, cmdSession };
+  }
+
+  it('injects when the render agent.session is the same object that received the event', () => {
+    const { fake, cmdSession } = buildOnSessions();
+    const text = fake.registeredSections[0].text({ agent: { session: cmdSession } });
+    expect(text).toContain('PURE ORCHESTRATOR');
+  });
+
+  it('injects even when a stray wrong context.session reference co-exists (on wins across candidates)', () => {
+    const { fake, cmdSession } = buildOnSessions();
+    const wrongSession = { id: 'wrong-session', events: [] };
+    const text = fake.registeredSections[0].text({ agent: { session: cmdSession }, session: wrongSession });
+    expect(text).toContain('PURE ORCHESTRATOR');
+  });
+
+  it('injects regardless of candidate order when the correct session is the bare context.session', () => {
+    const { fake, cmdSession } = buildOnSessions();
+    const wrongSession = { id: 'wrong-session', events: [] };
+    const text = fake.registeredSections[0].text({ session: wrongSession, agent: { session: cmdSession } });
+    expect(text).toContain('PURE ORCHESTRATOR');
+  });
+
+  it('does NOT inject and does NOT warn when mode is legitimately off (resolved from the event log)', () => {
+    const fake = makeFakeCtx({ identityKeyed: true });
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const offSession = { id: 'off-session', events: [] };
+    fake.sessionProjections.appendEvent(offSession, ORCHESTRATE_EVENT_TYPE, { mode: 'off' });
+    const text = fake.registeredSections[0].text({ agent: { session: offSession } });
+    expect(text).toBe('');
+    expect(fake.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('warns (no silent drop) when no session is resolvable from the context', () => {
+    const { fake } = buildOnSessions();
+    const text = fake.registeredSections[0].text({});
+    expect(text).toBe('');
+    expect(fake.logger.warn).toHaveBeenCalled();
+    const msg = String(fake.logger.warn.mock.calls.at(-1)?.[0]);
+    expect(msg).toContain('[orchestrate]');
+    expect(msg).toMatch(/session|context|skipped/i);
+  });
+
+  it('warns (no silent drop) when the render session identity never received the event', () => {
+    const { fake, cmdSession } = buildOnSessions();
+    // Render with a DIFFERENT session object that has no orchestrate/change log.
+    const stranger = { id: 'stranger', events: [] };
+    const text = fake.registeredSections[0].text({ agent: { session: stranger } });
+    expect(text).toBe('');
+    // cmdSession still holds 'on'; the section should NOT silently pretend off.
+    const cmdText = fake.registeredSections[0].text({ agent: { session: cmdSession } });
+    expect(cmdText).toContain('PURE ORCHESTRATOR');
+  });
+});
 
 describe('applyOrchestrate — projection register', () => {
   it('registers a definition that includes a schema (snapshot contract)', () => {

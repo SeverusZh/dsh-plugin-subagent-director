@@ -219,21 +219,76 @@ export function applyOrchestrate(
       name: ORCHESTRATE_SECTION_NAME,
       order: ORCHESTRATE_SECTION_ORDER,
       text: (context: any) => {
-        // Host passes the assembly context (AssembleContext) with `agent` set
-        // at runtime (see dsh-agent assembleContextFor). Some hosts may instead
-        // hand `session` directly, so accept either shape (D2).
-        const session = context?.session || context?.agent?.session;
-        if (!session || projections === undefined) return '';
-        let mode: OrchestrateMode = 'off';
-        try {
-          const value = projections.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY];
-          if (value && typeof value.mode === 'string') mode = value.mode as OrchestrateMode;
-        } catch (err) {
-          // Surface the failure instead of silently dropping the prompt (D1).
-          ctx.logger.warn('[orchestrate] could not read orchestrator mode from projection:', (err as Error)?.message);
-          mode = 'off';
+        // Root-cause note (P0 render-time silent no-op, sibling of C1):
+        // @deepseek-ai/dsh-session-projection's read face keys its per-session
+        // watermark cache by the SESSION OBJECT via a WeakMap and folds
+        // `session.events` (see cellFor/buildCell in the package's lib/index.js).
+        // A snapshot therefore reads the mode ONLY from the live Session object
+        // whose `.events` log carries the `orchestrate/change` event that the
+        // /orchestrate command appended. If the assembly context hands a
+        // DIFFERENT session reference (e.g. a request wrapper instead of the
+        // agent's own session), the cell is rebuilt from an empty log and
+        // silently returns 'off', dropping the section. We must hand the
+        // canonical session object — and try every session reference the
+        // context exposes so a stray wrapper reference cannot downgrade us.
+        const sessionCandidates: any[] = [];
+        if (context?.agent?.session) sessionCandidates.push(context.agent.session);
+        if (context?.session && context.session !== context?.agent?.session) {
+          sessionCandidates.push(context.session);
         }
-        if (mode === 'off') return '';
+
+        if (sessionCandidates.length === 0) {
+          // No resolvable session — cannot read the projection. Warn instead of
+          // silently dropping (P0 honest-degradation; do not return '' silently).
+          ctx.logger.warn(
+            '[orchestrate] system-prompt section invoked without a resolvable session (both context.agent.session and context.session are absent) — orchestrator-mode section skipped. Possible cause: the assembly context shape differs from the dsh-agent AssembleContext contract.',
+          );
+          return '';
+        }
+        // P0 missing-service path: the service never mounted. The apply-time
+        // missing() already emitted the loud warning, so only the section is
+        // skipped here (no per-assembly re-warning).
+        if (projections === undefined) return '';
+
+        let resolvedMode: OrchestrateMode | undefined;
+        let sawError = false;
+        for (const candidate of sessionCandidates) {
+          try {
+            const snap = projections.snapshot(candidate);
+            const value = snap?.values?.[ORCHESTRATE_PROJECTION_KEY];
+            if (value && typeof value.mode === 'string') {
+              const m = value.mode as OrchestrateMode;
+              // 'on' wins immediately; otherwise remember the first known value.
+              if (m === 'on') {
+                resolvedMode = 'on';
+                break;
+              }
+              if (resolvedMode === undefined) resolvedMode = m;
+            }
+          } catch (err) {
+            // Surface instead of silently dropping (D1). The most likely cause
+            // is a session-identity mismatch: this candidate is not the object
+            // the /orchestrate command wrote the orchestrate/change event to.
+            sawError = true;
+            ctx.logger.warn(
+              '[orchestrate] could not read orchestrator mode from projection for a candidate session (session identity may not match the session /orchestrate on wrote to):',
+              (err as Error)?.message,
+            );
+          }
+        }
+
+        if (resolvedMode === undefined) {
+          // Could not resolve any mode from any candidate session. Warn with the
+          // likely cause; do NOT silently pretend 'off'.
+          if (!sawError) {
+            ctx.logger.warn(
+              '[orchestrate] orchestrator mode could not be resolved from any candidate session — orchestrator-mode section skipped. Possible cause: the assembly context session identity does not match the session the /orchestrate command wrote the orchestrate/change event to (the projection cache is keyed by the live Session object, per @deepseek-ai/dsh-session-projection).',
+            );
+          }
+          return '';
+        }
+        // Legitimate off: no section, no warning (intended behavior).
+        if (resolvedMode === 'off') return '';
         return renderOrchestratorPrompt(getSettings(), toolName);
       },
     });
