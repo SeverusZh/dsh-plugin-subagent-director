@@ -53,13 +53,16 @@ export {
   applyOrchestrate,
   renderOrchestratorPrompt,
   renderOrchestratorRoles,
+  renderOrchestratorUnavailableNotice,
   buildOrchestratorFrame,
+  detectOrchestrateRequest,
   ORCHESTRATE_SECTION_NAME,
   ORCHESTRATE_SECTION_ORDER,
   ORCHESTRATE_PROJECTION_KEY,
   ORCHESTRATE_EVENT_TYPE,
   ORCHESTRATE_VALID_MODES,
   type OrchestrateMode,
+  type OrchestrateRequest,
 } from './orchestrate.js';
 export { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 export {

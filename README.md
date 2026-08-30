@@ -134,14 +134,19 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 ### 纯编排模式（`/orchestrate`）
 
 ```text
-/orchestrate        # 等价于 /orchestrate on
-/orchestrate on     # 进入纯编排模式
-/orchestrate off    # 退出
+/orchestrate        # 本轮开启（按轮生效，无需 on/off）
+/orchestrate on     # 持久开启（直到 /orchestrate off）
+/orchestrate off    # 退出持久模式
 ```
 
-打开后会注入一段「纯编排者」系统提示：主代理只允许通过委派工具派活，角色清单
-从当前 `subagent-director.roles` 动态渲染（无硬编码 role id），未配置角色时提示
-先去配置。该模式依赖宿主的 `commands` 与 `sessionProjections` 服务：标准 profile
+在消息开头声明 `/orchestrate`，或用自然语言写「使用orchestrate模式」（含
+「请使用 orchestrate 模式」「use orchestrate mode」等变体），该轮会话即自动
+进入纯编排模式——类似 `/using aegis` 的按轮声明式用法，无需记忆开关状态；
+未声明时保持普通模式。开启后注入一段「纯编排者」系统提示：主代理只允许通过
+委派工具派活，角色清单从当前 `subagent-director.roles` 动态渲染（无硬编码
+role id）。**未配置角色时**不会注入束缚性的纯编排框架，而是注入一段简短提示，
+让模型明确告知需要先配置角色并继续以普通模式处理请求（避免「对话无输出」）。
+该模式依赖宿主的 `commands` 与 `sessionProjections` 服务：标准 profile
 （dsh-base）都会提供二者；`sessionProjections` 缺失时命令返回明确错误而不是假装
 成功，`commands` 缺失时命令不注册，插件其余功能不受影响。
 
@@ -156,7 +161,7 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 
 ```bash
 npm install
-npm test          # vitest（233 用例）
+npm test          # vitest（249 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```

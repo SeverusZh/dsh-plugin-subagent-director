@@ -51,6 +51,42 @@ export const ORCHESTRATE_EVENT_TYPE = 'orchestrate/change';
 export const ORCHESTRATE_VALID_MODES = ['on', 'off'] as const;
 export type OrchestrateMode = (typeof ORCHESTRATE_VALID_MODES)[number];
 
+/** Per-turn orchestrate request parsed from one user message. */
+export type OrchestrateRequest = 'on' | 'off' | undefined;
+
+/**
+ * Detect whether a user message requests pure-orchestrator mode for this turn.
+ * Slash form: `/orchestrate` (no args or `on` → on; `off` → off; other → undefined).
+ * Natural-language form (case-insensitive, anchored at the start with an
+ * optional politeness prefix so questions like 什么是orchestrate模式 do not
+ * false-positive): 使用orchestrate模式 / 使用 orchestrate mode / use orchestrate mode.
+ */
+export function detectOrchestrateRequest(text: string): OrchestrateRequest {
+  const trimmed = text.trimStart();
+  const slash = trimmed.match(/^\/orchestrate(?:\s+(\S+))?/i);
+  if (slash) {
+    const arg = (slash[1] ?? '').trim().toLowerCase();
+    if (arg === '' || arg === 'on') return 'on';
+    if (arg === 'off') return 'off';
+    return undefined;
+  }
+  if (/^(请|麻烦|麻烦你|帮我|请帮我|我想|我要)?\s*使用\s*orchestrate\s*(模式|mode)/i.test(trimmed)) return 'on';
+  if (/^use\s+orchestrate\s+mode/i.test(trimmed)) return 'on';
+  return undefined;
+}
+
+/**
+ * Short notice injected instead of the pure-orchestrator frame when the mode
+ * is on but no roles are configured: the model must inform the user and
+ * continue in normal mode — never sit paralyzed (the "returns nothing" bug).
+ */
+export function renderOrchestratorUnavailableNotice(toolName: string): string {
+  return (
+    `Orchestrator mode is active, but no subagent-director roles are configured (subagent-director.roles is empty), so you cannot delegate work via \`${toolName}\`. ` +
+    `Inform the user that orchestrator mode requires roles to be configured first, then handle their request in normal mode.`
+  );
+}
+
 interface OrchestrateState {
   mode: OrchestrateMode;
 }
@@ -135,6 +171,78 @@ export function renderOrchestratorPrompt(settings: SubagentDirectorSettings, too
 6. Unclear dependencies or missing information -> ask the USER, never guess.
 7. For independent fan-out you may set run_in_background: true and collect results later; for relay steps set run_in_background: false so you wait for the result before dispatching the next stage.
 8. Finish only when every subagent has completed. Then output a summary report: who produced what, and remaining todos.`;
+}
+
+/**
+ * Full orchestrator prompt when roles are configured, else the short
+ * unavailable notice. The notice (not the paralyzing pure-orchestrator frame)
+ * is what prevents the "conversation returns nothing" failure: a model that
+ * cannot delegate must be told to inform the user and continue normally.
+ * @param settings - current resolved settings snapshot.
+ * @param toolName - the configured model-facing delegation tool name.
+ */
+function renderOrchestratorSection(settings: SubagentDirectorSettings, toolName: string): string {
+  const roles = settings.roles ?? {};
+  const hasRoles = Object.values(roles).some((role) => role !== undefined);
+  if (!hasRoles) return renderOrchestratorUnavailableNotice(toolName);
+  return renderOrchestratorPrompt(settings, toolName);
+}
+
+/**
+ * Latest user/message text from a session log, or undefined when the log has
+ * no user message (e.g. assembly before the first message). Text blocks are
+ * concatenated in order; non-text blocks are skipped.
+ * @param session - a live Session (or a faithful fake with `.events`).
+ */
+function latestUserMessageText(session: any): string | undefined {
+  const events = session?.events;
+  if (!Array.isArray(events)) return undefined;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (!ev || ev.type !== 'user/message') continue;
+    const blocks = ev.data?.content;
+    if (!Array.isArray(blocks)) return '';
+    let text = '';
+    for (const b of blocks) {
+      if (b && b.type === 'text' && typeof b.text === 'string') text += b.text;
+    }
+    return text;
+  }
+  return undefined;
+}
+
+/**
+ * Per-turn slash path: an `orchestrate` command/run that happened AFTER the
+ * previous user message and BEFORE the current one marks THIS turn (the
+ * command itself is consumed by the commands service and never appears in a
+ * user/message event). Returns 'on' | 'off' | undefined.
+ * @param session - a live Session (or a faithful fake with `.events`).
+ */
+function recentOrchestrateCommandRun(session: any): OrchestrateRequest {
+  const events = session?.events;
+  if (!Array.isArray(events)) return undefined;
+  let prevUserSeq = -1;
+  let currentUserSeq = -1;
+  let cmdSeq = -1;
+  let cmdArgs: string | undefined;
+  for (const ev of events) {
+    if (!ev) continue;
+    if (ev.type === 'user/message' && typeof ev.seq === 'number') {
+      prevUserSeq = currentUserSeq;
+      currentUserSeq = ev.seq;
+    }
+    if (ev.type === 'command/run' && ev.data?.name === 'orchestrate' && typeof ev.seq === 'number') {
+      cmdSeq = ev.seq;
+      cmdArgs = ev.data.args;
+    }
+  }
+  // The command must sit strictly between the previous user message and the
+  // current one: the user ran /orchestrate, then sent this turn's message.
+  if (cmdSeq < 0 || cmdSeq <= prevUserSeq || cmdSeq >= currentUserSeq) return undefined;
+  const arg = (cmdArgs ?? '').trim().toLowerCase();
+  if (arg === '' || arg === 'on') return 'on';
+  if (arg === 'off') return 'off';
+  return undefined;
 }
 
 /**
@@ -248,12 +356,18 @@ export function applyOrchestrate(
     const commands: any = injectedCtx.get('commands');
     commands.register({
       name: 'orchestrate',
-      description: 'Enter pure-orchestrator mode — delegate all work to the subagent-director team. No args defaults to "on".',
-      input: { hint: 'on|off (no args = on)' },
+      description:
+        'Enter pure-orchestrator mode for this turn — declare /orchestrate at the start of your message, or say 使用orchestrate模式. No args = this turn; on = persistent until off.',
+      input: { hint: 'on|off (no args = this turn)' },
       handler: (invocation: any) => {
-        const mode = (invocation.rawInput || '').trim().toLowerCase() || 'on';
+        const raw = (invocation.rawInput || '').trim().toLowerCase();
+        const mode = raw || 'on';
         if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
-          return { kind: 'error', text: `Invalid: "${invocation.rawInput}". Valid: on|off` };
+          return {
+            kind: 'error',
+            text:
+              `Invalid: "${invocation.rawInput}". Valid: on|off. To orchestrate one turn, type /orchestrate first and then send your task, or start your message with 使用orchestrate模式.`,
+          };
         }
         // Without sessionProjections the projection is never registered, so
         // /orchestrate cannot take effect. Refuse with an honest message
@@ -278,8 +392,20 @@ export function applyOrchestrate(
               `Orchestrator mode "${mode}" was NOT applied: this command invocation carries no agent session to append the mode change to.`,
           };
         }
+        if (mode === 'on' && raw === '') {
+          // Per-turn: no sticky event. The section detects this command/run
+          // and orchestrates the NEXT user-message turn only.
+          return {
+            kind: 'success',
+            text:
+              'Orchestrator mode: on for this turn. Declare /orchestrate at the start of your message (or say 使用orchestrate模式) to enable it per turn; use /orchestrate on to keep it on until /orchestrate off.',
+          };
+        }
         session.append(ORCHESTRATE_EVENT_TYPE, { mode });
-        return { kind: 'success', text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on' };
+        return {
+          kind: 'success',
+          text: mode === 'off' ? 'Orchestrator mode: off' : 'Orchestrator mode: on (persistent until /orchestrate off)',
+        };
       },
     });
   });
@@ -321,6 +447,21 @@ export function applyOrchestrate(
         // skipped here (no per-assembly re-warning).
         if (projections === undefined) return '';
 
+        // Per-turn detection (the /using-aegis-like usage): the current user
+        // message or a just-run /orchestrate command decides THIS turn. The
+        // sticky projection below is only the backward-compat fallback.
+        for (const candidate of sessionCandidates) {
+          const msgText = latestUserMessageText(candidate);
+          if (msgText !== undefined) {
+            const req = detectOrchestrateRequest(msgText);
+            if (req === 'on') return renderOrchestratorSection(getSettings(), toolName);
+            if (req === 'off') return '';
+          }
+          const cmdReq = recentOrchestrateCommandRun(candidate);
+          if (cmdReq === 'on') return renderOrchestratorSection(getSettings(), toolName);
+          if (cmdReq === 'off') return '';
+        }
+
         let resolvedMode: OrchestrateMode | undefined;
         let sawError = false;
         for (const candidate of sessionCandidates) {
@@ -360,7 +501,7 @@ export function applyOrchestrate(
         }
         // Legitimate off: no section, no warning (intended behavior).
         if (resolvedMode === 'off') return '';
-        return renderOrchestratorPrompt(getSettings(), toolName);
+        return renderOrchestratorSection(getSettings(), toolName);
       },
     });
   }

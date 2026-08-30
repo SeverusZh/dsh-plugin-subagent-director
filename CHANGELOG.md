@@ -2,6 +2,25 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0-beta.2] - 2026-08-31
+
+### 新增
+
+- **纯编排模式改为按轮自动检测（类似 `/using aegis`）**：不再需要规定 on/off——消息开头声明 `/orchestrate`（无参数），或用自然语言写「使用orchestrate模式」（含「请使用 orchestrate 模式」「use orchestrate mode」等变体），该轮会话即自动进入纯编排模式；未声明时保持普通模式。系统提示段按轮判定：先扫描当前用户消息（`user/message` 事件）与最近一次 `orchestrate` 命令的 `command/run` 事件（位于上一条与当前用户消息之间），投影仅作向后兼容兜底。
+
+### 修复
+
+- **「对话什么都不返回」**：`/orchestrate on` 后模型被「纯编排者」提示束缚，但 `subagent-director.roles` 未配置任何角色 → 无法委派、禁止亲自动手 → 对话无输出。现在未配置角色时不再注入束缚性的纯编排框架，而是注入一段简短「不可用提示」，指示模型明确告知用户需要先配置角色、并继续以普通模式处理请求——模型必然给出有意义的回复；
+- **「不清楚是否已开启」**：`/orchestrate`（无参数）从「粘性 on」改为「本轮 on」（不写粘性事件，由 `command/run` 扫描按轮生效），命令反馈明确说明按轮/持久语义；`/orchestrate on` 保留为显式持久模式（向后兼容），`/orchestrate off` 退出持久模式。
+
+### 兼容性
+
+- `orchestrate/change` 事件类型注册与投影注册保留（旧会话日志加载兼容 + 客户端 wire 视图）；`renderOrchestratorPrompt` / `renderOrchestratorRoles` / `buildOrchestratorFrame` 公共 API 不变；新增导出 `detectOrchestrateRequest`、`renderOrchestratorUnavailableNotice`。
+
+### 测试
+
+- 单元/集成测试由 233 增至 249：`detectOrchestrateRequest` 检测单测（斜杠/自然语言/反例）、按轮段判定接线测试（用户消息声明、`command/run` 区间扫描、无角色不可用提示、投影兜底）、命令语义测试（无参数按轮不写事件、on 持久、off 退出），以及真实 cordis + 真实 `SessionProjectionRegistry` 的按轮探针测试。
+
 ## [0.4.0-beta.1] - 2026-08-30
 
 ### 新增

@@ -60,9 +60,10 @@ function makeFakeCtx(opts: { withoutProjections?: boolean; identityKeyed?: boole
     },
     // Simulate the command appending an event into a (render- or command-time)
     // session's log, exactly as invocation.agent.session.append does at runtime.
+    // Events carry a monotonic seq, mirroring the real Session log.
     appendEvent(sessionArg: any, type: string, data: any) {
       sessionArg.events = sessionArg.events || [];
-      sessionArg.events.push({ type, data });
+      sessionArg.events.push({ type, data, seq: sessionArg.events.length });
     },
     snapshot(sessionArg: any) {
       if (state.throws) throw new Error('forced snapshot failure');
@@ -282,8 +283,65 @@ describe('applyOrchestrate — system-prompt section', () => {
   });
 });
 
+describe('applyOrchestrate — per-turn detection', () => {
+  it('injects when the current user message says 使用orchestrate模式', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '使用orchestrate模式帮我分析' }] });
+    expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
+  });
+
+  it('does not inject when the current user message is unrelated and projection is off', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '帮我分析这个项目' }] });
+    expect(fake.registeredSections[0].text({ agent: { session } })).toBe('');
+  });
+
+  it('injects when /orchestrate command/run happened between the previous and current user message', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '旧消息' }] });
+    fake.sessionProjections.appendEvent(session, 'command/run', { name: 'orchestrate', args: '' });
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '帮我分析' }] });
+    expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
+  });
+
+  it('does not inject when the orchestrate command/run predates the previous user message', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'command/run', { name: 'orchestrate', args: '' });
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '旧消息' }] });
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '新消息' }] });
+    expect(fake.registeredSections[0].text({ agent: { session } })).toBe('');
+  });
+
+  it('injects the unavailable notice instead of the pure-orchestrator frame when no roles are configured', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, () => ({}), toolName);
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '使用orchestrate模式帮我分析' }] });
+    const text = fake.registeredSections[0].text({ agent: { session } });
+    expect(text).not.toContain('PURE ORCHESTRATOR');
+    expect(text).toContain('no subagent-director roles are configured');
+  });
+
+  it('still injects via the sticky projection when nothing is declared this turn (backward compat)', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    fake.state.mode = 'on';
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '帮我分析' }] });
+    expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
+  });
+});
+
 describe('applyOrchestrate — command handler', () => {
-  it('defaults to on with no args and appends the event', () => {
+  it('no-args /orchestrate is per-turn: success, no sticky event appended', () => {
     const { ctx, registeredCommands } = makeFakeCtx();
     applyOrchestrate(ctx, getSettings, toolName);
     const handler = registeredCommands[0].handler;
@@ -293,7 +351,21 @@ describe('applyOrchestrate — command handler', () => {
       agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } },
     });
     expect(res.kind).toBe('success');
-    expect(res.text).toContain('on');
+    expect(res.text).toContain('on for this turn');
+    expect(appended).toEqual([]);
+  });
+
+  it('/orchestrate on appends the sticky event and reports persistent mode', () => {
+    const { ctx, registeredCommands } = makeFakeCtx();
+    applyOrchestrate(ctx, getSettings, toolName);
+    const handler = registeredCommands[0].handler;
+    const appended: any[] = [];
+    const res = handler({
+      rawInput: 'on',
+      agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } },
+    });
+    expect(res.kind).toBe('success');
+    expect(res.text).toContain('persistent');
     expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'on' }]]);
   });
 

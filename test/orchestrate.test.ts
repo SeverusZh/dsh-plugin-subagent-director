@@ -9,6 +9,7 @@ import {
   renderOrchestratorPrompt,
   buildOrchestratorFrame,
   ORCHESTRATE_VALID_MODES,
+  detectOrchestrateRequest,
 } from '../src/orchestrate.js';
 
 const settings = {
@@ -72,5 +73,44 @@ describe('buildOrchestratorFrame', () => {
 describe('ORCHESTRATE_VALID_MODES', () => {
   it('accepts only on/off', () => {
     expect(ORCHESTRATE_VALID_MODES).toEqual(['on', 'off']);
+  });
+});
+
+describe('detectOrchestrateRequest', () => {
+  it('returns on for a bare /orchestrate at the start', () => {
+    expect(detectOrchestrateRequest('/orchestrate')).toBe('on');
+    expect(detectOrchestrateRequest('  /orchestrate')).toBe('on');
+  });
+
+  it('returns on for /orchestrate on (case-insensitive)', () => {
+    expect(detectOrchestrateRequest('/orchestrate on')).toBe('on');
+    expect(detectOrchestrateRequest('/orchestrate ON')).toBe('on');
+  });
+
+  it('returns off for /orchestrate off', () => {
+    expect(detectOrchestrateRequest('/orchestrate off')).toBe('off');
+  });
+
+  it('returns undefined for invalid slash args', () => {
+    expect(detectOrchestrateRequest('/orchestrate maybe')).toBeUndefined();
+  });
+
+  it('returns on for 使用orchestrate模式 at the start', () => {
+    expect(detectOrchestrateRequest('使用orchestrate模式帮我分析这个项目')).toBe('on');
+    expect(detectOrchestrateRequest('请使用 orchestrate 模式分析')).toBe('on');
+    expect(detectOrchestrateRequest('我想使用orchestrate模式')).toBe('on');
+  });
+
+  it('returns on for use orchestrate mode', () => {
+    expect(detectOrchestrateRequest('use orchestrate mode to analyze this')).toBe('on');
+  });
+
+  it('returns undefined for questions about orchestrate mode', () => {
+    expect(detectOrchestrateRequest('什么是orchestrate模式')).toBeUndefined();
+    expect(detectOrchestrateRequest('帮我解释一下使用orchestrate模式的好处')).toBeUndefined();
+  });
+
+  it('returns undefined for unrelated text', () => {
+    expect(detectOrchestrateRequest('帮我分析这个项目')).toBeUndefined();
   });
 });

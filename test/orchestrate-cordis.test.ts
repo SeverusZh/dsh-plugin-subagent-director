@@ -44,8 +44,14 @@ function provideCoreStubs(ctx: Context, toolsRegister: (def: unknown) => () => v
   });
 }
 
-function loadEntry(ctx: Context, toolsRegister: (def: unknown) => () => void): void {
+function loadEntry(ctx: Context, toolsRegister: (def: unknown) => () => void, sections: any[] = []): void {
   provideCoreStubs(ctx, toolsRegister);
+  ctx.provide('systemPrompt', {
+    section: (def: any) => {
+      sections.push(def);
+      return () => {};
+    },
+  });
   void ctx.plugin({ name: pluginName, inject: pluginInject, apply }, {});
 }
 
@@ -137,5 +143,50 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
     expect(registry.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY]).toEqual({ mode: 'on' });
     expect(orchestrate!.handler({ rawInput: 'off', agent: { session } }).kind).toBe('success');
     expect(registry.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY]).toEqual({ mode: 'off' });
+  });
+
+  it('no-args /orchestrate is per-turn: no sticky event; the section injects via command/run and drops after the turn', async () => {
+    const ctx = new Context();
+    const registry = new SessionProjectionRegistry(ctx);
+    const commands: Array<{ name: string; handler: (invocation: any) => any }> = [];
+    const sections: any[] = [];
+    loadEntry(ctx, () => () => {}, sections);
+    await settle();
+    ctx.provide('commands', {
+      register: (def: { name: string; handler: (invocation: any) => any }) => {
+        commands.push(def);
+        return () => {};
+      },
+    });
+    await settle();
+    await settle();
+    const orchestrate = commands.find((c) => c.name === 'orchestrate');
+    expect(orchestrate).toBeDefined();
+    const section = sections.find((s) => s.name === 'orchestrate-mode');
+    expect(section).toBeDefined();
+
+    const session: any = {
+      seq: 0,
+      events: [] as Array<{ type: string; data: any; seq: number; time: number }>,
+      append(type: string, data: any) {
+        const event = { type, data, seq: this.events.length, time: Date.now() };
+        this.events.push(event);
+        this.seq = this.events.length;
+        ctx.emit('session/event', this, event);
+      },
+    };
+    // The commands service appends command/run before invoking the handler.
+    session.append('command/run', { name: 'orchestrate', args: '' });
+    // /orchestrate (no args): per-turn — success, but NO sticky event.
+    expect(orchestrate!.handler({ rawInput: '', agent: { session } }).kind).toBe('success');
+    expect(registry.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY]).toEqual({ mode: 'off' });
+    // The next user message is orchestrated via the command/run scan. (No
+    // roles are configured in this probe, so the section resolves to the
+    // unavailable notice — still a non-empty injection, never a silent drop.)
+    session.append('user/message', { content: [{ type: 'text', text: '帮我分析' }] });
+    expect(section.text({ agent: { session } })).not.toBe('');
+    // A later unrelated message is NOT orchestrated (per-turn semantics).
+    session.append('user/message', { content: [{ type: 'text', text: '再来一个' }] });
+    expect(section.text({ agent: { session } })).toBe('');
   });
 });
