@@ -189,4 +189,56 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
     session.append('user/message', { content: [{ type: 'text', text: '再来一个' }] });
     expect(section.text({ agent: { session } })).toBe('');
   });
+
+  it('/orchestrate <task> queues the task as a follow-up turn and orchestrates it', async () => {
+    const ctx = new Context();
+    const registry = new SessionProjectionRegistry(ctx);
+    const commands: Array<{ name: string; handler: (invocation: any) => any }> = [];
+    const sections: any[] = [];
+    loadEntry(ctx, () => () => {}, sections);
+    await settle();
+    ctx.provide('commands', {
+      register: (def: { name: string; handler: (invocation: any) => any }) => {
+        commands.push(def);
+        return () => {};
+      },
+    });
+    await settle();
+    await settle();
+    const orchestrate = commands.find((c) => c.name === 'orchestrate');
+    expect(orchestrate).toBeDefined();
+    const section = sections.find((s) => s.name === 'orchestrate-mode');
+    expect(section).toBeDefined();
+
+    const session: any = {
+      seq: 0,
+      events: [] as Array<{ type: string; data: any; seq: number; time: number }>,
+      append(type: string, data: any) {
+        const event = { type, data, seq: this.events.length, time: Date.now() };
+        this.events.push(event);
+        this.seq = this.events.length;
+        ctx.emit('session/event', this, event);
+      },
+    };
+    // The commands service appends command/run before invoking the handler.
+    session.append('command/run', { name: 'orchestrate', args: ' 分析上周A股走势' });
+    // The handler queues the task as a follow-up turn (the real agent would
+    // append the user/message and wake the driver — simulated here).
+    const agent: any = {
+      session,
+      followup: (msg: any) => {
+        session.append('user/message', { content: msg.content, source: msg.source });
+      },
+    };
+    const res = orchestrate!.handler({ rawInput: ' 分析上周A股走势', agent });
+    expect(res.kind).toBe('success');
+    expect(res.text).toContain('分析上周A股走势');
+    // No sticky event: the projection stays off (per-turn semantics).
+    expect(registry.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY]).toEqual({ mode: 'off' });
+    // The queued follow-up turn is orchestrated via the command/run scan.
+    expect(section.text({ agent: { session } })).not.toBe('');
+    // A later unrelated message is NOT orchestrated.
+    session.append('user/message', { content: [{ type: 'text', text: '再来一个' }] });
+    expect(section.text({ agent: { session } })).toBe('');
+  });
 });

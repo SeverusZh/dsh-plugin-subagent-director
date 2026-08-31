@@ -30,6 +30,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { z } from 'zod';
+import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { KNOWN_SESSION_EVENT_TYPES, type SessionEvent } from '@deepseek-ai/dsh-session';
 import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection';
 
@@ -56,7 +57,8 @@ export type OrchestrateRequest = 'on' | 'off' | undefined;
 
 /**
  * Detect whether a user message requests pure-orchestrator mode for this turn.
- * Slash form: `/orchestrate` (no args or `on` → on; `off` → off; other → undefined).
+ * Slash form: `/orchestrate` — `off` → off; no args, `on`, or any task text
+ * (e.g. `/orchestrate 分析上周A股走势`) → on.
  * Natural-language form (case-insensitive, anchored at the start with an
  * optional politeness prefix so questions like 什么是orchestrate模式 do not
  * false-positive): 使用orchestrate模式 / 使用 orchestrate mode / use orchestrate mode.
@@ -66,9 +68,8 @@ export function detectOrchestrateRequest(text: string): OrchestrateRequest {
   const slash = trimmed.match(/^\/orchestrate(?:\s+(\S+))?/i);
   if (slash) {
     const arg = (slash[1] ?? '').trim().toLowerCase();
-    if (arg === '' || arg === 'on') return 'on';
     if (arg === 'off') return 'off';
-    return undefined;
+    return 'on';
   }
   if (/^(请|麻烦|麻烦你|帮我|请帮我|我想|我要)?\s*使用\s*orchestrate\s*(模式|mode)/i.test(trimmed)) return 'on';
   if (/^use\s+orchestrate\s+mode/i.test(trimmed)) return 'on';
@@ -240,9 +241,10 @@ function recentOrchestrateCommandRun(session: any): OrchestrateRequest {
   // current one: the user ran /orchestrate, then sent this turn's message.
   if (cmdSeq < 0 || cmdSeq <= prevUserSeq || cmdSeq >= currentUserSeq) return undefined;
   const arg = (cmdArgs ?? '').trim().toLowerCase();
-  if (arg === '' || arg === 'on') return 'on';
   if (arg === 'off') return 'off';
-  return undefined;
+  // '' (bare), 'on', or task text (e.g. 分析上周A股走势 — the handler queued
+  // it as a follow-up turn) all mark this turn orchestrated.
+  return 'on';
 }
 
 /**
@@ -357,18 +359,12 @@ export function applyOrchestrate(
     commands.register({
       name: 'orchestrate',
       description:
-        'Enter pure-orchestrator mode for this turn — declare /orchestrate at the start of your message, or say 使用orchestrate模式. No args = this turn; on = persistent until off.',
-      input: { hint: 'on|off (no args = this turn)' },
+        'Enter pure-orchestrator mode for this turn — /orchestrate <task> (e.g. /orchestrate 分析上周A股走势) or say 使用orchestrate模式. No args = this turn; on = persistent until off.',
+      input: { hint: '<task> | on | off (no args = this turn)' },
       handler: (invocation: any) => {
-        const raw = (invocation.rawInput || '').trim().toLowerCase();
-        const mode = raw || 'on';
-        if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
-          return {
-            kind: 'error',
-            text:
-              `Invalid: "${invocation.rawInput}". Valid: on|off. To orchestrate one turn, type /orchestrate first and then send your task, or start your message with 使用orchestrate模式.`,
-          };
-        }
+        const raw = (invocation.rawInput || '').trim();
+        const lower = raw.toLowerCase();
+        const mode = lower || 'on';
         // Without sessionProjections the projection is never registered, so
         // /orchestrate cannot take effect. Refuse with an honest message
         // instead of falsely reporting success (P0 silent-degradation fix).
@@ -384,12 +380,36 @@ export function applyOrchestrate(
               `Provide the dsh-session-projection sessionProjections service to enable orchestrator mode.`,
           };
         }
-        const session = invocation?.agent?.session;
+        const agent = invocation?.agent;
+        const session = agent?.session;
         if (session === undefined || typeof session.append !== 'function') {
           return {
             kind: 'error',
             text:
               `Orchestrator mode "${mode}" was NOT applied: this command invocation carries no agent session to append the mode change to.`,
+          };
+        }
+        if (!ORCHESTRATE_VALID_MODES.includes(mode as OrchestrateMode)) {
+          // Task text: orchestrate THIS task. The commands service consumes the
+          // whole line, so queue the task as a follow-up turn (wakes the agent);
+          // the per-turn command/run scan marks that turn orchestrated.
+          if (typeof agent?.followup !== 'function') {
+            return {
+              kind: 'error',
+              text:
+                `Orchestrator mode was NOT applied: this agent cannot queue a follow-up turn (no followup method).`,
+            };
+          }
+          agent.followup(
+            createUserMessage({
+              content: [{ type: 'text', text: raw }],
+              source: { kind: 'user' },
+            }),
+          );
+          const preview = raw.length > 60 ? `${raw.slice(0, 60)}…` : raw;
+          return {
+            kind: 'success',
+            text: `Orchestrator mode: on for this turn — task queued: "${preview}"`,
           };
         }
         if (mode === 'on' && raw === '') {

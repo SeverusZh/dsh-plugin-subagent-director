@@ -91,8 +91,9 @@ describe('detectOrchestrateRequest', () => {
     expect(detectOrchestrateRequest('/orchestrate off')).toBe('off');
   });
 
-  it('returns undefined for invalid slash args', () => {
-    expect(detectOrchestrateRequest('/orchestrate maybe')).toBeUndefined();
+  it('returns on for /orchestrate with task text (the task is orchestrated)', () => {
+    expect(detectOrchestrateRequest('/orchestrate 分析上周A股走势')).toBe('on');
+    expect(detectOrchestrateRequest('/orchestrate maybe')).toBe('on');
   });
 
   it('returns on for 使用orchestrate模式 at the start', () => {

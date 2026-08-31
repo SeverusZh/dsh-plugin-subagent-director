@@ -11,7 +11,8 @@
 ### 修复
 
 - **「对话什么都不返回」**：`/orchestrate on` 后模型被「纯编排者」提示束缚，但 `subagent-director.roles` 未配置任何角色 → 无法委派、禁止亲自动手 → 对话无输出。现在未配置角色时不再注入束缚性的纯编排框架，而是注入一段简短「不可用提示」，指示模型明确告知用户需要先配置角色、并继续以普通模式处理请求——模型必然给出有意义的回复；
-- **「不清楚是否已开启」**：`/orchestrate`（无参数）从「粘性 on」改为「本轮 on」（不写粘性事件，由 `command/run` 扫描按轮生效），命令反馈明确说明按轮/持久语义；`/orchestrate on` 保留为显式持久模式（向后兼容），`/orchestrate off` 退出持久模式。
+- **「不清楚是否已开启」**：`/orchestrate`（无参数）从「粘性 on」改为「本轮 on」（不写粘性事件，由 `command/run` 扫描按轮生效），命令反馈明确说明按轮/持久语义；`/orchestrate on` 保留为显式持久模式（向后兼容），`/orchestrate off` 退出持久模式；
+- **`/orchestrate <任务>` 无响应**：commands 服务会整体消费斜杠命令行，任务文本到不了模型、命令返回错误 → 对话无输出。现在任意任务文本（如 `/orchestrate 分析上周A股走势`）会被 handler 视为「编排该任务」：经 `agent.followup(createUserMessage(...))` 排入下一轮并唤醒模型，`command/run` 扫描（任务参数 → on）使该轮注入编排提示——声明与任务同一条消息即可生效。
 
 ### 兼容性
 
@@ -19,7 +20,7 @@
 
 ### 测试
 
-- 单元/集成测试由 233 增至 249：`detectOrchestrateRequest` 检测单测（斜杠/自然语言/反例）、按轮段判定接线测试（用户消息声明、`command/run` 区间扫描、无角色不可用提示、投影兜底）、命令语义测试（无参数按轮不写事件、on 持久、off 退出），以及真实 cordis + 真实 `SessionProjectionRegistry` 的按轮探针测试。
+- 单元/集成测试由 233 增至 253：`detectOrchestrateRequest` 检测单测（斜杠/任务文本/自然语言/反例）、按轮段判定接线测试（用户消息声明、`command/run` 区间扫描、任务参数扫描、无角色不可用提示、投影兜底）、命令语义测试（无参数按轮不写事件、任务文本 followup 排队、on 持久、off 退出），以及真实 cordis + 真实 `SessionProjectionRegistry` 的按轮与任务文本探针测试。
 
 ## [0.4.0-beta.1] - 2026-08-30
 

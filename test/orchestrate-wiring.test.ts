@@ -310,6 +310,16 @@ describe('applyOrchestrate — per-turn detection', () => {
     expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
   });
 
+  it('injects when the orchestrate command/run carried task text (the queued follow-up turn)', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '旧消息' }] });
+    fake.sessionProjections.appendEvent(session, 'command/run', { name: 'orchestrate', args: ' 分析上周A股走势' });
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '分析上周A股走势' }] });
+    expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
+  });
+
   it('does not inject when the orchestrate command/run predates the previous user message', () => {
     const fake = makeFakeCtx();
     applyOrchestrate(fake.ctx, getSettings, toolName);
@@ -369,16 +379,46 @@ describe('applyOrchestrate — command handler', () => {
     expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'on' }]]);
   });
 
-  it('accepts off and rejects invalid input', () => {
+  it('accepts off and appends the sticky off event', () => {
     const { ctx, registeredCommands } = makeFakeCtx();
     applyOrchestrate(ctx, getSettings, toolName);
     const handler = registeredCommands[0].handler;
-    const off = handler({ rawInput: 'off', agent: { session: { append: () => {} } } });
+    const appended: any[] = [];
+    const off = handler({ rawInput: 'off', agent: { session: { append: (t: string, d: any) => appended.push([t, d]) } } });
     expect(off.kind).toBe('success');
     expect(off.text).toContain('off');
-    const bad = handler({ rawInput: 'maybe', agent: { session: { append: () => {} } } });
-    expect(bad.kind).toBe('error');
-    expect(bad.text).toContain('Valid: on|off');
+    expect(appended).toEqual([[ORCHESTRATE_EVENT_TYPE, { mode: 'off' }]]);
+  });
+
+  it('queues arbitrary task text as a follow-up turn (the task is orchestrated)', () => {
+    const { ctx, registeredCommands } = makeFakeCtx();
+    applyOrchestrate(ctx, getSettings, toolName);
+    const handler = registeredCommands[0].handler;
+    const followedUp: any[] = [];
+    const res = handler({
+      rawInput: ' 分析上周A股走势',
+      agent: {
+        session: { append: () => {} },
+        followup: (msg: any) => followedUp.push(msg),
+      },
+    });
+    expect(res.kind).toBe('success');
+    expect(res.text).toContain('on for this turn');
+    expect(res.text).toContain('分析上周A股走势');
+    expect(followedUp).toHaveLength(1);
+    const msg = followedUp[0];
+    expect(msg.role).toBe('user');
+    expect(msg.content).toEqual([{ type: 'text', text: '分析上周A股走势' }]);
+    expect(msg.source).toEqual({ kind: 'user' });
+  });
+
+  it('returns an honest error when the agent cannot queue a follow-up turn', () => {
+    const { ctx, registeredCommands } = makeFakeCtx();
+    applyOrchestrate(ctx, getSettings, toolName);
+    const handler = registeredCommands[0].handler;
+    const res = handler({ rawInput: '分析上周A股走势', agent: { session: { append: () => {} } } });
+    expect(res.kind).toBe('error');
+    expect(res.text).toContain('followup');
   });
 
   it('returns an honest error when the invocation carries no agent session', () => {
