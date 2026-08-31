@@ -190,17 +190,27 @@ function renderOrchestratorSection(settings: SubagentDirectorSettings, toolName:
 }
 
 /**
- * Latest user/message text from a session log, or undefined when the log has
- * no user message (e.g. assembly before the first message). Text blocks are
- * concatenated in order; non-text blocks are skipped.
+ * Text of the user message that started the CURRENT turn, or undefined when
+ * the log has no user message in the current turn.
+ *
+ * The harness appends runtime-context injections (runtime snapshot,
+ * system-reminder, memos_context) as SEPARATE `user/message` events AFTER the
+ * real user message, so the FIRST user/message at or after the latest
+ * `turn/start` — not the latest event — carries the user's actual prompt.
+ * Without a `turn/start` (degenerate seed), falls back to the latest
+ * user/message. Text blocks are concatenated in order; non-text blocks skipped.
  * @param session - a live Session (or a faithful fake with `.events`).
  */
-function latestUserMessageText(session: any): string | undefined {
+function currentTurnUserMessageText(session: any): string | undefined {
   const events = session?.events;
   if (!Array.isArray(events)) return undefined;
-  for (let i = events.length - 1; i >= 0; i--) {
-    const ev = events[i];
+  let turnStart = -1;
+  for (const ev of events) {
+    if (ev && ev.type === 'turn/start' && typeof ev.seq === 'number') turnStart = ev.seq;
+  }
+  for (const ev of events) {
     if (!ev || ev.type !== 'user/message') continue;
+    if (turnStart >= 0 && typeof ev.seq === 'number' && ev.seq < turnStart) continue;
     const blocks = ev.data?.content;
     if (!Array.isArray(blocks)) return '';
     let text = '';
@@ -213,33 +223,56 @@ function latestUserMessageText(session: any): string | undefined {
 }
 
 /**
- * Per-turn slash path: an `orchestrate` command/run that happened AFTER the
- * previous user message and BEFORE the current one marks THIS turn (the
- * command itself is consumed by the commands service and never appears in a
- * user/message event). Returns 'on' | 'off' | undefined.
+ * Per-turn slash path: an `orchestrate` command/run that happened since the
+ * previous turn marks the current turn (the command itself is consumed by the
+ * commands service and never appears in a user/message event). The command is
+ * "recent" when it sits strictly AFTER the last user message of the previous
+ * turn and BEFORE the current turn's `turn/start` — context-injection
+ * user/message events inside the current turn do not count as "previous".
+ * Without any `turn/start` (degenerate seed) falls back to the strictly
+ * between previous/current user-message check. Returns 'on' | 'off' | undefined.
  * @param session - a live Session (or a faithful fake with `.events`).
  */
 function recentOrchestrateCommandRun(session: any): OrchestrateRequest {
   const events = session?.events;
   if (!Array.isArray(events)) return undefined;
-  let prevUserSeq = -1;
-  let currentUserSeq = -1;
+  let turnStart = -1;
   let cmdSeq = -1;
   let cmdArgs: string | undefined;
   for (const ev of events) {
-    if (!ev) continue;
-    if (ev.type === 'user/message' && typeof ev.seq === 'number') {
-      prevUserSeq = currentUserSeq;
-      currentUserSeq = ev.seq;
-    }
-    if (ev.type === 'command/run' && ev.data?.name === 'orchestrate' && typeof ev.seq === 'number') {
+    if (!ev || typeof ev.seq !== 'number') continue;
+    if (ev.type === 'turn/start') turnStart = ev.seq;
+    if (ev.type === 'command/run' && ev.data?.name === 'orchestrate') {
       cmdSeq = ev.seq;
       cmdArgs = ev.data.args;
     }
   }
-  // The command must sit strictly between the previous user message and the
-  // current one: the user ran /orchestrate, then sent this turn's message.
-  if (cmdSeq < 0 || cmdSeq <= prevUserSeq || cmdSeq >= currentUserSeq) return undefined;
+  if (cmdSeq < 0) return undefined;
+
+  if (turnStart >= 0) {
+    // The command must have happened after the last user message of the
+    // previous turn(s) AND before the current turn started.
+    let lastUserBeforeTurn = -1;
+    for (const ev of events) {
+      if (!ev || ev.type !== 'user/message') continue;
+      const s = typeof ev.seq === 'number' ? ev.seq : -1;
+      if (s >= 0 && s < turnStart && s > lastUserBeforeTurn) lastUserBeforeTurn = s;
+    }
+    if (cmdSeq <= lastUserBeforeTurn || cmdSeq >= turnStart) return undefined;
+  } else {
+    // Fallback: strictly between the previous and the current user message.
+    let prevUserSeq = -1;
+    let currentUserSeq = -1;
+    for (const ev of events) {
+      if (!ev || ev.type !== 'user/message') continue;
+      const s = typeof ev.seq === 'number' ? ev.seq : -1;
+      if (s < 0) continue;
+      prevUserSeq = currentUserSeq;
+      currentUserSeq = s;
+    }
+    if (cmdSeq <= prevUserSeq || cmdSeq >= currentUserSeq) return undefined;
+  }
+
   const arg = (cmdArgs ?? '').trim().toLowerCase();
   if (arg === 'off') return 'off';
   // '' (bare), 'on', or task text (e.g. 分析上周A股走势 — the handler queued
@@ -467,11 +500,15 @@ export function applyOrchestrate(
         // skipped here (no per-assembly re-warning).
         if (projections === undefined) return '';
 
-        // Per-turn detection (the /using-aegis-like usage): the current user
-        // message or a just-run /orchestrate command decides THIS turn. The
-        // sticky projection below is only the backward-compat fallback.
+        // Per-turn detection (the /using-aegis-like usage): the user message
+        // that started THIS turn, or a just-run /orchestrate command, decides
+        // this turn. The sticky projection below is only the backward-compat
+        // fallback. (Context-injection user/message events after the real
+        // message are ignored: currentTurnUserMessageText reads the FIRST
+        // message of the turn, and recentOrchestrateCommandRun bounds the
+        // command by turn/start, not by those injection events.)
         for (const candidate of sessionCandidates) {
-          const msgText = latestUserMessageText(candidate);
+          const msgText = currentTurnUserMessageText(candidate);
           if (msgText !== undefined) {
             const req = detectOrchestrateRequest(msgText);
             if (req === 'on') return renderOrchestratorSection(getSettings(), toolName);

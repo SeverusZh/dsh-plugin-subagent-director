@@ -284,39 +284,38 @@ describe('applyOrchestrate — system-prompt section', () => {
 });
 
 describe('applyOrchestrate — per-turn detection', () => {
-  it('injects when the current user message says 使用orchestrate模式', () => {
+  it('injects when the current turn first user message says 使用orchestrate模式 (injections ignored)', () => {
     const fake = makeFakeCtx();
     applyOrchestrate(fake.ctx, getSettings, toolName);
     const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '使用orchestrate模式帮我分析' }] });
+    // Context injections arrive as SEPARATE user/message events after the real message.
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '<memos_context>历史记录…' }] });
     expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
   });
 
-  it('does not inject when the current user message is unrelated and projection is off', () => {
+  it('does not inject when the current turn message is unrelated and projection is off', () => {
     const fake = makeFakeCtx();
     applyOrchestrate(fake.ctx, getSettings, toolName);
     const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '帮我分析这个项目' }] });
     expect(fake.registeredSections[0].text({ agent: { session } })).toBe('');
   });
 
-  it('injects when /orchestrate command/run happened between the previous and current user message', () => {
-    const fake = makeFakeCtx();
-    applyOrchestrate(fake.ctx, getSettings, toolName);
-    const session = { id: 's1', events: [] };
-    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '旧消息' }] });
-    fake.sessionProjections.appendEvent(session, 'command/run', { name: 'orchestrate', args: '' });
-    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '帮我分析' }] });
-    expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
-  });
-
-  it('injects when the orchestrate command/run carried task text (the queued follow-up turn)', () => {
+  it('injects when /orchestrate command/run happened since the previous turn (context injections do not break it)', () => {
     const fake = makeFakeCtx();
     applyOrchestrate(fake.ctx, getSettings, toolName);
     const session = { id: 's1', events: [] };
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '旧消息' }] });
     fake.sessionProjections.appendEvent(session, 'command/run', { name: 'orchestrate', args: ' 分析上周A股走势' });
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '分析上周A股走势' }] });
+    // Injection events after the task message would break a
+    // between-user-messages scan; the turn-bounded scan must ignore them.
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '<memos_context>历史…' }] });
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '<system-reminder>技能…' }] });
     expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
   });
 
@@ -326,7 +325,21 @@ describe('applyOrchestrate — per-turn detection', () => {
     const session = { id: 's1', events: [] };
     fake.sessionProjections.appendEvent(session, 'command/run', { name: 'orchestrate', args: '' });
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '旧消息' }] });
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '新消息' }] });
+    expect(fake.registeredSections[0].text({ agent: { session } })).toBe('');
+  });
+
+  it('does not leak the command/run into a later turn (per-turn semantics)', () => {
+    const fake = makeFakeCtx();
+    applyOrchestrate(fake.ctx, getSettings, toolName);
+    const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '旧消息' }] });
+    fake.sessionProjections.appendEvent(session, 'command/run', { name: 'orchestrate', args: '' });
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '编排轮' }] });
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
+    fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '后续消息' }] });
     expect(fake.registeredSections[0].text({ agent: { session } })).toBe('');
   });
 
@@ -334,6 +347,7 @@ describe('applyOrchestrate — per-turn detection', () => {
     const fake = makeFakeCtx();
     applyOrchestrate(fake.ctx, () => ({}), toolName);
     const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '使用orchestrate模式帮我分析' }] });
     const text = fake.registeredSections[0].text({ agent: { session } });
     expect(text).not.toContain('PURE ORCHESTRATOR');
@@ -345,6 +359,7 @@ describe('applyOrchestrate — per-turn detection', () => {
     applyOrchestrate(fake.ctx, getSettings, toolName);
     fake.state.mode = 'on';
     const session = { id: 's1', events: [] };
+    fake.sessionProjections.appendEvent(session, 'turn/start', {});
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '帮我分析' }] });
     expect(fake.registeredSections[0].text({ agent: { session } })).toContain('PURE ORCHESTRATOR');
   });

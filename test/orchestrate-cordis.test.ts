@@ -175,8 +175,10 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
         ctx.emit('session/event', this, event);
       },
     };
-    // The commands service appends command/run before invoking the handler.
+    // The commands service appends command/run before invoking the handler;
+    // the followup then opens a turn (turn/start) before the task message.
     session.append('command/run', { name: 'orchestrate', args: '' });
+    session.append('turn/start', {});
     // /orchestrate (no args): per-turn — success, but NO sticky event.
     expect(orchestrate!.handler({ rawInput: '', agent: { session } }).kind).toBe('success');
     expect(registry.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY]).toEqual({ mode: 'off' });
@@ -185,7 +187,9 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
     // unavailable notice — still a non-empty injection, never a silent drop.)
     session.append('user/message', { content: [{ type: 'text', text: '帮我分析' }] });
     expect(section.text({ agent: { session } })).not.toBe('');
-    // A later unrelated message is NOT orchestrated (per-turn semantics).
+    // A later unrelated message opens a NEW turn and is NOT orchestrated
+    // (per-turn semantics).
+    session.append('turn/start', {});
     session.append('user/message', { content: [{ type: 'text', text: '再来一个' }] });
     expect(section.text({ agent: { session } })).toBe('');
   });
@@ -220,8 +224,10 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
         ctx.emit('session/event', this, event);
       },
     };
-    // The commands service appends command/run before invoking the handler.
+    // The commands service appends command/run before invoking the handler;
+    // the followup then opens a turn (turn/start) before the task message.
     session.append('command/run', { name: 'orchestrate', args: ' 分析上周A股走势' });
+    session.append('turn/start', {});
     // The handler queues the task as a follow-up turn (the real agent would
     // append the user/message and wake the driver — simulated here).
     const agent: any = {
@@ -237,7 +243,8 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
     expect(registry.snapshot(session).values[ORCHESTRATE_PROJECTION_KEY]).toEqual({ mode: 'off' });
     // The queued follow-up turn is orchestrated via the command/run scan.
     expect(section.text({ agent: { session } })).not.toBe('');
-    // A later unrelated message is NOT orchestrated.
+    // A later unrelated message opens a NEW turn and is NOT orchestrated.
+    session.append('turn/start', {});
     session.append('user/message', { content: [{ type: 'text', text: '再来一个' }] });
     expect(section.text({ agent: { session } })).toBe('');
   });
