@@ -2,17 +2,23 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
-## [0.4.0-beta.2] - 2026-08-31
+## [0.4.0] - 2026-08-31
 
 ### 新增
 
-- **纯编排模式改为按轮自动检测（类似 `/using aegis`）**：不再需要规定 on/off——消息开头声明 `/orchestrate`（无参数），或用自然语言写「使用orchestrate模式」（含「请使用 orchestrate 模式」「use orchestrate mode」等变体），该轮会话即自动进入纯编排模式；未声明时保持普通模式。系统提示段按轮判定：先扫描当前用户消息（`user/message` 事件）与最近一次 `orchestrate` 命令的 `command/run` 事件（位于上一条与当前用户消息之间），投影仅作向后兼容兜底。
+- **纯编排模式（`/orchestrate`）**（PR #3，@WinterSold1er）：`/orchestrate on|off` 命令（无参数默认 on），开启后注入「纯编排者」系统提示——主代理只允许通过 `subagent_role` 委派、禁止亲自读/写/执行，角色清单从 `subagent-director.roles` 动态渲染（无硬编码 role id），未配置角色时提示先配置；`sessionProjections` 服务缺失时命令返回明确错误而非假装成功；
+- **纯编排模式改为按轮自动检测（类似 `/using aegis`）**：不再需要规定 on/off——消息开头声明 `/orchestrate`（无参数），或用自然语言写「使用orchestrate模式」（含「请使用 orchestrate 模式」「use orchestrate mode」等变体），该轮会话即自动进入纯编排模式；未声明时保持普通模式。系统提示段按轮判定：先扫描当前轮首条用户消息（`user/message` 事件）与最近一次 `orchestrate` 命令的 `command/run` 事件（以 `turn/start` 为轮次边界），投影仅作向后兼容兜底；
+- **`/orchestrate <任务>` 直接编排该任务**：声明与任务同一条消息即可生效——任意任务文本（如 `/orchestrate 分析上周A股走势`）会被 handler 视为「编排该任务」，经 `agent.followup(createUserMessage(...))` 排入下一轮并唤醒模型。
 
 ### 修复
 
+- **真实 cordis 探针发现的隐性 bug**（issue #5）：cordis 的 `ctx.effect(fn)` 契约是「立即执行 fn、以返回值为 disposer」，原先包在 effect 里的 `fiber.dispose()` 清理块会把 `/orchestrate` 命令与 projection 的 `ctx.inject` 子 fiber **在创建瞬间卸载**——真实宿主上命令从未注册成功过（既有测试全基于 fake，未覆盖该契约）；子 fiber 本就随父 fiber 生命周期自动卸载，清理块已移除，并由新增的真实 cordis 探针测试永久钉住；
+- **开发/测试环境对齐真实宿主 0.1.1 线**（issue #5）：devDeps 与 peer ranges 由 `0.1.0-rc.6/rc.8` 升至 `^0.1.1-rc.2`（新增 `dsh-session-projection` peer）；projection 注册改用真实类型契约（`SessionEventMap` / `SessionProjectionStateMap` / `SessionProjectionMap` 声明合并 + 类型化 `register`），契约形状漂移现在在 typecheck 期暴露，而不是运行期被 `snapshot()` 静默跳过；
+- 顶层 `inject` 移除 `'commands'`（非 dsh-base 装配上主条目会永久 PENDING、核心委派功能全失效）；命令 handler 增加 `invocation.agent.session` 可选链守卫；
+- 移除未使用的 `@deepseek-ai/dsh-client-schema-form` 依赖（源码零引用，且其 0.1.0 线 peer 链与 0.1.1 线冲突）；
 - **「对话什么都不返回」**：`/orchestrate on` 后模型被「纯编排者」提示束缚，但 `subagent-director.roles` 未配置任何角色 → 无法委派、禁止亲自动手 → 对话无输出。现在未配置角色时不再注入束缚性的纯编排框架，而是注入一段简短「不可用提示」，指示模型明确告知用户需要先配置角色、并继续以普通模式处理请求——模型必然给出有意义的回复；
 - **「不清楚是否已开启」**：`/orchestrate`（无参数）从「粘性 on」改为「本轮 on」（不写粘性事件，由 `command/run` 扫描按轮生效），命令反馈明确说明按轮/持久语义；`/orchestrate on` 保留为显式持久模式（向后兼容），`/orchestrate off` 退出持久模式；
-- **`/orchestrate <任务>` 无响应**：commands 服务会整体消费斜杠命令行，任务文本到不了模型、命令返回错误 → 对话无输出。现在任意任务文本（如 `/orchestrate 分析上周A股走势`）会被 handler 视为「编排该任务」：经 `agent.followup(createUserMessage(...))` 排入下一轮并唤醒模型，`command/run` 扫描（任务参数 → on）使该轮注入编排提示——声明与任务同一条消息即可生效；
+- **`/orchestrate <任务>` 无响应**：commands 服务会整体消费斜杠命令行，任务文本到不了模型、命令返回错误 → 对话无输出。现在任意任务文本会被 handler 视为「编排该任务」：经 `agent.followup(createUserMessage(...))` 排入下一轮并唤醒模型，`command/run` 扫描（任务参数 → on）使该轮注入编排提示；
 - **按轮检测被上下文注入事件击穿**（实测「分析上周A股走势」会话未编排）：宿主会在用户消息之后把 runtime context / system-reminder / memos_context 作为**独立的 `user/message` 事件**追加进日志，导致「最新用户消息」「命令位于上一条与当前用户消息之间」的判定全部失效（命令被视为过期、声明消息被注入事件掩盖）。修复：检测改用 **`turn/start` 轮次边界**——消息检测取当前轮**首条**用户消息（忽略注入事件），命令扫描要求命令位于「上一轮最后一条用户消息之后、本轮 `turn/start` 之前」；无 turn 事件时回退旧逻辑。
 
 ### 兼容性
@@ -21,24 +27,7 @@
 
 ### 测试
 
-- 单元/集成测试由 233 增至 253：`detectOrchestrateRequest` 检测单测（斜杠/任务文本/自然语言/反例）、按轮段判定接线测试（用户消息声明、`command/run` 区间扫描、任务参数扫描、无角色不可用提示、投影兜底）、命令语义测试（无参数按轮不写事件、任务文本 followup 排队、on 持久、off 退出），以及真实 cordis + 真实 `SessionProjectionRegistry` 的按轮与任务文本探针测试。
-
-## [0.4.0-beta.1] - 2026-08-30
-
-### 新增
-
-- **纯编排模式（`/orchestrate`）**（PR #3，@WinterSold1er）：`/orchestrate on|off` 命令（无参数默认 on），开启后注入「纯编排者」系统提示——主代理只允许通过 `subagent_role` 委派、禁止亲自读/写/执行，角色清单从 `subagent-director.roles` 动态渲染（无硬编码 role id），未配置角色时提示先配置；`sessionProjections` 服务缺失时命令返回明确错误而非假装成功。
-
-### 修复
-
-- **真实 cordis 探针发现的隐性 bug**（issue #5）：cordis 的 `ctx.effect(fn)` 契约是「立即执行 fn、以返回值为 disposer」，原先包在 effect 里的 `fiber.dispose()` 清理块会把 `/orchestrate` 命令与 projection 的 `ctx.inject` 子 fiber **在创建瞬间卸载**——真实宿主上命令从未注册成功过（既有测试全基于 fake，未覆盖该契约）；子 fiber 本就随父 fiber 生命周期自动卸载，清理块已移除，并由新增的真实 cordis 探针测试永久钉住；
-- **开发/测试环境对齐真实宿主 0.1.1 线**（issue #5）：devDeps 与 peer ranges 由 `0.1.0-rc.6/rc.8` 升至 `^0.1.1-rc.2`（新增 `dsh-session-projection` peer）；projection 注册改用真实类型契约（`SessionEventMap` / `SessionProjectionStateMap` / `SessionProjectionMap` 声明合并 + 类型化 `register`），契约形状漂移现在在 typecheck 期暴露，而不是运行期被 `snapshot()` 静默跳过；
-- 顶层 `inject` 移除 `'commands'`（非 dsh-base 装配上主条目会永久 PENDING、核心委派功能全失效）；命令 handler 增加 `invocation.agent.session` 可选链守卫；
-- 移除未使用的 `@deepseek-ai/dsh-client-schema-form` 依赖（源码零引用，且其 0.1.0 线 peer 链与 0.1.1 线冲突）。
-
-### 测试
-
-- 单元/集成测试由 197 增至 233：`/orchestrate` 功能与接线用例、handler 守卫用例，以及**真实 cordis `Context` + 真实 `SessionProjectionRegistry` 集成探针**（无 commands 服务时主条目正常激活、核心服务缺失时保持 PENDING、commands 后到时命令经真实 `ctx.inject` 子 fiber 响应式注册、projection 经真实 `snapshot()` 驱动 on→off 折叠）。
+- 单元/集成测试由 197 增至 253：`detectOrchestrateRequest` 检测单测（斜杠/任务文本/自然语言/反例）、按轮段判定接线测试（用户消息声明、`command/run` 区间扫描、任务参数扫描、无角色不可用提示、投影兜底）、命令语义测试（无参数按轮不写事件、任务文本 followup 排队、on 持久、off 退出），以及真实 cordis `Context` + 真实 `SessionProjectionRegistry` 集成探针（无 commands 服务时主条目正常激活、核心服务缺失时保持 PENDING、commands 后到时命令经真实 `ctx.inject` 子 fiber 响应式注册、projection 经真实 `snapshot()` 驱动 on→off 折叠、按轮与任务文本探针）。
 
 ### 已知取舍
 
