@@ -13,27 +13,31 @@
  * resolves cleanly; cross-field / semantic constraints that the schema cannot
  * express are enforced at WRITE time by validate(), which throws to refuse the
  * write exactly as SettingsRegisterOptions.validate / SettingsSectionHooks.validate
- * demand (dsh-settings/lib/types/index.d.ts:24-48, 307-341).
+ * demand (dsh-settings/lib/types/index.d.ts).
+ *
+ * alpha.4 port: `settingsNamespace()`/`installSettingsSection()` were removed
+ * from dsh-settings. Namespaces are now plain kebab-case string literals
+ * (template-literal validated) and registration rides
+ * `ctx.settings.installSection(owner, ns, schema, entry, hooks)` — the exact
+ * pattern of the official model-selection-settings.ts consumer.
  */
 import { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import {
-  installSettingsSection,
-  settingsNamespace,
   type SettingsSectionHooks,
 } from '@deepseek-ai/dsh-settings';
 
 import type { RoleTemplate, SubagentDirectorSettings } from './route-resolver.js';
 
 /** Settings namespace for Subagent Director (design section 0 naming resolution). */
-export const SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE = settingsNamespace('subagent-director');
+export const SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE = 'subagent-director' as const;
 
 export type { RoleTemplate, SubagentDirectorSettings } from './route-resolver.js';
 
 /**
  * Live settings snapshot holder.
  *
- * dsh-settings' `installSettingsSection` calls `setSource` exactly once with a
+ * dsh-settings' `installSection` calls `setSource` exactly once with a
  * source thunk and fires `onChange` on every settings change (settings.yaml
  * hot reload, settings UI writes). The previous wiring captured the value
  * inside setSource and left onChange empty, so edits were only visible after a
@@ -41,7 +45,7 @@ export type { RoleTemplate, SubagentDirectorSettings } from './route-resolver.js
  * the snapshot follows live settings.
  */
 export interface SettingsSnapshot<T> {
-  /** The dsh-settings consumer hooks to pass to installSettingsSection. */
+  /** The dsh-settings consumer hooks to pass to installSection. */
   hooks: SettingsSectionHooks<T>;
   /** The current resolved snapshot (refreshed by onChange). */
   get(): T;
@@ -159,13 +163,15 @@ export function validateDirectorSettings(value: SubagentDirectorSettings): void 
  * Install the Subagent Director settings section through the canonical
  * optional-settings consumer wiring.
  *
- * Mirrors dsh-agent-default-model/lib/index.js's optional pattern: the
- * registration rides the scoped fiber, so a deployment with no settings
- * service simply never mounts it. This helper guards that explicitly for
- * readability and logs a debug line when the service is absent so the gradual
- * fall-back to the composition config is observable.
+ * alpha.4: registration rides `ctx.settings.installSection(owner, ns, schema,
+ * entry, hooks)` — the same pattern the official
+ * subagent-model-selection-settings consumer uses. A deployment with no
+ * settings service simply never mounts it: this helper guards that explicitly
+ * for readability and logs a debug line when the service is absent so the
+ * gradual fall-back to the composition config is observable.
  *
- * @param ctx - consumer plugin context owning the wiring.
+ * @param ctx - consumer plugin context owning the wiring (also the fiber that
+ *   installSection ties the registration to).
  * @param entry - the consumer's composition-layer config, used as the settings
  *   base while a provider is absent.
  * @param hooks - source sink and change notification (plus optional validate).
@@ -181,7 +187,7 @@ export function installDirectorSettings(
     );
     return;
   }
-  installSettingsSection(ctx, SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE, SettingsSchema, entry, hooks);
+  ctx.settings.installSection(ctx, SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE, SettingsSchema, entry, hooks);
 }
 
 /** Convenience exported alias used by tests. */

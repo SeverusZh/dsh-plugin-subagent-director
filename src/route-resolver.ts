@@ -7,12 +7,23 @@
  *   1. call     - explicit arguments on the tool call (per-call override)
  *   2. role     - the role template bound by args.role (or defaultRole)
  *   3. default  - plugin default provider/model from settings
- *   4. inherit  - nothing configured: do NOT inject anything, let the seam
+ *   4. inherit  - nothing configured: do NOT inject anything, let the caller
  *                 inherit the parent agent (zero intrusion, AC-3.2)
  *
  * Field resolution is independent: each of provider/model/reasoningEffort is
  * filled by the highest-priority layer that specifies it. persona and
  * toolFilter come ONLY from the role layer.
+ *
+ * Authorized-model constraint (alpha.4): the official dsh-tool-subagent owns
+ * the `subagent-model-selection` settings section and enforces its
+ * allowedModels list. This plugin must therefore select provider/model ONLY
+ * from that list, never double-write model routes:
+ *   - an EXPLICIT call provider/model pair is admitted only when it appears in
+ *     the list; an unlisted pair (or a partial pair) is a hard error;
+ *   - a role/default-layer route that is not in the list is DROPPED (fall back
+ *     to inherit) with a warning; persona/toolFilter from the role still apply;
+ *   - an absent/empty allowedRoutes means no authorized list: previous
+ *     permissive behavior (and the caller is expected to warn instead).
  *
  * The function is pure, synchronous, and side-effect-free (<1ms) so it is
  * trivially unit-testable and replayable (FR-3.3, NFR-2).
@@ -24,16 +35,23 @@
  * observability (section 10), while per-field provenance lives implicitly in
  * the resolved fields.
  *
- * NOTE on reasoningEffort: the DSH AgentOptions shape only carries
- * provider/model/maxTokens (dsh-agent runtime-types). reasoningEffort is
- * therefore surfaced on the result SEPARATELY from agentOptions so a caller
- * can surface/validate it without pretending it belongs on
- * SubagentStartRequest.agentOptions.
+ * NOTE on reasoningEffort: with alpha.4, `AgentOptions` carries
+ * `reasoningEffort?: ReasoningEffortId` (dsh-agent runtime-types), so the
+ * resolved effort is injected into agentOptions alongside a resolved route.
+ * The effort may also be supplied alone (explicit call effort with no route);
+ * a role/default effort without a route is route-owned and stays out.
  */
 import type { AgentOptions } from '@deepseek-ai/dsh-agent';
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 
 /** Which layer supplied the resolved agentOptions fields. */
 export type RouteLayer = 'call' | 'role' | 'default' | 'inherit';
+
+/** One exact provider/model route authorized by the official selection list. */
+export interface AllowedModelRoute {
+  provider: string;
+  model: string;
+}
 
 /** A user-defined role template (design section 5.2). */
 export interface RoleTemplate {
@@ -47,7 +65,7 @@ export interface RoleTemplate {
   provider?: string;
   /** Model id override (role-layer only). */
   model?: string;
-  /** Reasoning effort override (role-layer only; advisory). */
+  /** Reasoning effort override (role-layer only). */
   reasoningEffort?: string;
   /** Tool scoping (role-layer only; requires toolFilter capability at runtime). */
   toolFilter?: { allow?: string[]; deny?: string[] };
@@ -59,7 +77,7 @@ export interface SubagentDirectorSettings {
   defaultProvider?: string;
   /** Default model id (default-layer). */
   defaultModel?: string;
-  /** Default reasoning effort (default-layer; advisory). */
+  /** Default reasoning effort (default-layer). */
   defaultReasoningEffort?: string;
   /** Id of the role template used when no role is given (default-layer). */
   defaultRole?: string;
@@ -88,6 +106,12 @@ export interface RouteInput {
   args?: RouteCallArgs;
   settings: SubagentDirectorSettings;
   parent?: RouteParent;
+  /**
+   * Authorized exact provider/model routes read from the official
+   * `subagent-model-selection` section. Empty or undefined = no authorized
+   * list (previous permissive behavior; the caller warns instead).
+   */
+  allowedRoutes?: ReadonlyArray<AllowedModelRoute>;
 }
 
 /** A tool scoping restriction mirroring dsh-tools ToolRestriction. */
@@ -101,13 +125,14 @@ export interface RouteResult {
   /** Highest-priority layer that supplied a resolved agentOptions field. */
   layer: RouteLayer;
   /**
-   * Resolved provider/model overrides to inject into
+   * Resolved provider/model/reasoningEffort overrides to inject into
    * SubagentStartRequest.agentOptions. Present (non-empty) only when a
    * non-inherit layer configured at least one of these fields; otherwise
-   * undefined so the seam inherits the parent (AC-3.2).
+   * undefined so the caller inherits the parent (AC-3.2). reasoningEffort is
+   * branded to the dsh-llm effort id when included.
    */
-  agentOptions?: Pick<AgentOptions, 'provider' | 'model'>;
-  /** Resolved reasoning effort (advisory; NOT part of AgentOptions). */
+  agentOptions?: Pick<AgentOptions, 'provider' | 'model' | 'reasoningEffort'>;
+  /** Resolved reasoning effort (raw string mirror for observability). */
   reasoningEffort?: string;
   /** Resolved role id when a valid role template was bound (role layer). */
   roleId?: string;
@@ -133,10 +158,28 @@ export function hasToolFilter(filter: RouteToolFilter | undefined): boolean {
   return filter !== undefined && ((filter.allow?.length ?? 0) > 0 || (filter.deny?.length ?? 0) > 0);
 }
 
+/**
+ * Whether a provider/model route is admitted by an authorized route list.
+ * An absent or empty list admits everything (no constraint); with a list a
+ * route must be an EXACT listed pair — a partial route cannot be admitted.
+ */
+export function isRouteAllowed(
+  route: { provider?: string; model?: string },
+  allowedRoutes: ReadonlyArray<AllowedModelRoute> | undefined,
+): boolean {
+  if (allowedRoutes === undefined || allowedRoutes.length === 0) return true;
+  if (route.provider === undefined || route.model === undefined) return false;
+  return allowedRoutes.some(
+    (entry) => entry.provider === route.provider && entry.model === route.model,
+  );
+}
+
 /** Core pure resolution logic. */
 export function resolveRoute(input: RouteInput): RouteResult {
-  const { args = {}, settings, parent } = input;
+  const { args = {}, settings, parent, allowedRoutes } = input;
   const warnings: string[] = [];
+  const routeList =
+    allowedRoutes !== undefined && allowedRoutes.length > 0 ? allowedRoutes : undefined;
 
   // ---- Layer 1: per-call explicit arguments -------------------------------
   const callProvider = isEmpty(args.provider) ? undefined : args.provider;
@@ -191,17 +234,72 @@ export function resolveRoute(input: RouteInput): RouteResult {
     ? undefined
     : settings.defaultReasoningEffort;
 
+  // ---- Authorized-list constraint (official subagent-model-selection) --------
+  // An EXPLICIT call pair must be an exact listed pair; provider and model are
+  // one route and must be supplied together (mirrors dsh-tool-subagent's
+  // requestedAgentOptions). A role/default route not on the list is dropped.
+  const explicitRoutePair = callProvider !== undefined && callModel !== undefined;
+  if (routeList !== undefined) {
+    if ((callProvider !== undefined) !== (callModel !== undefined)) {
+      throw new Error(
+        'subagent-director: provider and model must be supplied together when an authorized model list is configured',
+      );
+    }
+    if (explicitRoutePair && !isRouteAllowed({ provider: callProvider, model: callModel }, routeList)) {
+      throw new Error(
+        'subagent-director: LLM route ' + callProvider + '/' + callModel +
+          ' is not in the authorized model list (subagent-model-selection.allowedModels)',
+      );
+    }
+  }
+
   // ---- Field-level resolution: highest-priority layer per field --------------
-  const provider = callProvider ?? roleProvider ?? defaultProvider;
-  const model = callModel ?? roleModel ?? defaultModel;
+  let provider = callProvider ?? roleProvider ?? defaultProvider;
+  let model = callModel ?? roleModel ?? defaultModel;
+
+  // A non-explicit route that is not authorized is dropped entirely (inherit);
+  // persona/toolFilter are NOT route fields and survive the drop.
+  if (
+    routeList !== undefined &&
+    !explicitRoutePair &&
+    (provider !== undefined || model !== undefined) &&
+    !isRouteAllowed({ provider, model }, routeList)
+  ) {
+    const described = provider !== undefined && model !== undefined
+      ? provider + '/' + model
+      : String(provider ?? model ?? '(partial)');
+    if (roleProvider !== undefined || roleModel !== undefined) {
+      warnings.push(
+        'subagent-director: role "' + (resolvedRoleId ?? 'unknown') + '" binds LLM route ' + described +
+          ' which is not in the authorized model list; route fields dropped (subagent inherits the parent model)',
+      );
+    } else {
+      warnings.push(
+        'subagent-director: defaultProvider/defaultModel ' + described +
+          ' are not in the authorized model list; skipped (subagent inherits the parent model)',
+      );
+    }
+    provider = undefined;
+    model = undefined;
+  }
+
   const reasoningEffort = callEffort ?? roleEffort ?? defaultEffort;
+  // alpha.4 AgentOptions carries reasoningEffort. It rides agentOptions only
+  // when a route was resolved OR the effort itself was explicit (call layer):
+  // route-owned (role/default) effort of a dropped/changed route stays out.
+  const routeAdmitted = provider !== undefined || model !== undefined;
+  const includeEffort =
+    reasoningEffort !== undefined && (routeAdmitted || callEffort !== undefined);
 
   // ---- Build the output -------------------------------------------------------
-  const agentOptions: Pick<AgentOptions, 'provider' | 'model'> | undefined =
-    provider !== undefined || model !== undefined
+  const agentOptions: Pick<AgentOptions, 'provider' | 'model' | 'reasoningEffort'> | undefined =
+    routeAdmitted || includeEffort
       ? {
           ...(provider !== undefined ? { provider } : {}),
           ...(model !== undefined ? { model } : {}),
+          ...(includeEffort && reasoningEffort !== undefined
+            ? { reasoningEffort: ReasoningEffortId(reasoningEffort) }
+            : {}),
         }
       : undefined;
 
@@ -215,6 +313,9 @@ export function resolveRoute(input: RouteInput): RouteResult {
     } else {
       layer = 'default';
     }
+  } else if (includeEffort) {
+    // effort-only: only an explicit call effort can land here
+    layer = 'call';
   }
 
   return {

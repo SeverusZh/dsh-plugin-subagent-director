@@ -12,8 +12,8 @@ import type { ServerResponse } from 'node:http';
 import { describe, it, expect } from 'vitest';
 import {
   SettingsConflictError,
-  settingsNamespace,
   type SettingsDescriptor,
+  type SettingsNamespace,
 } from '@deepseek-ai/dsh-settings';
 import {
   installDirectorRemoteBridge,
@@ -72,7 +72,8 @@ describe('toDirectorNamespaceView', () => {
 describe('pickDirectorNamespaceView', () => {
   it('returns undefined when the namespace is not registered', () => {
     const other: SettingsDescriptor = {
-      ns: settingsNamespace('llm-deepseek'),
+      // alpha.4 namespaces are plain kebab-case literals (brand is compile-time)
+      ns: 'llm-deepseek' as SettingsNamespace,
       schema: { type: 'dict' },
       value: {},
       revision: 1,

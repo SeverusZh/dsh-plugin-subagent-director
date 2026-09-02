@@ -16,9 +16,9 @@
 ## 特性
 
 - **供应商与模型选择** —— 为 subagent 配置默认 LLM 供应商（route）与模型；每次委派也可以由模型显式指定；
-- **默认模型兜底** —— 配置 `defaultProvider`/`defaultModel` 后，即使模型调用内置
-  `subagent`/`subagent_fork` 工具，未显式指定模型的子代理也会自动使用该模型
-  （`applyDefaultRoute`，默认开启；未配置默认模型时为零侵入空操作）；
+- **受控的模型选择** —— provider/model 只从官方 `subagent-model-selection` 授权列表
+  （`allowedModels`）中选择：显式传入未授权路由为硬错误，角色/默认层未授权路由被
+  丢弃并回退继承（不与官方 dsh-tool-subagent 双重写模型路由）；
 - **配置热更新** —— settings.yaml / 设置面板的改动即时生效，无需重启；
 - **角色按显示名引用** —— `role` 参数未命中 id 时按 `displayName` 精确匹配（重名
   取定义顺序第一个并提示），模型按显示名也能命中模板；
@@ -59,7 +59,6 @@ dsh plugin --profile <name> add dsh-plugin-subagent-director
     enableRunInBackground: true
     backgroundMode: one-shot     # one-shot 或 continuable
     maxDepth: 3
-    applyDefaultRoute: true      # 默认 true：把默认模型应用到所有未显式指定模型的子代理
 ```
 
 > 注意：不要再用 `- insert:` 添加这两个条目，否则启动会报
@@ -128,7 +127,8 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 > `subagent_role`（工具名由 `toolName` 配置，默认 `subagent_role`）；DSH 基础
 > bundle 另有内置的 `subagent` / `subagent_fork`，两者在同一次请求的工具清单里
 > **并存**。只有走 `subagent_role` 才会应用角色 persona 与 `toolFilter`；模型改用
-> 内置 `subagent` 时这两项不生效（`applyDefaultRoute` 开启时默认模型仍会生效）。
+> 内置 `subagent` 时这两项不生效（模型选择由官方 dsh-tool-subagent 的
+> `modelSelectionSettings` 负责）。
 > 因此需要角色语义时，请在提示里明确要求调用 `subagent_role`。
 
 ### 纯编排模式（`/orchestrate`）
@@ -176,8 +176,9 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 
 **未配置任何角色时行为如何？**
 未配置任何角色且未配置默认模型时与未安装本插件完全一致（零侵入）。配置了
-`defaultProvider`/`defaultModel` 且未关闭 `applyDefaultRoute` 时，所有未显式
-指定模型的子代理（含内置工具发起的）都会使用该默认模型。
+`defaultProvider`/`defaultModel` 时：若官方 `subagent-model-selection` 已启用并有
+`allowedModels` 授权列表，默认路由仅在该列表内才生效（否则被丢弃并回退继承）；若
+未配置授权列表，则保留插件默认行为并给出警告提示。
 
 **用过 `/orchestrate` 的会话，卸载插件后还能打开吗？**
 不能。`/orchestrate` 会在会话日志写入 `orchestrate/change` 事件，而宿主的持久化

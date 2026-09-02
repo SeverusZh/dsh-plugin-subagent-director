@@ -24,14 +24,18 @@
  *     returns { kind: continuable, subagentId } (the durable child id), which the
  *     parent later follows up on with send_message (M3a / FR-5.3).
  *
- * reasoningEffort: the DSH AgentOptions and SubagentStartRequest shapes do
- * not carry reasoning effort (dsh-agent runtime-types.d.ts, dsh-subagent
- * types.d.ts), so it is surfaced and logged only, never injected (route-resolver
- * already returns it separately for auditability).
+ * reasoningEffort: alpha.4 `AgentOptions` carries `reasoningEffort?:
+ * ReasoningEffortId` (dsh-agent runtime-types), so the resolver injects it
+ * into agentOptions alongside a resolved route (and allows an explicit
+ * effort alone). Provider/model selection is CONSTRAINED to the official
+ * `subagent-model-selection` allowedModels list: the resolver throws for an
+ * unlisted explicit pair and drops unlisted role/default routes, so this
+ * plugin never double-writes a model route the official tool also owns.
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
-import { defineTool, type JsonValue, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
+import { defineTool, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
+import type { JsonValue } from '@deepseek-ai/dsh-util-values';
 import { settleRun } from '@deepseek-ai/dsh-subagent';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent';
@@ -62,7 +66,11 @@ export interface DelegationToolArgs {
   provider?: string;
   /** Model id override (optional). Wins over any role binding. */
   model?: string;
-  /** Reasoning-effort override (optional; advisory — logged, not injected). */
+  /**
+   * Reasoning-effort override (optional). With alpha.4 AgentOptions this is
+   * injected onto the resolved route; may also be supplied alone (provider and
+   * model stay inherited or role-bound).
+   */
   reasoningEffort?: string;
   /**
    * Whether to run in the background. Defaults to false in one-shot mode; in
@@ -223,6 +231,51 @@ function isProviderRoutable(ctx: Context, provider: string): boolean {
   return llm.listProviders().some((entry) => entry.id === provider);
 }
 
+/** The outcome of one execute-time read of the official model selection. */
+export interface ModelSelectionRead {
+  /** Whether a readable `subagent-model-selection` section exists on the seam. */
+  sectionPresent: boolean;
+  /**
+   * The authorized exact routes when the official selection is enabled with a
+   * non-empty allowlist; undefined otherwise (no constraint).
+   */
+  allowedRoutes: Array<{ provider: string; model: string }> | undefined;
+}
+
+/**
+ * Read the official `subagent-model-selection` section through the settings
+ * seam at execute time (the official dsh-tool-subagent owns this namespace).
+ * `settings.get` throws for namespace values the seam rejects, so the read is
+ * guarded — an unreadable section simply means no authorized list.
+ */
+export function readModelSelection(ctx: Context): ModelSelectionRead {
+  const settings = ctx.get('settings') as { get(ns: string): unknown } | undefined;
+  if (settings === undefined) return { sectionPresent: false, allowedRoutes: undefined };
+  let selection: unknown;
+  try {
+    selection = settings.get('subagent-model-selection');
+  } catch {
+    return { sectionPresent: false, allowedRoutes: undefined };
+  }
+  if (selection === null || typeof selection !== 'object') {
+    return { sectionPresent: false, allowedRoutes: undefined };
+  }
+  const record = selection as { enabled?: unknown; allowedModels?: unknown };
+  const models = Array.isArray(record.allowedModels)
+    ? record.allowedModels.filter(
+        (entry): entry is { provider: string; model: string } =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          typeof (entry as { provider?: unknown }).provider === 'string' &&
+          typeof (entry as { model?: unknown }).model === 'string',
+      )
+    : [];
+  return {
+    sectionPresent: true,
+    allowedRoutes: record.enabled === true && models.length > 0 ? models : undefined,
+  };
+}
+
 /** Format the structured FR-8.1 error with the available route list. */
 function invalidProviderError(provider: string, available: string[]): Error {
   const list = available.length > 0 ? available.join(', ') : '(none)';
@@ -320,7 +373,7 @@ export interface SubagentRequestParts {
   description: string;
   prompt: ContentBlock[];
   parent: Agent;
-  agentOptions?: Pick<AgentOptions, 'provider' | 'model'>;
+  agentOptions?: Pick<AgentOptions, 'provider' | 'model' | 'reasoningEffort'>;
   persona?: string;
   toolFilter?: RouteToolFilter;
   maxDepth?: number;
@@ -440,8 +493,27 @@ export function createDelegationTool(options: {
       if (!parent) throw new Error(`${ERROR_PREFIX} tool requires a calling agent (exec.agent was undefined)`);
 
       const settings = getSettings();
-      const route = resolveRoute({ args, settings, parent: parent.options });
-      const warnings = [...route.warnings];
+      // Authorized-model constraint: the official dsh-tool-subagent owns
+      // `subagent-model-selection`; this plugin only selects provider/model
+      // from its allowedModels. No section → no constraint, but the plugin is
+      // warned that its own defaults apply unconstrained.
+      const selection = readModelSelection(ctx);
+      const warnings: string[] = [];
+      if (
+        !selection.sectionPresent &&
+        (!isEmpty(settings.defaultProvider) || !isEmpty(settings.defaultModel))
+      ) {
+        warnings.push(
+          `${ERROR_PREFIX} no authorized model list is configured (subagent-model-selection section absent); plugin defaults/roles apply unconstrained`,
+        );
+      }
+      const route = resolveRoute({
+        args,
+        settings,
+        parent: parent.options,
+        allowedRoutes: selection.allowedRoutes,
+      });
+      warnings.push(...route.warnings);
       ctx.logger.info(
         `[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} mode=${continuable ? 'continuable' : 'one-shot'} transport=${providerName} route=${JSON.stringify(route.agentOptions ?? null)} persona=${route.persona ? 'yes' : 'no'} warnings=${JSON.stringify(warnings)}`,
       );
@@ -480,11 +552,6 @@ export function createDelegationTool(options: {
         capabilities: provider.capabilities,
         maxDepth,
       });
-
-      // reasoningEffort is advisory and not part of AgentOptions/SubagentStartRequest.
-      if (route.reasoningEffort !== undefined) {
-        ctx.logger.info(`[${DELEGATION_TOOL_PREFIX}] reasoningEffort=${route.reasoningEffort} is advisory and logged only (not injectable via AgentOptions)`);
-      }
 
       const request = buildSubagentRequest({
         description: args.description,

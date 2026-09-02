@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
   SettingsSchema,
+  installDirectorSettings,
   validateDirectorSettings,
   type RoleTemplate,
   type SubagentDirectorSettings,
@@ -28,9 +29,40 @@ function validSettings(overrides: Partial<SubagentDirectorSettings> = {}): Subag
 }
 
 describe('settings namespace', () => {
-  it('brands the subagent-director namespace', () => {
-    // Branded string surfaced to configuration UIs.
+  it('is the plain kebab-case namespace literal surfaced to configuration UIs', () => {
+    // alpha.4 namespaces are plain kebab-case string literals (template-literal
+    // validated by dsh-settings), no runtime brand function anymore.
     expect(String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE)).toBe('subagent-director');
+  });
+});
+
+describe('installDirectorSettings', () => {
+  it('delegates to ctx.settings.installSection with the director namespace', () => {
+    const calls: unknown[][] = [];
+    const ctx = {
+      get: (name: string) => (name === 'settings' ? {} : undefined),
+      settings: {
+        installSection(...args: unknown[]) {
+          calls.push(args);
+        },
+      },
+      logger: { debug: () => {} },
+    };
+    installDirectorSettings(
+      ctx as never,
+      { defaultProvider: 'opencode-go' },
+      { setSource: () => {}, onChange: () => {} } as never,
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toBe('subagent-director');
+    expect(calls[0][3]).toEqual({ defaultProvider: 'opencode-go' });
+  });
+
+  it('skips registration (no-op) when the settings service is absent', () => {
+    const ctx = { get: () => undefined, logger: { debug: () => {} } };
+    expect(() =>
+      installDirectorSettings(ctx as never, {}, { setSource: () => {}, onChange: () => {} } as never),
+    ).not.toThrow();
   });
 });
 

@@ -2,6 +2,43 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 变更
+
+- **alpha.4 兼容性移植（Host 半）**：`dsh-settings` 服务 API 升级——移除的
+  `settingsNamespace()` / `installSettingsSection()` 改为普通 kebab-case 命名空间
+  字面量 + `ctx.settings.installSection(owner, ns, schema, entry, hooks)`（与官方
+  `subagent-model-selection` 消费方同款模式）；`JsonValue` 改从
+  `@deepseek-ai/dsh-util-values` 导入（`dsh-tools` 不再导出）；`AgentOptions` 现携带
+  `reasoningEffort?: ReasoningEffortId`，`reasoningEffort` 由「仅告知」改为正式注入
+  `agentOptions`（可单独提供，路由变更时清除继承的 route 专属 effort）；
+- **移除 `applyDefaultRoute` 默认路由补丁缝**（避免与官方 dsh-tool-subagent 双重写
+  模型路由）：删除 `src/default-route.ts` 及其对 `ctx.subagents.start/startContinuable`
+  的 monkey-patch，`DirectorConfig` 与 Config schema 同步移除 `applyDefaultRoute`；
+  插件不再向任何子代理启动注入默认模型；
+- **选择收敛到官方授权列表**：`resolveRoute` 新增 `allowedRoutes` 约束——显式
+  provider/model 必须成对且位于 `subagent-model-selection.allowedModels`（未授权为
+  `subagent-director:` 硬错误）；角色/默认层未授权路由被丢弃（回退继承）并告警，
+  角色 persona/toolFilter 仍生效；新增 `isRouteAllowed` 纯函数与
+  `readModelSelection`（执行期经 `settings.get` 读取官方命名空间，缺失/异常时优雅
+  降级为无约束并提示未配置授权列表）。
+
+### 测试
+
+- `route-resolver.test.ts` 新增授权列表约束与 effort 注入用例（36 项）；
+- 新增 `alpha4-probe.test.ts` 真实 cordis 探针：a) 插件挂载不包装
+  `ctx.subagents.start`（证明补丁缝已移除）；b) `subagent-director` 命名空间经
+  `installSection` 注册且委派解析读取 `subagent-model-selection`；c) 委派执行路径对
+  未授权显式路由拒绝、对授权路由把 `agentOptions`（含 effort）透传给
+  `subagents.start`；删除 `default-route.test.ts`。
+
+### 兼容性
+
+- 桥接契约（`SUBAGENT_DIRECTOR_RPC_VIEW` / `_MUTATE` / `_CLOSE` / `_MODEL` / `_TOOLS`
+  端点与载荷）不变；`installDirectorSettings` 等导出签名保持；`RpcError.sessionId`
+  品牌冲突（宿主 apiproxy 嵌套的 `dsh-session` 副本）在边界处收敛为最小转型。
+
 ## [0.4.0] - 2026-08-31
 
 ### 新增

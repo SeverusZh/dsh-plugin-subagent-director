@@ -33,13 +33,13 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import {
   SettingsConflictError,
-  settingsNamespace,
   type SettingsDescriptor,
   type SettingsProvider,
 } from '@deepseek-ai/dsh-settings';
 import type {
   RpcResult,
   RpcError,
+  RpcErrorDetailsMap,
   SettingsNamespaceView,
   SettingsPathOpView,
 } from '@deepseek-ai/dsh-host-apiproxy/api';
@@ -217,6 +217,9 @@ export function directorViewOk(settings: SettingsProvider): RpcResult<DirectorVi
  * Execute one path-op mutation against the settings seam and map the outcome
  * to an RpcResult carrying the new redacted view (or a `settings-conflict` /
  * `settings-rejected` error). Pure over the injected primitives for testing.
+ * alpha.4: namespaces are plain kebab-case strings (the seam validates the
+ * format and throws TypeError for malformed ones, which this maps to
+ * `settings-rejected`).
  */
 export async function directorMutate(
   mutate: SettingsProvider['mutate'],
@@ -225,9 +228,8 @@ export async function directorMutate(
   ops: readonly SettingsPathOpView[],
   expectedRevision: number | undefined,
 ): Promise<RpcResult<SettingsNamespaceView>> {
-  const branded = settingsNamespace(ns);
   try {
-    await mutate(branded, ops, expectedRevision);
+    await mutate(ns, ops, expectedRevision);
   } catch (error) {
     if (error instanceof SettingsConflictError) {
       return { ok: false, error: directorConflict(error) };
@@ -235,7 +237,7 @@ export async function directorMutate(
     return { ok: false, error: directorRejected(ns, error) };
   }
   const descriptor = describe({ redactSecrets: true }).find(
-    (candidate) => candidate.ns === branded,
+    (candidate) => candidate.ns === ns,
   );
   if (descriptor === undefined) {
     return {
@@ -444,7 +446,12 @@ export async function dispatchSubagentClose(
       error: {
         code: 'session-not-found',
         message: 'parent agent ' + request.parentSessionId + ' is not live; its continuable children are released with it',
-        details: { sessionId: SessionId(request.parentSessionId) },
+        // dsh-host-apiproxy (0.1.1-rc.2) carries its own nested dsh-session
+        // copy, so its SessionId brand differs from the root alpha.4 one; the
+        // value itself is a plain id string, cast at the boundary.
+        details: {
+          sessionId: SessionId(request.parentSessionId) as unknown as RpcErrorDetailsMap['session-not-found']['sessionId'],
+        },
       },
     };
   }

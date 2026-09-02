@@ -41,6 +41,19 @@ function provideCoreStubs(ctx: Context, toolsRegister: (def: unknown) => () => v
       get: () => opts.base,
       watch: () => () => {},
     }),
+    // alpha.4 installSection: register + source sink + attach notification.
+    // The probe mirrors the live seam: setSource hands the resolved value
+    // thunk, then onChange fires so the snapshot settles immediately.
+    installSection: (
+      _owner: unknown,
+      _ns: unknown,
+      _schema: unknown,
+      entry: unknown,
+      hooks: { setSource: (fn: () => unknown) => void; onChange: () => void },
+    ) => {
+      hooks.setSource(() => entry);
+      hooks.onChange();
+    },
   });
 }
 
@@ -91,6 +104,16 @@ describe('real cordis probe — entry activation', () => {
         get: () => opts.base,
         watch: () => () => {},
       }),
+      installSection: (
+        _owner: unknown,
+        _ns: unknown,
+        _schema: unknown,
+        entry: unknown,
+        hooks: { setSource: (fn: () => unknown) => void; onChange: () => void },
+      ) => {
+        hooks.setSource(() => entry);
+        hooks.onChange();
+      },
     });
     void ctx.plugin({ name: pluginName, inject: pluginInject, apply }, {});
     await settle();
@@ -131,7 +154,16 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
     // ctx.on('session/event', (session, event) => this.drive(session, event))).
     const session: any = {
       seq: 0,
+      header: {},
+      inheritedEventCount: 0,
       events: [] as Array<{ type: string; data: any; seq: number; time: number }>,
+      snapshotEvents(from?: number, to?: number) {
+        // alpha.4 registry contract: buildCell folds session.snapshotEvents()
+        return this.events.slice(from ?? 0, to ?? this.events.length);
+      },
+      eventAt(seq: number) {
+        return this.events[seq];
+      },
       append(type: string, data: any) {
         const event = { type, data, seq: this.events.length, time: Date.now() };
         this.events.push(event);
@@ -167,7 +199,16 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
 
     const session: any = {
       seq: 0,
+      header: {},
+      inheritedEventCount: 0,
       events: [] as Array<{ type: string; data: any; seq: number; time: number }>,
+      snapshotEvents(from?: number, to?: number) {
+        // alpha.4 registry contract: buildCell folds session.snapshotEvents()
+        return this.events.slice(from ?? 0, to ?? this.events.length);
+      },
+      eventAt(seq: number) {
+        return this.events[seq];
+      },
       append(type: string, data: any) {
         const event = { type, data, seq: this.events.length, time: Date.now() };
         this.events.push(event);
@@ -216,7 +257,16 @@ describe('real cordis probe — orchestrate reactivity + real projection registr
 
     const session: any = {
       seq: 0,
+      header: {},
+      inheritedEventCount: 0,
       events: [] as Array<{ type: string; data: any; seq: number; time: number }>,
+      snapshotEvents(from?: number, to?: number) {
+        // alpha.4 registry contract: buildCell folds session.snapshotEvents()
+        return this.events.slice(from ?? 0, to ?? this.events.length);
+      },
+      eventAt(seq: number) {
+        return this.events[seq];
+      },
       append(type: string, data: any) {
         const event = { type, data, seq: this.events.length, time: Date.now() };
         this.events.push(event);

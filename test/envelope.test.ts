@@ -23,8 +23,8 @@ import {
 } from '../src/remote.js';
 import {
   SettingsConflictError,
-  settingsNamespace,
   type SettingsDescriptor,
+  type SettingsNamespace,
 } from '@deepseek-ai/dsh-settings';
 import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE } from '../src/settings.js';
 
@@ -172,7 +172,8 @@ describe('toDirectorNamespaceView / pickDirectorNamespaceView', () => {
 
   it('picks the registered namespace and returns undefined otherwise', () => {
     const other: SettingsDescriptor = {
-      ns: settingsNamespace('llm-deepseek'),
+      // alpha.4 namespaces are plain kebab-case literals (brand is compile-time)
+      ns: 'llm-deepseek' as SettingsNamespace,
       schema: { type: 'dict' },
       value: {},
       revision: 1,
