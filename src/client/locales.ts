@@ -11,6 +11,7 @@ export type SubagentDirectorKey =
   | 'sectionIntro'
   | 'defaultsHeading'
   | 'defaultsHint'
+  | 'noAllowedModels'
   | 'defaultProvider'
   | 'defaultModel'
   | 'defaultReasoningEffort'
@@ -81,6 +82,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "sectionIntro": "Choose the LLM provider and model each subagent uses, and define role templates that bind a model and persona to a delegation.",
   "defaultsHeading": "Default model",
   "defaultsHint": "Used when a call or role does not name a provider/model.",
+  "noAllowedModels": "No authorized models yet. Select models in the official Subagent model-selection list (plugin settings \u2192 Subagent); picks here are limited to that list.",
   "defaultProvider": "Provider",
   "defaultModel": "Model",
   "defaultReasoningEffort": "Reasoning effort",
@@ -152,6 +154,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "sectionIntro": "为每个子代理选择 LLM 供应商与模型，并以角色模板把模型与 persona 绑定到每次委派。",
   "defaultsHeading": "默认模型",
   "defaultsHint": "当某次调用或角色未指定供应商/模型时使用。",
+  "noAllowedModels": "尚未配置已授权的模型。请先在官方 Subagent 模型选择列表（插件设置 → Subagent）中选择模型；此处只能从该列表中选择。",
   "defaultProvider": "供应商",
   "defaultModel": "模型",
   "defaultReasoningEffort": "推理强度",

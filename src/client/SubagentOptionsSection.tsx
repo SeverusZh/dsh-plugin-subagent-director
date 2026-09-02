@@ -12,8 +12,9 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { SnapshotSelectorHook } from './bind.js';
-import type { ModelProviderGroup } from '@deepseek-ai/dsh-client-connection/client';
 import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client';
+import type { DirectorAllowedRoute } from '../bridge-contract.js';
+import { modelsForProvider, providerNames } from './allowed-routes.js';
 import type { SubagentDirectorKey } from './locales.js';
 import type { SubagentOptionsState, SubagentOptionsStore } from './store.js';
 import type { RoleDraft, StoredRole } from './store-logic.js';
@@ -39,8 +40,6 @@ export interface SubagentOptionsSectionInjected {
     controller: SubagentOptionsStore;
     /** uSES subscription hook bound to the store. */
     useSnapshot: SnapshotSelectorHook<SubagentOptionsState>;
-    /** Wire faces the page writes through (kept for parity with the slot contract). */
-    api: unknown;
     /** Section copy. */
     t: (key: SubagentDirectorKey) => string;
 }
@@ -56,18 +55,6 @@ interface DefaultRowDraft {
     provider: string;
     model: string;
     reasoningEffort: string;
-}
-
-/** Derive reasoning-effort options from the catalog for an exact provider+model. */
-function effortsFor(
-    groups: readonly ModelProviderGroup[],
-    provider: string | undefined,
-    model: string | undefined,
-): readonly { id: string; name: string }[] {
-    if (!provider || !model) return [];
-    const group = groups.find((g) => g.id === provider);
-    const entry = group?.models.find((m) => m.id === model);
-    return entry?.reasoning?.efforts ?? [];
 }
 
 /**
@@ -129,7 +116,7 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
     const writable = state.writable;
     const roles = section?.roles ?? {};
     const entries = Object.entries(roles) as [string, StoredRole][];
-    const groups = state.models;
+    const routes = state.allowedRoutes;
     const tools = state.tools;
 
     return (
@@ -137,7 +124,8 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
             <p style={{ margin: 0, color: token.labelSecondary, fontSize: 13, lineHeight: '18px' }}>{t('sectionIntro')}</p>
             <DefaultModelRow
                 controller={controller}
-                groups={groups}
+                routes={routes}
+                modelSelectionEnabled={state.modelSelectionEnabled}
                 writable={writable}
                 current={{
                     provider: section?.defaultProvider,
@@ -148,7 +136,7 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
             />
             <RolesBlock
                 controller={controller}
-                groups={groups}
+                routes={routes}
                 tools={tools}
                 writable={writable}
                 roles={entries}
@@ -160,9 +148,10 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
 }
 
 /** The default-model row: provider → model → reasoning-effort cascade + restore. */
-function DefaultModelRow({ controller, groups, writable, current, t }: {
+function DefaultModelRow({ controller, routes, modelSelectionEnabled, writable, current, t }: {
     controller: SubagentOptionsStore;
-    groups: readonly ModelProviderGroup[];
+    routes: readonly DirectorAllowedRoute[];
+    modelSelectionEnabled: boolean;
     writable: boolean;
     current: { provider?: string; model?: string; reasoningEffort?: string };
     t: (key: SubagentDirectorKey) => string;
@@ -191,8 +180,9 @@ function DefaultModelRow({ controller, groups, writable, current, t }: {
 
     const provider = draft.provider;
     const model = draft.model;
-    const modelOptions = provider ? (groups.find((g) => g.id === provider)?.models ?? []) : [];
-    const effortOptions = effortsFor(groups, provider, model);
+    const providers = providerNames(routes);
+    const modelOptions = provider ? modelsForProvider(routes, provider) : [];
+    const noAllowed = routes.length === 0;
 
     const save = async (): Promise<void> => {
         setBusy(true);
@@ -235,48 +225,55 @@ function DefaultModelRow({ controller, groups, writable, current, t }: {
                 <button style={ghostButtonStyle} disabled={!writable || busy} onClick={() => void restore()}>{t('restoreDefaults')}</button>
             </div>
             <p style={{ margin: 0, color: token.labelSecondary, fontSize: 13, lineHeight: '18px' }}>{t('defaultsHint')}</p>
+            {noAllowed ? (
+                <p style={{ margin: '6px 0 0', color: token.danger, fontSize: 12, lineHeight: '16px' }}>{t('noAllowedModels')}</p>
+            ) : null}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                 <div style={rowStyle}>
                     <label style={fieldLabelStyle}>{t('defaultProvider')}</label>
-                    <select
-                        style={selectStyle}
-                        value={draft.provider}
-                        disabled={!writable || groups.length === 0}
-                        onChange={(e) => setDraft((d) => ({ provider: e.target.value, model: '', reasoningEffort: '' }))}
-                    >
-                        <option value="">—</option>
-                        {groups.map((g) => (
-                            <option key={g.id} value={g.id}>{g.name}</option>
-                        ))}
-                    </select>
+                    {noAllowed ? (
+                        <div style={{ color: token.labelSecondary, fontSize: 12 }}>—</div>
+                    ) : (
+                        <select
+                            style={selectStyle}
+                            value={draft.provider}
+                            disabled={!writable || providers.length === 0}
+                            onChange={(e) => setDraft((d) => ({ provider: e.target.value, model: '', reasoningEffort: '' }))}
+                        >
+                            <option value="">—</option>
+                            {providers.map((id) => (
+                                <option key={id} value={id}>{id}</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
                 <div style={rowStyle}>
                     <label style={fieldLabelStyle}>{t('defaultModel')}</label>
-                    <select
-                        style={selectStyle}
-                        value={draft.model}
-                        disabled={!writable || modelOptions.length === 0}
-                        onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value, reasoningEffort: '' }))}
-                    >
-                        <option value="">—</option>
-                        {modelOptions.map((m) => (
-                            <option key={m.id} value={m.id}>{m.name}</option>
-                        ))}
-                    </select>
+                    {noAllowed ? (
+                        <div style={{ color: token.labelSecondary, fontSize: 12 }}>—</div>
+                    ) : (
+                        <select
+                            style={selectStyle}
+                            value={draft.model}
+                            disabled={!writable || modelOptions.length === 0}
+                            onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value, reasoningEffort: '' }))}
+                        >
+                            <option value="">—</option>
+                            {modelOptions.map((m) => (
+                                <option key={m.model} value={m.model}>{m.label}</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
                 <div style={rowStyle}>
                     <label style={fieldLabelStyle}>{t('defaultReasoningEffort')}</label>
-                    <select
-                        style={selectStyle}
+                    <input
+                        style={textInputStyle}
                         value={draft.reasoningEffort}
-                        disabled={!writable || effortOptions.length === 0}
+                        disabled={!writable}
+                        placeholder={modelSelectionEnabled ? '' : '(advisory)'}
                         onChange={(e) => setDraft((d) => ({ ...d, reasoningEffort: e.target.value }))}
-                    >
-                        <option value="">—</option>
-                        {effortOptions.map((e) => (
-                            <option key={e.id} value={e.id}>{e.name}</option>
-                        ))}
-                    </select>
+                    />
                 </div>
             </div>
             {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
@@ -289,9 +286,9 @@ function DefaultModelRow({ controller, groups, writable, current, t }: {
 }
 
 /** The role-template roster: cards plus an inline add form. */
-function RolesBlock({ controller, groups, tools, writable, roles, defaultRole, t }: {
+function RolesBlock({ controller, routes, tools, writable, roles, defaultRole, t }: {
     controller: SubagentOptionsStore;
-    groups: readonly ModelProviderGroup[];
+    routes: readonly DirectorAllowedRoute[];
     tools: readonly string[];
     writable: boolean;
     roles: [string, StoredRole][];
@@ -387,7 +384,7 @@ function RolesBlock({ controller, groups, tools, writable, roles, defaultRole, t
                         id={id}
                         role={role}
                         isDefault={defaultRole === id}
-                        groups={groups}
+                        routes={routes}
                         tools={tools}
                         t={t}
                         onSave={(d: RoleDraft) => controller.updateRole(id, role, d)}

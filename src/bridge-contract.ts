@@ -25,6 +25,29 @@ export const SUBAGENT_DIRECTOR_RPC_MODEL = 'subagentModel';
 /** Endpoint that returns the model-visible tool catalog for role tool-set editing. */
 export const SUBAGENT_DIRECTOR_RPC_TOOLS = 'toolCatalog';
 
+/**
+ * Endpoint that returns the Subagent model-selection allowlist the page must
+ * constrain picks to (the official `subagent-model-selection` section: the
+ * "Subagent" plugin-config model list). Additive endpoint for alpha.4: the
+ * llm catalog RPC is gone from the client, and Subagent Director may select a
+ * provider/model ONLY from this list.
+ */
+export const SUBAGENT_DIRECTOR_RPC_CATALOG = 'settingsCatalog';
+
+/** One exact route authorized in the Subagent model-selection list. */
+export interface DirectorAllowedRoute {
+  provider: string;
+  model: string;
+}
+
+/** Successful settingsCatalog bridge response. */
+export interface DirectorCatalogSuccess {
+  /** Whether the official Subagent model selection is enabled. */
+  modelSelectionEnabled: boolean;
+  /** The exact routes the user has authorized (the only selectable models). */
+  allowedRoutes: DirectorAllowedRoute[];
+}
+
 /** Successful settingsView bridge response. */
 export interface DirectorViewSuccess {
   writable: boolean;

@@ -17,6 +17,7 @@ import {
 } from '@deepseek-ai/dsh-settings';
 import {
   installDirectorRemoteBridge,
+  directorCatalogOk,
   pickDirectorNamespaceView,
   toDirectorNamespaceView,
   directorMutate,
@@ -158,6 +159,50 @@ describe('directorMutate', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('internal');
+  });
+});
+
+
+describe('directorCatalogOk', () => {
+  const settingsLike = (get: (ns: string) => unknown) => ({ get }) as never;
+
+  it('returns the authorized routes when the official selection is enabled with a non-empty list', () => {
+    const result = directorCatalogOk(settingsLike((ns) => {
+      expect(ns).toBe('subagent-model-selection');
+      return { enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, { provider: 'pi-ai', model: 'gpt-5' }] };
+    }));
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        modelSelectionEnabled: true,
+        allowedRoutes: [
+          { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          { provider: 'pi-ai', model: 'gpt-5' },
+        ],
+      },
+    });
+  });
+
+  it('returns an empty allowlist when the official selection is disabled', () => {
+    const result = directorCatalogOk(settingsLike(() => ({ enabled: false, allowedModels: [{ provider: 'x', model: 'y' }] })));
+    expect(result).toEqual({ ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } });
+  });
+
+  it('returns an empty allowlist when the section is absent', () => {
+    const result = directorCatalogOk(settingsLike(() => {
+      throw new Error('settings namespace not registered');
+    }));
+    expect(result).toEqual({ ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } });
+  });
+
+  it('drops malformed route entries and returns an empty allowlist without a settings service', () => {
+    const malformed = directorCatalogOk(settingsLike(() => ({
+      enabled: true,
+      allowedModels: [{ provider: '', model: 'y' }, { provider: 'ok', model: '' }, null, 'junk'],
+    })));
+    expect(malformed).toEqual({ ok: true, value: { modelSelectionEnabled: true, allowedRoutes: [] } });
+    const noSettings = directorCatalogOk(undefined);
+    expect(noSettings).toEqual({ ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } });
   });
 });
 

@@ -76,19 +76,18 @@ export function apply(ctx: ClientContext): void {
   // client ConnectionHandle is what the browser transport actually provides.
   const connection = ctx.get('connection') as unknown as ConnectionHandle;
   const t = ctx.locale.bind(NS);
-  // The settings namespace rides the self-published /subagent-director RPC
-  // channel (the Host apiproxy allowlist would answer settings-not-exposed);
-  // llm.providers/llm.models still go through connection.api.llm.
+  // The settings namespace and the Subagent model-selection allowlist ride the
+  // self-published /subagent-director RPC channel (the Host apiproxy allowlist
+  // would answer settings-not-exposed; the alpha.4 client has no llm catalog
+  // RPC anymore), so the page's only wire face is the generic RPC caller.
   const controller = new SubagentOptionsStore({
     rpc: connection.rpc,
-    llm: connection.api.llm,
     t: t as (key: SubagentDirectorKey) => string,
   });
   const useSnapshot = bindSnapshotSelector<SubagentOptionsState>(controller.store);
   const injected = (): SubagentOptionsSectionInjected => ({
     controller,
     useSnapshot,
-    api: connection.api,
     t: t as SubagentOptionsSectionInjected['t'],
   });
   const dockInjected = (): SubagentModelDockInjected => ({ rpc: connection.rpc });

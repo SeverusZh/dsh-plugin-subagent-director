@@ -54,6 +54,8 @@ import {
   SUBAGENT_DIRECTOR_RPC_CLOSE,
   SUBAGENT_DIRECTOR_RPC_MODEL,
   SUBAGENT_DIRECTOR_RPC_TOOLS,
+  SUBAGENT_DIRECTOR_RPC_CATALOG,
+  type DirectorCatalogSuccess,
   type DirectorCloseRequest,
   type DirectorModelRequest,
   type DirectorModelSuccess,
@@ -214,6 +216,44 @@ export function directorViewOk(settings: SettingsProvider): RpcResult<DirectorVi
 }
 
 /**
+ * Build the ok payload for the settingsCatalog endpoint: the official Subagent
+ * model-selection allowlist (the `subagent-model-selection` section the user
+ * edits in the official "Subagent" settings card). The page may select a
+ * provider/model ONLY from this list. An absent/disabled/empty section yields
+ * an empty list — the client then shows the "no authorized models" notice and
+ * the host-side resolver applies no constraint (inherits the parent model).
+ */
+export function directorCatalogOk(
+  settings: SettingsProvider | undefined,
+): RpcResult<DirectorCatalogSuccess> {
+  if (settings === undefined) {
+    return { ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } };
+  }
+  try {
+    const section = settings.get('subagent-model-selection') as
+      | { enabled?: unknown; allowedModels?: unknown }
+      | undefined;
+    const enabled = section !== null && typeof section === 'object' && section.enabled === true;
+    const raw = enabled && Array.isArray(section?.allowedModels) ? section.allowedModels : [];
+    const allowedRoutes = raw
+      .filter(
+        (entry): entry is { provider: string; model: string } =>
+          entry !== null &&
+          typeof entry === 'object' &&
+          typeof entry.provider === 'string' &&
+          entry.provider.length > 0 &&
+          typeof entry.model === 'string' &&
+          entry.model.length > 0,
+      )
+      .map(({ provider, model }) => ({ provider, model }));
+    return { ok: true, value: { modelSelectionEnabled: enabled, allowedRoutes } };
+  } catch {
+    // Unregistered namespace / malformed section: treat as "no allowlist".
+    return { ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } };
+  }
+}
+
+/**
  * Execute one path-op mutation against the settings seam and map the outcome
  * to an RpcResult carrying the new redacted view (or a `settings-conflict` /
  * `settings-rejected` error). Pure over the injected primitives for testing.
@@ -342,6 +382,9 @@ async function dispatchBridgeEndpoint(
 ): Promise<RpcResult<unknown>> {
   if (endpoint === SUBAGENT_DIRECTOR_RPC_VIEW) {
     return directorViewOk(deps.settings) as RpcResult<unknown>;
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CATALOG) {
+    return directorCatalogOk(deps.settings) as RpcResult<unknown>;
   }
   if (endpoint === SUBAGENT_DIRECTOR_RPC_MUTATE) {
     const request = payload as DirectorMutateRequest | null;

@@ -1,9 +1,12 @@
 /** One role template card: read-only summary plus an inline editor.
- * Provider/model/effort selects cascade from the model catalog; writes go
- * through the controller as path ops, and failures return a localized message. */
+ * Provider/model picks are limited to the routes authorized in the official
+ * Subagent model-selection list; reasoning effort is a free-text field (the
+ * alpha.4 client has no effort catalog). Writes go through the controller as
+ * path ops, and failures return a localized message. */
 import { useState } from 'react';
-import type { ModelProviderGroup } from '@deepseek-ai/dsh-client-connection/client';
+import type { DirectorAllowedRoute } from '../bridge-contract.js';
 import type { SubagentDirectorKey } from './locales.js';
+import { modelsForProvider, providerNames } from './allowed-routes.js';
 import type { RoleDraft, StoredRole } from './store-logic.js';
 import { ToolSetPicker } from './ToolSetPicker.js';
 import {
@@ -26,8 +29,8 @@ export interface RoleCardProps {
   role: StoredRole;
   /** Whether this role is the defaultRole. */
   isDefault: boolean;
-  /** Available providers (for the provider select). */
-  groups: readonly ModelProviderGroup[];
+  /** Authorized routes (the only selectable provider/model pairs). */
+  routes: readonly DirectorAllowedRoute[];
   /** Distinct model-visible tool names (for the tool-set row). */
   tools: readonly string[];
   /** Section copy. */
@@ -40,14 +43,7 @@ export interface RoleCardProps {
   onSetDefault: () => Promise<string | undefined>;
 }
 
-function effortsFor(groups: readonly ModelProviderGroup[], provider: string | undefined, model: string | undefined): readonly { id: string; name: string }[] {
-  if (!provider || !model) return [];
-  const group = groups.find((g) => g.id === provider);
-  const entry = group?.models.find((m) => m.id === model);
-  return entry?.reasoning?.efforts ?? [];
-}
-
-export function RoleCard({ id, role, isDefault, groups, tools, t, onSave, onDelete, onSetDefault }: RoleCardProps): JSX.Element {
+export function RoleCard({ id, role, isDefault, routes, tools, t, onSave, onDelete, onSetDefault }: RoleCardProps): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -63,8 +59,8 @@ export function RoleCard({ id, role, isDefault, groups, tools, t, onSave, onDele
 
   const provider = draft.provider || role.provider;
   const model = draft.model || role.model;
-  const modelOptions = provider ? (groups.find((g) => g.id === provider)?.models ?? []) : [];
-  const effortOptions = effortsFor(groups, provider, model);
+  const providers = providerNames(routes);
+  const modelOptions = provider ? modelsForProvider(routes, provider) : [];
 
   const save = async (): Promise<void> => {
     setBusy(true);
@@ -124,12 +120,12 @@ export function RoleCard({ id, role, isDefault, groups, tools, t, onSave, onDele
             <select
               style={selectStyle}
               value={draft.provider}
-              disabled={groups.length === 0}
+              disabled={providers.length === 0}
               onChange={(e) => setField('provider', e.target.value)}
             >
               <option value="">—</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
+              {providers.map((id) => (
+                <option key={id} value={id}>{id}</option>
               ))}
             </select>
           </div>
@@ -143,23 +139,18 @@ export function RoleCard({ id, role, isDefault, groups, tools, t, onSave, onDele
             >
               <option value="">—</option>
               {modelOptions.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+                <option key={m.model} value={m.model}>{m.label}</option>
               ))}
             </select>
           </div>
           <div style={rowStyle}>
             <label style={fieldLabelStyle}>{t('reasoningEffort')}</label>
-            <select
-              style={selectStyle}
+            <input
+              style={textInputStyle}
               value={draft.reasoningEffort}
-              disabled={effortOptions.length === 0}
+              placeholder="(advisory)"
               onChange={(e) => setField('reasoningEffort', e.target.value)}
-            >
-              <option value="">—</option>
-              {effortOptions.map((e) => (
-                <option key={e.id} value={e.id}>{e.name}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
         <div style={rowStyle}>

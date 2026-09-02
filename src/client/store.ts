@@ -1,29 +1,27 @@
 /**
- * Subagent Director settings page store: one snapshot joining the configurable
- * provider directory (llm.providers), the model catalog (llm.models), and the
- * plugin's own settings namespace. The settings namespace is read/written
- * through the plugin's self-published `/subagent-director` RPC channel (see
- * ../remote.ts) because the Host apiproxy's exposedNamespaces() allowlist
- * answers `settings-not-exposed` for namespaces outside the model-provider
- * plane; llm.providers/llm.models still ride `connection.api.llm`. The host
- * stays the single fact source: every write travels as path ops through the
- * bridge's settingsMutate endpoint with an expectedRevision optimistic lock,
- * and pushed invalidations (settings/document-updated, llm/adapters-updated,
+ * Subagent Director settings page store: one snapshot joining the authorized
+ * Subagent model-selection allowlist (the official `subagent-model-selection`
+ * section), the plugin's own settings namespace, and the model-visible tool
+ * catalog. The settings namespace and the allowlist are read through the
+ * plugin's self-published `/subagent-director` RPC channel (see ../remote.ts)
+ * because the Host apiproxy's exposedNamespaces() allowlist answers
+ * `settings-not-exposed` for namespaces outside the model-provider plane, and
+ * the alpha.4 client no longer has a full llm catalog RPC. The host stays the
+ * single fact source: every write travels as path ops through the bridge's
+ * settingsMutate endpoint with an expectedRevision optimistic lock, and pushed
+ * invalidations (settings/document-updated, llm/adapters-updated,
  * connection/reset) refresh the page.
  */
-import type {
-  ClientConnectionRpc,
-  ConfigurableProviderView,
-  IApiClient,
-  ModelProviderGroup,
-  SettingsNamespaceView,
-  SettingsPathOpView,
-} from '@deepseek-ai/dsh-client-connection/client';
+import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client';
+import type { SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-host-apiproxy/api';
 import {
   SUBAGENT_DIRECTOR_RPC_CHANNEL,
   SUBAGENT_DIRECTOR_RPC_VIEW,
   SUBAGENT_DIRECTOR_RPC_MUTATE,
   SUBAGENT_DIRECTOR_RPC_TOOLS,
+  SUBAGENT_DIRECTOR_RPC_CATALOG,
+  type DirectorAllowedRoute,
+  type DirectorCatalogSuccess,
   type DirectorToolsSuccess,
   type DirectorViewSuccess,
 } from '../bridge-contract.js';
@@ -60,10 +58,15 @@ export interface SubagentOptionsState {
   section: StoredSection | undefined;
   /** Current expectedRevision for the next mutate. */
   revision: number;
-  /** Configurable provider directory. */
-  providers: readonly ConfigurableProviderView[];
-  /** Model catalog groups (provider → models → reasoning efforts). */
-  models: readonly ModelProviderGroup[];
+  /** Whether the official Subagent model selection is enabled. */
+  modelSelectionEnabled: boolean;
+  /**
+   * The authorized exact routes — the ONLY selectable provider/model pairs.
+   * Empty when the official selection is off or no model is authorized yet;
+   * the page then shows the "no authorized models" notice and the host-side
+   * resolver inherits the parent model.
+   */
+  allowedRoutes: readonly DirectorAllowedRoute[];
   /** Distinct model-visible tool names for role tool-set editing. */
   tools: readonly string[];
   /** The plugin name surfaced to the section. */
@@ -79,8 +82,8 @@ export function initialSubagentOptionsState(): SubagentOptionsState {
     namespace: undefined,
     section: undefined,
     revision: 0,
-    providers: [],
-    models: [],
+    modelSelectionEnabled: false,
+    allowedRoutes: [],
     tools: [],
     loading: false,
   };
@@ -109,12 +112,10 @@ export function isBridgeUnavailable(error: unknown): boolean {
   return error instanceof BridgeUnavailableError;
 }
 
-/** Wire faces the settings page needs: the bridge RPC caller, the llm face, and copy. */
+/** Wire faces the settings page needs: the bridge RPC caller and copy. */
 export interface StoreWire {
   /** Generic RPC caller for the self-published /subagent-director channel. */
   rpc: ClientConnectionRpc;
-  /** llm catalog/adapters face (still connection.api.llm). */
-  llm: IApiClient['llm'];
   /** Section copy binder (for the localized bridge-unavailable message). */
   t: (key: SubagentDirectorKey) => string;
 }
@@ -164,12 +165,15 @@ export class SubagentOptionsStore {
       s.loading = true;
     });
     try {
-      const [providersResponse, modelsResponse, viewResult, toolsResult] = await Promise.all([
-        this.wire.llm.providers({}),
-        this.wire.llm.models({}),
+      // The catalog is best-effort like the tool list: a bridge without the
+      // endpoint degrades to "no allowlist" (inherits the parent model), never
+      // blocks the page.
+      const [viewResult, catalogResult, toolsResult] = await Promise.all([
         this.callBridge<DirectorViewSuccess>(SUBAGENT_DIRECTOR_RPC_VIEW),
-        // The tool catalog is best-effort: a bridge without the endpoint (or a
-        // registry-less host) degrades to an empty list, never blocks the page.
+        this.callBridge<DirectorCatalogSuccess>(SUBAGENT_DIRECTOR_RPC_CATALOG).catch(() => ({
+          ok: false as const,
+          error: { code: 'internal', message: 'model-selection catalog unavailable' },
+        })),
         // Passing the current session id lets the Host enumerate the agent's
         // FULL tool view (preset tools like bash/read/write live in the agent
         // scope, not the global registry).
@@ -178,22 +182,19 @@ export class SubagentOptionsStore {
           error: { code: 'internal', message: 'tool catalog unavailable' },
         })),
       ]);
-      if (!providersResponse.result.ok) throw new Error(providersResponse.result.error.message);
-      if (!modelsResponse.result.ok) throw new Error(modelsResponse.result.error.message);
       if (!viewResult.ok) throw new Error(this.errorMessage(viewResult.error));
       if (generation !== this.generation) return;
       const view = viewResult.value.view;
       const section = (view?.value ?? {}) as StoredSection;
       const writable = viewResult.value.writable;
-      const providers = providersResponse.result.value.providers;
-      const models = modelsResponse.result.value.groups;
+      const catalog = catalogResult.ok ? catalogResult.value : { modelSelectionEnabled: false, allowedRoutes: [] };
       const tools = toolsResult.ok ? toolsResult.value.tools : [];
       this.store.update((s) => {
         s.status = 'ready';
         s.error = null;
         s.writable = writable;
-        s.providers = providers;
-        s.models = models;
+        s.modelSelectionEnabled = catalog.modelSelectionEnabled;
+        s.allowedRoutes = catalog.allowedRoutes;
         s.tools = tools;
         s.namespace = view;
         s.section = section;
