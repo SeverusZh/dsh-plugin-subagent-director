@@ -79,7 +79,7 @@ export type SubagentDirectorKey =
 /** English dictionary ($subagentDirector). */
 export const en: Record<SubagentDirectorKey, string> = {
   "nav": "Subagent Director",
-  "sectionIntro": "Choose the LLM provider and model each subagent uses, and define role templates that bind a model and persona to a delegation.",
+  "sectionIntro": "Choose the LLM provider and model each subagent uses, and define role templates that bind a model and persona to a delegation. Only providers/models from the Subagent pool in plugin config (Plugins \u2192 Plugin Config \u2192 Subagent) can be selected.",
   "defaultsHeading": "Default model",
   "defaultsHint": "Used when a call or role does not name a provider/model.",
   "noAllowedModels": "No authorized models yet. Select models in the official Subagent model-selection list (plugin settings \u2192 Subagent); picks here are limited to that list.",
@@ -151,7 +151,7 @@ export const en: Record<SubagentDirectorKey, string> = {
 /** Chinese dictionary. */
 export const zh: Record<SubagentDirectorKey, string> = {
   "nav": "子代理导演",
-  "sectionIntro": "为每个子代理选择 LLM 供应商与模型，并以角色模板把模型与 persona 绑定到每次委派。",
+  "sectionIntro": "为每个子代理选择 LLM 供应商与模型，并以角色模板把模型与 persona 绑定到每次委派。只能选择插件-插件配置-Subagent池里的提供商-模型。",
   "defaultsHeading": "默认模型",
   "defaultsHint": "当某次调用或角色未指定供应商/模型时使用。",
   "noAllowedModels": "尚未配置已授权的模型。请先在官方 Subagent 模型选择列表（插件设置 → Subagent）中选择模型；此处只能从该列表中选择。",

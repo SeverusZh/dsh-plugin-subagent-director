@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 变更
+
+- **设置页开头说明补充模型选择约束（beta.2）**：`sectionIntro` 增加一行
+  「只能选择插件-插件配置-Subagent池里的提供商-模型」（中英双语），设置页打开
+  即明确可选 provider/model 仅来自官方 Subagent 插件配置的模型池。
+
 ### 修复
 
 - **客户端半 alpha.4/alpha.5 兼容性修复（beta.1）**：移除全部 7 处对 rc 时代
