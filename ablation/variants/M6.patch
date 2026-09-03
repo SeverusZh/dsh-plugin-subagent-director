@@ -1,0 +1,28 @@
+diff --git a/lib/delegation-tool.js b/lib/delegation-tool.js
+--- a/lib/delegation-tool.js
++++ b/lib/delegation-tool.js
+@@ -1,6 +1,6 @@
+ import { defineTool } from '@deepseek-ai/dsh-tools';
+ import { settleRun } from '@deepseek-ai/dsh-subagent';
+-import { resolveRoute } from './route-resolver.js';
++// ABLATION-M6: resolveRoute import removed
+ /** Stable log namespace prefix for delegation/tool diagnostics (design section 10). */
+ export const DELEGATION_TOOL_PREFIX = 'subagent-director';
+ /** The canonical error prefix used across all structured failures (FR-8.1 / design 7.3). */
+@@ -354,13 +354,9 @@
+                 (!isEmpty(settings.defaultProvider) || !isEmpty(settings.defaultModel))) {
+                 warnings.push(`${ERROR_PREFIX} no authorized model list is configured (subagent-model-selection section absent); plugin defaults/roles apply unconstrained`);
+             }
+-            const route = resolveRoute({
+-                args,
+-                settings,
+-                parent: parent.options,
+-                allowedRoutes: selection.allowedRoutes,
+-            });
+-            warnings.push(...route.warnings);
++            // ABLATION-M6: resolveRoute call replaced with a stub — no route
++            // resolution, no authorized-list constraint, no role/default layers.
++            const route = { agentOptions: undefined, persona: undefined, toolFilter: undefined, warnings: [] };
+             ctx.logger.info(`[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} mode=${continuable ? 'continuable' : 'one-shot'} transport=${providerName} route=${JSON.stringify(route.agentOptions ?? null)} persona=${route.persona ? 'yes' : 'no'} warnings=${JSON.stringify(warnings)}`);
+             // FR-8.1: an explicitly supplied provider must be routable — never silently swapped.
+             const explicitProvider = isEmpty(args.provider) ? undefined : args.provider;

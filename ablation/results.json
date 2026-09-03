@@ -1,0 +1,93 @@
+[
+  {
+    "variant": "M1",
+    "loadOk": true,
+    "checks": {
+      "subagent_role-absent": "ok",
+      "close_subagent-present": "ok"
+    },
+    "pass": true,
+    "note": "移除 delegation 工具注册（mount 中 createDelegationTool）→ subagent_role 未注册，close_subagent 保留"
+  },
+  {
+    "variant": "M2",
+    "loadOk": true,
+    "checks": {
+      "close_subagent-absent": "ok",
+      "subagent_role-present": "ok"
+    },
+    "pass": true,
+    "note": "移除 close_subagent 工具注册 → close_subagent 未注册，subagent_role 保留"
+  },
+  {
+    "variant": "M3",
+    "loadOk": true,
+    "checks": {
+      "roles-section-absent": "ok",
+      "subagent_role-present": "ok",
+      "close_subagent-present": "ok"
+    },
+    "pass": true,
+    "note": "移除 applyGuidance 调用 → roles 指引 section 未注册，工具保留"
+  },
+  {
+    "variant": "M4",
+    "loadOk": true,
+    "checks": {
+      "orchestrate-command-absent": "ok",
+      "subagent_role-present": "ok",
+      "close_subagent-present": "ok"
+    },
+    "pass": true,
+    "note": "移除 applyOrchestrate 调用 → /orchestrate 命令未注册，工具保留"
+  },
+  {
+    "variant": "M5",
+    "loadOk": false,
+    "checks": {
+      "load": "FAIL: getSettings is not defined"
+    },
+    "pass": false,
+    "note": "移除 createSettingsSnapshot/installDirectorSettings → settings 命名空间未注册；工具注册保留但 delegation execute 级联失败（getSettings 未定义）"
+  },
+  {
+    "variant": "M6",
+    "loadOk": true,
+    "checks": {
+      "subagent_role-present": "ok",
+      "route-resolution-gone": "ok",
+      "delegation-execute-works": "ok",
+      "close_subagent-present": "ok",
+      "route-resolver-independent": "ok"
+    },
+    "pass": true,
+    "note": "移除 delegation-tool 内 resolveRoute 使用 → 路由解析消失（agentOptions 不再透传、授权列表约束失效），工具本身可用"
+  },
+  {
+    "variant": "M7",
+    "loadOk": true,
+    "checks": {
+      "bridge-entry-independent": "ok",
+      "main-entry-no-bridge": "ok",
+      "bridge-entry-exports": "ok",
+      "main-entry-no-webServer": "ok",
+      "subagent_role-present": "ok",
+      "close_subagent-present": "ok"
+    },
+    "pass": true,
+    "note": "bridge-entry 是独立插件条目（不 import 主条目），消融=不挂载该条目；主条目无 webServer 依赖"
+  },
+  {
+    "variant": "M8",
+    "loadOk": true,
+    "checks": {
+      "main-entry-no-client-import": "ok",
+      "client-built-separately": "ok",
+      "client-bundle-browser-only": "ok (browser-only: ReferenceError)",
+      "subagent_role-present": "ok",
+      "close_subagent-present": "ok"
+    },
+    "pass": true,
+    "note": "client 为独立构建产物（scripts/build-client.mjs），主条目不依赖 client；浏览器 bundle 在 Node 中不可加载"
+  }
+]

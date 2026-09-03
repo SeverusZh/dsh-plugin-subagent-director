@@ -1,0 +1,12 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -48,7 +48,7 @@
+             throw new Error('subagent-director: provider "' + provider.name + '" does not support backgroundMode: continuable — switch the subagent provider or use backgroundMode: "one-shot"');
+         }
+         ctx.logger.info('[' + name + '] registering ' + toolName + ' on subagent transport ' + '"' + providerName + '"' + ' with backgroundMode ' + '"' + backgroundMode + '"');
+-        disposeTool = ctx.tools.register(createDelegationTool({ ctx, config, provider, getSettings }));
++        // ABLATION-M1: delegation tool registration removed
+     };
+     ctx.on('subagent/provider-added', (provider) => {
+         if (provider.name === providerName && disposeTool === undefined)

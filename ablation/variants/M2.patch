@@ -1,0 +1,12 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -35,7 +35,7 @@
+     // Provider-independent (drain is a global subagents operation), so it
+     // registers at mount time like the control tools; on a deployment without
+     // continuable children it is a safe no-op.
+-    ctx.effect(() => ctx.tools.register(createCloseSubagentTool({ ctx })), 'subagent-director: close_subagent tool');
++    // ABLATION-M2: close_subagent tool registration removed
+     // ---- delegation tool registration ------------------------------------
+     if (typeof config.maxDepth === 'number')
+         assertSubagentMaxDepth(config.maxDepth);

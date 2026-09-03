@@ -1,0 +1,13 @@
+diff --git a/src/index.ts b/src/index.ts
+index f77d30e..2ebb030 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -121,7 +121,7 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
+     ctx.logger.info(
+       '[' + name + '] registering ' + toolName + ' on subagent transport ' + '"' + providerName + '"' + ' with backgroundMode ' + '"' + backgroundMode + '"',
+     );
+-    disposeTool = ctx.tools.register(createDelegationTool({ ctx, config, provider, getSettings }));
++    // ABLATION-M1: delegation tool registration removed
+   };
+ 
+   ctx.on('subagent/provider-added', (provider: SubagentProvider) => {
