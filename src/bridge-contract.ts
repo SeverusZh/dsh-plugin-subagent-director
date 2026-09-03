@@ -87,12 +87,3 @@ export interface DirectorToolsSuccess {
   tools: string[];
 }
 
-/** Request payload for the toolCatalog bridge endpoint. */
-export interface DirectorToolsRequest {
-  /**
-   * Session whose agent's tool view is enumerated (preset tools like
-   * bash/read/write live in the agent scope, not the global registry).
-   * Omitted → the global registry view.
-   */
-  sessionId?: string;
-}

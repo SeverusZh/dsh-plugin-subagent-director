@@ -1,36 +1,24 @@
 /**
  * Delegation tool subagent_role (design section 7).
  *
- * A model-facing tool that lets the calling agent delegate to a subagent while
- * selecting an LLM route and/or a named role template. It resolves the four-layer
- * fallback chain via the pure resolveRoute (design section 6), validates the
- * resolution against live runtime facts, and assembles a SubagentStartRequest
- * on ctx.subagents.start(...) exactly like dsh-workflow-worker-thread's
- * startChild and dsh-tool-subagent's one-shot path.
+ * Resolves the four-layer fallback chain (call -> role -> default -> inherit)
+ * via the pure resolveRoute (design section 6), validates against live runtime
+ * facts, and assembles a SubagentStartRequest on ctx.subagents.start(...).
  *
- * Two provider namespaces coexist and MUST NOT be confused (design section 14, R2):
- *   - config.subagentProvider is the subagent TRANSPORT provider name handed
- *     to ctx.subagents.start(name, ...) (e.g. spawn).
- *   - the resolved agentOptions.provider is an LLM route served by an adapter
- *     (e.g. deepseek-official).
+ * Two provider namespaces MUST NOT be confused (design 14, R2):
+ * config.subagentProvider is the subagent TRANSPORT provider name; the
+ * resolved agentOptions.provider is an LLM route served by an adapter.
  *
- * Execution contract (schema/execute mirror dsh-tool-subagent):
- *   - foreground is the core path: await run.result, throw a stop-reason
- *     error for a non-completed child, dispose idempotently, return
- *     { kind: foreground, runId, output }.
- *   - one-shot background mirrors the official Task registration on
- *     ctx.jobs.start({ kind: subagent, ... }) returning { kind: background, jobId }.
- *   - continuable runs the child through ctx.subagents.startContinuable() and
- *     returns { kind: continuable, subagentId } (the durable child id), which the
- *     parent later follows up on with send_message (M3a / FR-5.3).
+ * Execution contract (mirrors dsh-tool-subagent): foreground awaits run.result
+ * and throws a stop-reason error for a non-completed child; one-shot background
+ * registers a Task on ctx.jobs.start; continuable runs through
+ * ctx.subagents.startContinuable() and returns the durable child id.
  *
- * reasoningEffort: alpha.4 `AgentOptions` carries `reasoningEffort?:
- * ReasoningEffortId` (dsh-agent runtime-types), so the resolver injects it
- * into agentOptions alongside a resolved route (and allows an explicit
- * effort alone). Provider/model selection is CONSTRAINED to the official
- * `subagent-model-selection` allowedModels list: the resolver throws for an
- * unlisted explicit pair and drops unlisted role/default routes, so this
- * plugin never double-writes a model route the official tool also owns.
+ * reasoningEffort rides agentOptions alongside a resolved route (and may be
+ * supplied alone). Provider/model selection is CONSTRAINED to the official
+ * `subagent-model-selection` allowedModels list: an unlisted explicit pair
+ * throws, unlisted role/default routes are dropped — this plugin never
+ * double-writes a model route the official tool also owns.
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
@@ -49,12 +37,7 @@ export const DELEGATION_TOOL_PREFIX = 'subagent-director';
 /** The canonical error prefix used across all structured failures (FR-8.1 / design 7.3). */
 const ERROR_PREFIX = 'subagent-director:';
 
-/**
- * Delegate a task to a role-bound subagent with an optional LLM route override.
- * Resolves role/model/provider through the configure -> role -> default ->
- * inherit chain; role persona and tool filtering are applied when the chosen
- * subagent transport supports them.
- */
+/** Model-facing arguments of subagent_role. */
 export interface DelegationToolArgs {
   /** A short (3-5 word) description of the delegated task, for display. */
   description: string;
@@ -66,54 +49,50 @@ export interface DelegationToolArgs {
   provider?: string;
   /** Model id override (optional). Wins over any role binding. */
   model?: string;
-  /**
-   * Reasoning-effort override (optional). With alpha.4 AgentOptions this is
-   * injected onto the resolved route; may also be supplied alone (provider and
-   * model stay inherited or role-bound).
-   */
+  /** Reasoning-effort override (optional); may be supplied alone. */
   reasoningEffort?: string;
-  /**
-   * Whether to run in the background. Defaults to false in one-shot mode; in
-   * continuable mode it defaults to true and returns the durable child id for
-   * later send_message follow-up.
-   */
+  /** Background policy: defaults to false in one-shot, true in continuable. */
   run_in_background?: boolean;
 }
 
 /**
- * Build the model-facing tool parameter schema given a config. Exposed as a
- * pure function so unit tests can assert the model-visible shape without a live
- * context: description/prompt are required; role/provider/model/reasoningEffort
- * are optional; run_in_background appears only when enableRunInBackground is not
- * false. In continuable mode its description notes the default of true and the
- * durable-child-id return shape (mirrors dsh-tool-subagent's wording).
+ * Shared base parameter fields (description/prompt/role/provider/model/
+ * reasoningEffort). Kept as a const so both createDelegationParameters and the
+ * inline tool definition reuse one literal while TypeScript still infers the
+ * exact parameter shape for execute().
+ */
+const BASE_PARAMETER_FIELDS = {
+  description: {
+    type: 'string',
+    required: true,
+    description: 'A short (3-5 word) description of the delegated task, for display.',
+  },
+  prompt: {
+    type: 'string',
+    required: true,
+    description: "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
+  },
+  role: {
+    type: 'string',
+    description: 'Role template id (optional). Falls back to the configured default role when unset.',
+  },
+  provider: {
+    type: 'string',
+    description: 'LLM provider route override (optional). Explicit provider/model win over a role binding. Must match a route with a registered adapter.',
+  },
+  model: { type: 'string', description: 'Model id override (optional). Explicit provider/model win over a role binding.' },
+  reasoningEffort: { type: 'string', description: 'Reasoning-effort override (optional). Adapter serving the route decides support.' },
+} as const satisfies ParameterSchemaSpec;
+
+/**
+ * Build the model-facing tool parameter schema (pure, exposed for tests).
+ * run_in_background appears only when enableRunInBackground is not false.
  */
 export function createDelegationParameters(
   config: Pick<DirectorConfig, 'enableRunInBackground' | 'backgroundMode'>,
 ): ParameterSchemaSpec {
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable';
-  const parameters: ParameterSchemaSpec = {
-    description: {
-      type: 'string',
-      required: true,
-      description: 'A short (3-5 word) description of the delegated task, for display.',
-    },
-    prompt: {
-      type: 'string',
-      required: true,
-      description: "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
-    },
-    role: {
-      type: 'string',
-      description: 'Role template id (optional). Falls back to the configured default role when unset.',
-    },
-    provider: {
-      type: 'string',
-      description: 'LLM provider route override (optional). Explicit provider/model win over a role binding. Must match a route with a registered adapter.',
-    },
-    model: { type: 'string', description: 'Model id override (optional). Explicit provider/model win over a role binding.' },
-    reasoningEffort: { type: 'string', description: 'Reasoning-effort override (optional). Adapter serving the route decides support.' },
-  };
+  const parameters: ParameterSchemaSpec = { ...BASE_PARAMETER_FIELDS };
   if (config.enableRunInBackground !== false) {
     parameters.run_in_background = {
       type: 'boolean',
@@ -125,37 +104,40 @@ export function createDelegationParameters(
   return parameters;
 }
 
+/** Shared literal output schema so the tool definition keeps exact type inference. */
+const DELEGATION_OUTPUT_SCHEMA = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', required: true, const: 'background' },
+        jobId: { type: 'string', required: true },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', required: true, const: 'continuable' },
+        subagentId: { type: 'string', required: true },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', required: true, const: 'foreground' },
+        runId: { type: 'string', required: true },
+        output: { type: 'array', required: true, items: { type: 'json' } },
+      },
+    },
+  ],
+} as const satisfies ValueSchemaSpec;
+
 /** The model-facing output schema: exactly one of background, continuable, or foreground. */
 export function createDelegationOutputSchema(): ValueSchemaSpec {
-  return {
-    oneOf: [
-      {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { type: 'string', required: true, const: 'background' },
-          jobId: { type: 'string', required: true },
-        },
-      },
-      {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { type: 'string', required: true, const: 'continuable' },
-          subagentId: { type: 'string', required: true },
-        },
-      },
-      {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { type: 'string', required: true, const: 'foreground' },
-          runId: { type: 'string', required: true },
-          output: { type: 'array', required: true, items: { type: 'json' } },
-        },
-      },
-    ],
-  };
+  return { ...DELEGATION_OUTPUT_SCHEMA };
 }
 
 function isEmpty(value: string | undefined | null): boolean {
@@ -194,14 +176,14 @@ function withPartialText(error: string, output: readonly ContentBlock[]): string
  * independent result failure (mirrors dsh-tool-subagent settleForegroundRun).
  */
 async function settleForegroundRun(run: SubagentRun): Promise<{ kind: 'foreground'; runId: string; output: JsonValue[] }> {
-  const [execution] = await Promise.allSettled([
+  const [execution, disposal] = await Promise.allSettled([
     run.result.then((result) => {
       const error = stopReasonError(result);
       if (error !== undefined) throw new Error(withPartialText(error, result.output));
       return { kind: 'foreground' as const, runId: String(run.id), output: result.output as unknown as JsonValue[] };
     }),
+    Promise.resolve().then(() => run.dispose()),
   ]);
-  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())]);
   if (execution.status === 'rejected') {
     if (disposal.status === 'rejected') {
       throw new AggregateError(
@@ -222,6 +204,12 @@ async function settleBackgroundRun(start: Promise<SubagentRun>, signal: AbortSig
   } catch (error) {
     return signal.aborted ? { status: 'killed' as const } : { status: 'failed' as const, detail: String(error) };
   }
+}
+
+/** Registered LLM provider ids, or [] when the llm service is absent. */
+function availableProviders(ctx: Context): string[] {
+  const llm = ctx.get('llm');
+  return llm === undefined ? [] : llm.listProviders().map((entry) => entry.id);
 }
 
 /** Check whether an LLM route has a registered adapter (routable = listed). */
@@ -294,8 +282,7 @@ export interface DelegationModeDecision {
 /**
  * Pure mode decision (extracted for unit testing) mirroring dsh-tool-subagent's
  * resolveDelegationRun: a forced background while the flag is disabled is
- * rejected; otherwise background defaults to the configured mode's policy —
- * false for one-shot, true for continuable.
+ * rejected; otherwise background defaults to the configured mode's policy.
  */
 export function resolveDelegationMode(
   request: Pick<DelegationToolArgs, 'run_in_background'>,
@@ -322,9 +309,7 @@ export type DelegationResult =
 
 /**
  * Pure renderer for a delegation result (extracted for unit testing). Mirrors
- * dsh-tool-subagent's output.render: a continuable child renders as
- * "started subagent <id>"; a one-shot task keeps its tool-name-qualified text;
- * a foreground result emits its joined text blocks.
+ * dsh-tool-subagent's output.render.
  */
 export function renderDelegationResult(value: DelegationResult | { kind: 'foreground'; output: object[] }, toolName: string): string {
   if (value.kind === 'background') return `started background ${toolName} task ${value.jobId}`;
@@ -336,12 +321,10 @@ export function renderDelegationResult(value: DelegationResult | { kind: 'foregr
     .join('');
 }
 
-
 /**
  * Pure capability gate (extracted from execute for unit testing, behavioral
  * no-op): a resolved delegation feature demands a transport-provider capability,
- * and its absence is a hard error (FR-8.1 / design 7.3). persona, toolFilter,
- * and a numeric maxDepth each require the matching capability flag.
+ * and its absence is a hard error (FR-8.1 / design 7.3).
  */
 export function assertDelegationCapabilities(options: {
   providerName: string;
@@ -424,26 +407,7 @@ export function createDelegationTool(options: {
           : ' This call waits for the result by default. Set `run_in_background: true` to return a job id; collect with `job_output` and stop with `job_kill`.'
         : ' This call waits for the subagent and returns its result.'),
     parameters: {
-      description: {
-        type: 'string',
-        required: true,
-        description: 'A short (3-5 word) description of the delegated task, for display.',
-      },
-      prompt: {
-        type: 'string',
-        required: true,
-        description: "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs.",
-      },
-      role: {
-        type: 'string',
-        description: 'Role template id (optional). Falls back to the configured default role when unset.',
-      },
-      provider: {
-        type: 'string',
-        description: 'LLM provider route override (optional). Explicit provider/model win over a role binding. Must match a route with a registered adapter.',
-      },
-      model: { type: 'string', description: 'Model id override (optional). Explicit provider/model win over a role binding.' },
-      reasoningEffort: { type: 'string', description: 'Reasoning-effort override (optional). Adapter serving the route decides support.' },
+      ...BASE_PARAMETER_FIELDS,
       ...(backgroundEnabled
         ? {
             run_in_background: {
@@ -456,35 +420,7 @@ export function createDelegationTool(options: {
         : {}),
     },
     output: {
-      schema: {
-        oneOf: [
-          {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              kind: { type: 'string', required: true, const: 'background' },
-              jobId: { type: 'string', required: true },
-            },
-          },
-          {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              kind: { type: 'string', required: true, const: 'continuable' },
-              subagentId: { type: 'string', required: true },
-            },
-          },
-          {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              kind: { type: 'string', required: true, const: 'foreground' },
-              runId: { type: 'string', required: true },
-              output: { type: 'array', required: true, items: { type: 'json' } },
-            },
-          },
-        ],
-      },
+      schema: { ...DELEGATION_OUTPUT_SCHEMA },
       render: (_args, value) => [{ type: 'text', text: renderDelegationResult(value, toolName) }],
     },
     isConcurrencySafe: () => true,
@@ -521,9 +457,7 @@ export function createDelegationTool(options: {
       // FR-8.1: an explicitly supplied provider must be routable — never silently swapped.
       const explicitProvider = isEmpty(args.provider) ? undefined : args.provider;
       if (explicitProvider !== undefined && !isProviderRoutable(ctx, explicitProvider)) {
-        const llm = ctx.get('llm');
-        const available = llm === undefined ? [] : llm.listProviders().map((entry) => entry.id);
-        throw invalidProviderError(explicitProvider, available);
+        throw invalidProviderError(explicitProvider, availableProviders(ctx));
       }
 
       // FR-8.2: role/default-bound provider not routable -> fallback (fallbackOnInvalid) or error.
@@ -537,9 +471,7 @@ export function createDelegationTool(options: {
           warnings.push(`${ERROR_PREFIX} role/default provider ${routeProvider} is not routable; fell back to the parent model (fallbackOnInvalid: true)`);
           ctx.logger.warn(`[${DELEGATION_TOOL_PREFIX}] fell back to parent model for un-routable provider ${routeProvider}`);
         } else {
-          const llm = ctx.get('llm');
-          const available = llm === undefined ? [] : llm.listProviders().map((entry) => entry.id);
-          throw invalidProviderError(routeProvider, available);
+          throw invalidProviderError(routeProvider, availableProviders(ctx));
         }
       }
 

@@ -8,10 +8,9 @@
  * through settings.mutate with an optimistic-revision lock.
  *
  * On the DSH alpha.4/alpha.5 host line the client context is the plain cordis
- * Context (the client service merges come from the imported client packages),
- * the store runtime is `@deepseek-ai/dsh-client-store`, and the composer-dock
- * readout reads the current session's chat-view snapshot through the
- * uiConversation binding (see SubagentModelDock).
+ * Context, the store runtime is `@deepseek-ai/dsh-client-store`, and the
+ * composer-dock readout reads the current session's chat-view snapshot through
+ * the uiConversation binding (see SubagentModelDock).
  */
 import { useSyncExternalStore } from 'react';
 import type { Context as ClientContext } from '@deepseek-ai/cordis';

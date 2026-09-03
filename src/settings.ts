@@ -126,8 +126,6 @@ function isBlankString(value: string | undefined | null): boolean {
  *  - every role's displayName and description are present and non-empty;
  *  - defaultRole, when set, references an existing role key;
  *  - every explicitly-set provider is a non-empty string.
- *
- * @param value - the resolved section, schema-valid by construction.
  */
 export function validateDirectorSettings(value: SubagentDirectorSettings): void {
   const roles = value.roles ?? {};
@@ -169,12 +167,6 @@ export function validateDirectorSettings(value: SubagentDirectorSettings): void 
  * settings service simply never mounts it: this helper guards that explicitly
  * for readability and logs a debug line when the service is absent so the
  * gradual fall-back to the composition config is observable.
- *
- * @param ctx - consumer plugin context owning the wiring (also the fiber that
- *   installSection ties the registration to).
- * @param entry - the consumer's composition-layer config, used as the settings
- *   base while a provider is absent.
- * @param hooks - source sink and change notification (plus optional validate).
  */
 export function installDirectorSettings(
   ctx: Context,

@@ -6,20 +6,15 @@
  * addressed subagent child it shows the provider/model that child actually
  * ran on:
  *   - fast path: the opened transcript's latest assistant message already
- *     records provenance/requestConfig (zero extra RPC — see subagent-model.ts).
- *     On the alpha.4/alpha.5 host line the transcript nodes come from the
- *     chat view snapshot's `legacy.nodes` slice, read through the injected
- *     `useChatSnapshot(sessionId)` hook (uiConversation binding → 'chat' target);
- *   - fallback: current DSH runtimes do not populate those fields, so the
- *     dock asks the Host bridge for the child's last `request/header` event
- *     (`subagentModel` endpoint) and caches the answer per child session.
+ *     records provenance/requestConfig (zero extra RPC — see subagent-model.ts);
+ *   - fallback: the dock asks the Host bridge for the child's last
+ *     `request/header` event (`subagentModel` endpoint) and caches the answer
+ *     per child session.
  * When neither source proves a model it degrades to a short notice. Ordinary
  * sessions render nothing, so the dock stays clean.
  *
  * The dock is an additive list slot declared by ui-conversation at runtime;
- * we only contribute an occupant, never re-declare it. The framework session
- * standard kit (ui-session merge) supplies `useSession`/`sessionId`; the
- * registration injects the RPC caller and the chat-snapshot hook.
+ * we only contribute an occupant, never re-declare it.
  */
 
 import { useEffect, useRef, useState } from 'react';

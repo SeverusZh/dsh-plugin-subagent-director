@@ -4,8 +4,8 @@
  * A compact row that expands into: a search box, select-all / deselect-all
  * (scoped to the CURRENT filter — tools hidden by the search are never
  * touched), a live "selected / total" count, and a checkbox grid of the
- * filtered tools. Collapsed, it shows the label, the count, and a
- * chevron toggle so a large catalog (hundreds of MCP tools) stays compact.
+ * filtered tools. Collapsed, it shows the label, the count, and a chevron
+ * toggle so a large catalog (hundreds of MCP tools) stays compact.
  */
 
 import { useMemo, useState } from 'react';

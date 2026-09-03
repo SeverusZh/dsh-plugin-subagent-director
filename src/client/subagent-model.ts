@@ -11,9 +11,7 @@
  * On the DSH alpha.4/alpha.5 host line the node list is the chat view's
  * `legacy.nodes` slice (ChatSnapshot.legacy.nodes) and the addressed-subagent
  * guard reads the SessionSnapshot.subagent address — both shapes are the
- * inputs of the pure functions below.
- *
- * Pure and framework-free so the formatting rules are unit-testable.
+ * inputs of the pure functions below. Pure and framework-free.
  */
 
 import type {

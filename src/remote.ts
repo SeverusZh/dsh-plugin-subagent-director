@@ -5,22 +5,19 @@
  * The Web settings client read/writes the plugin's `subagent-director`
  * namespace via a dedicated "/subagent-director" webServer prefix route instead
  * of the Host apiproxy's settings.describe/mutate, which the API proxy gates
- * behind its hard-coded exposedNamespaces() allowlist
- * (dsh-host-apiproxy). A tree-external plugin cannot add its own namespace to
- * that list, so those calls answer `settings-not-exposed`. To bypass the
- * allowlist without touching apiproxy, this module self-publishes a prefix
- * route (kind:"prefix", path:"/subagent-director") via `ctx.webServer.register`
- * (dsh-host-webserver/lib/index.js:53-60) and reads/writes `ctx.settings`
- * itself.
+ * behind its hard-coded exposedNamespaces() allowlist (dsh-host-apiproxy). A
+ * tree-external plugin cannot add its own namespace to that list, so those
+ * calls answer `settings-not-exposed`. To bypass the allowlist without touching
+ * apiproxy, this module self-publishes a prefix route (kind:"prefix",
+ * path:"/subagent-director") via `ctx.webServer.register` and reads/writes
+ * `ctx.settings` itself.
  *
- * The wire contract mirrors the settings domain slice apiproxy exposes for
- * one namespace: `settingsView` returns `{ writable, view }` where `view` is a
+ * The wire contract mirrors the settings domain slice apiproxy exposes for one
+ * namespace: `settingsView` returns `{ writable, view }` where `view` is a
  * `SettingsNamespaceView` (redacted), and `settingsMutate` applies path ops
  * with an optimistic `expectedRevision` and returns the new redacted view, or
  * an error with the same `settings-conflict` / `settings-rejected` semantics so
- * the existing client conflict-reload logic works unchanged. The client already
- * speaks this contract unchanged (dsh-client-connection/lib/client.js:10094-10113
- * and src/client/store.ts), so no client change is required.
+ * the existing client conflict-reload logic works unchanged.
  *
  * Pure mapping / wire-envelope helpers live at the top (no cordis) so they are
  * unit-testable in a plain node environment. The route handler is a node:http
@@ -111,7 +108,6 @@ export interface BridgeDeps {
  * and take the LAST `request/header` event's `data.header.config`, which the
  * agent loop records on every model request (the durable "what actually ran"
  * source; assistant messages carry no provider/model in current DSH).
- * Returns undefined when the log records none.
  */
 export function latestRequestHeaderModel(events: readonly unknown[]): { provider: string; model: string } | undefined {
   if (!Array.isArray(events)) return undefined;
@@ -154,10 +150,8 @@ export function toDirectorNamespaceView(descriptor: SettingsDescriptor): Setting
   };
 }
 
-/**
- * Find the Subagent Director namespace in a redacted describe result and map
- * it to its wire view; `undefined` when the namespace is not registered.
- */
+/** Find the Subagent Director namespace in a redacted describe result and map
+ * it to its wire view; `undefined` when the namespace is not registered. */
 export function pickDirectorNamespaceView(
   descriptors: readonly SettingsDescriptor[],
 ): SettingsNamespaceView | undefined {
@@ -169,10 +163,7 @@ export function pickDirectorNamespaceView(
   return undefined;
 }
 
-/**
- * Read the current redacted namespace view straight from the settings seam.
- * Exported for reuse by tests and by the bridge handler.
- */
+/** Read the current redacted namespace view straight from the settings seam. */
 export function readDirectorNamespaceView(settings: SettingsProvider): DirectorViewSuccess {
   const descriptors = settings.describe({ redactSecrets: true });
   return {
@@ -206,11 +197,7 @@ export function directorConflict(conflict: SettingsConflictError): RpcError {
   };
 }
 
-/**
- * Build the ok payload for the settingsView endpoint.
- * Mirrors the apiproxy `settings.describe` value minus `hasDocument` (the
- * bridge does not own the document affordance; the client ignores it).
- */
+/** Build the ok payload for the settingsView endpoint. */
 export function directorViewOk(settings: SettingsProvider): RpcResult<DirectorViewSuccess> {
   return { ok: true, value: readDirectorNamespaceView(settings) };
 }
@@ -258,8 +245,7 @@ export function directorCatalogOk(
  * to an RpcResult carrying the new redacted view (or a `settings-conflict` /
  * `settings-rejected` error). Pure over the injected primitives for testing.
  * alpha.4: namespaces are plain kebab-case strings (the seam validates the
- * format and throws TypeError for malformed ones, which this maps to
- * `settings-rejected`).
+ * format and throws TypeError for malformed ones, mapped to `settings-rejected`).
  */
 export async function directorMutate(
   mutate: SettingsProvider['mutate'],

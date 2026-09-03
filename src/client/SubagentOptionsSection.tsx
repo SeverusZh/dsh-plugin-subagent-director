@@ -1,9 +1,8 @@
 /**
  * Subagent Director settings section (design section 9): the default-model row
  * plus the role-template cards. The slot outlet erases the share boundary and
- * delivers the inject face flat (PropsRuntime<'settings.section'> renderer is
- * the DSH shell); this component guards for a not-yet-injected render and then
- * renders its content column from the live snapshot.
+ * delivers the inject face flat; this component guards for a not-yet-injected
+ * render and then renders its content column from the live snapshot.
  *
  * State lives in the page store (SubagentOptionsStore); every write travels as
  * path ops through settings.mutate with an optimistic-revision lock, so the

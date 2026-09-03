@@ -8,25 +8,24 @@
  * delegation tool, whose model-facing name is `config.toolName` (default
  * `subagent_role`) and is threaded in here as `toolName`.
  *
- * Naming caveat (observed on a live 0.1.1-rc.x web host): the assembled tool catalog
- * contains BOTH this plugin's `subagent_role` and the base bundle's built-in
- * `subagent` / `subagent_fork`. They are distinct tools, not two names for one
- * wire entry. The prompt below names `toolName` explicitly precisely because a
- * model that reaches for the built-in `subagent` bypasses role persona and role
- * toolFilter.
+ * Naming caveat (observed on a live 0.1.1-rc.x web host): the assembled tool
+ * catalog contains BOTH this plugin's `subagent_role` and the base bundle's
+ * built-in `subagent` / `subagent_fork` — distinct tools. The prompt names
+ * `toolName` explicitly because a model that reaches for the built-in
+ * `subagent` bypasses role persona and role toolFilter.
  *
- * The role list rendered into the prompt is derived dynamically from the live
+ * The role list rendered into the prompt derives dynamically from the live
  * plugin settings (`subagent-director.roles`) — the same source `guidance.ts`
- * reads — so it never hard-codes role ids and stays correct when the operator
- * reconfigures roles. When no roles are configured the prompt tells the user
- * to configure them rather than silently emitting an empty section.
+ * reads — so it never hard-codes role ids. When no roles are configured the
+ * prompt tells the user to configure them rather than emitting an empty
+ * section.
  *
- * Service posture mirrors `guidance.ts`: `commands` and `sessionProjections` are
- * acquired reactively through `ctx.inject` (so the `/orchestrate` command and the
- * projection register as soon as the host service is ready, even if it mounts
- * slightly after `apply`), while `systemPrompt` is still read lazily via
- * `ctx.get`. A host that never provides `sessionProjections` degrades to an
- * honest error from the command handler rather than a silent no-op.
+ * Service posture mirrors `guidance.ts`: `commands` and `sessionProjections`
+ * are acquired reactively through `ctx.inject` (so the command and projection
+ * register as soon as the host service is ready, even if it mounts slightly
+ * after `apply`), while `systemPrompt` is read lazily via `ctx.get`. A host
+ * that never provides `sessionProjections` degrades to an honest error from
+ * the command handler rather than a silent no-op.
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { z } from 'zod';
@@ -93,15 +92,11 @@ interface OrchestrateState {
 }
 
 // Merge the orchestrate unit into the real projection registry maps
-// (@deepseek-ai/dsh-session-projection, 0.1.1 line). This restores
-// compile-time contract protection: register() below is typed against the
-// REAL ProjectionDefinition (stateSchema + wire), so a field-shape drift —
-// like the old `schema`+`view` shape vs the 0.1.1 `stateSchema`+`wire`
-// contract — fails typecheck instead of silently skipping snapshot().
-// Merge the custom event into the session event vocabulary (the plan-mode
-// precedent): 'orchestrate/change' becomes a typed member of SessionEventMap,
-// so the projection's `apply` below narrows event.data to { mode } at compile
-// time instead of reaching through `any`.
+// (@deepseek-ai/dsh-session-projection, 0.1.1 line): register() below is typed
+// against the REAL ProjectionDefinition (stateSchema + wire), so a field-shape
+// drift fails typecheck instead of silently skipping snapshot(). The custom
+// event joins the session event vocabulary so the projection's `apply` narrows
+// event.data to { mode } at compile time.
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     'orchestrate/change': { mode: OrchestrateMode };
@@ -123,7 +118,6 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
  * Build the data-independent framing of the orchestrator prompt for a given
  * delegation tool name. The role list is appended separately by
  * {@link renderOrchestratorRoles}.
- * @param toolName - the configured model-facing delegation tool name.
  */
 export function buildOrchestratorFrame(toolName: string): string {
   return `You are a PURE ORCHESTRATOR. Your only action is to call the \`${toolName}\` tool (provided by the subagent-director plugin) to delegate work. You must NEVER read, write, edit, grep, find, or execute anything yourself.
@@ -137,8 +131,6 @@ The subagent-director plugin supplies its role templates from settings (subagent
  * Render the role list portion of the orchestrator prompt from the live
  * settings. Returns a "configure roles first" notice when no roles exist so
  * the operator is told what to do instead of receiving a blank contract.
- * @param settings - current resolved settings snapshot.
- * @param toolName - the configured model-facing delegation tool name.
  */
 export function renderOrchestratorRoles(settings: SubagentDirectorSettings, toolName: string): string {
   const roles = settings.roles ?? {};
@@ -157,11 +149,7 @@ export function renderOrchestratorRoles(settings: SubagentDirectorSettings, tool
   return lines.join('\n');
 }
 
-/**
- * Assemble the full orchestrator prompt (framing + dynamic role list).
- * @param settings - current resolved settings snapshot.
- * @param toolName - the configured model-facing delegation tool name.
- */
+/** Assemble the full orchestrator prompt (framing + dynamic role list). */
 export function renderOrchestratorPrompt(settings: SubagentDirectorSettings, toolName: string): string {
   return `${buildOrchestratorFrame(toolName)}\n\n${renderOrchestratorRoles(settings, toolName)}\n\nOrchestration rules:
 1. Only dispatch. Forbid doing the work yourself.
@@ -179,8 +167,6 @@ export function renderOrchestratorPrompt(settings: SubagentDirectorSettings, too
  * unavailable notice. The notice (not the paralyzing pure-orchestrator frame)
  * is what prevents the "conversation returns nothing" failure: a model that
  * cannot delegate must be told to inform the user and continue normally.
- * @param settings - current resolved settings snapshot.
- * @param toolName - the configured model-facing delegation tool name.
  */
 function renderOrchestratorSection(settings: SubagentDirectorSettings, toolName: string): string {
   const roles = settings.roles ?? {};
@@ -199,7 +185,6 @@ function renderOrchestratorSection(settings: SubagentDirectorSettings, toolName:
  * `turn/start` — not the latest event — carries the user's actual prompt.
  * Without a `turn/start` (degenerate seed), falls back to the latest
  * user/message. Text blocks are concatenated in order; non-text blocks skipped.
- * @param session - a live Session (or a faithful fake with `.events`).
  */
 function currentTurnUserMessageText(session: any): string | undefined {
   const events = session?.events;
@@ -231,7 +216,6 @@ function currentTurnUserMessageText(session: any): string | undefined {
  * user/message events inside the current turn do not count as "previous".
  * Without any `turn/start` (degenerate seed) falls back to the strictly
  * between previous/current user-message check. Returns 'on' | 'off' | undefined.
- * @param session - a live Session (or a faithful fake with `.events`).
  */
 function recentOrchestrateCommandRun(session: any): OrchestrateRequest {
   const events = session?.events;
@@ -284,9 +268,6 @@ function recentOrchestrateCommandRun(session: any): OrchestrateRequest {
  * Wire the `/orchestrate` command, its session projection, and the
  * orchestrator prompt section into the host. Each host-plane service is
  * acquired lazily and guarded, so a missing service degrades to a no-op.
- * @param ctx - plugin context.
- * @param getSettings - returns the current settings snapshot.
- * @param toolName - the configured model-facing delegation tool name.
  */
 export function applyOrchestrate(
   ctx: Context,
@@ -303,15 +284,14 @@ export function applyOrchestrate(
     ctx.logger.warn('[orchestrate] could not register event type:', (err as Error)?.message);
   }
 
-  // Resolve sessionProjections *reactively*. At plugin apply time the host
-  // may not have mounted the sessionProjections service yet — that is the P0
-  // timing root cause: a one-shot `ctx.get` here returned undefined and
-  // silently no-op'd the projection registration, so /orchestrate never
-  // injected. Instead we register the projection the moment the service becomes
-  // available via ctx.inject, and keep `projections` in a closure so the
-  // command handler and prompt section observe it once it resolves. If the
-  // service is genuinely absent the handler (and the apply-time fallback)
-  // surface an honest error instead of a silent no-op.
+  // Resolve sessionProjections *reactively*: at plugin apply time the host may
+  // not have mounted the service yet — a one-shot `ctx.get` returned undefined
+  // and silently no-op'd the projection registration (the P0 timing root cause
+  // of /orchestrate never injecting). Register the projection the moment the
+  // service becomes available via ctx.inject, and keep `projections` in a
+  // closure so the command handler and prompt section observe it once it
+  // resolves. If the service is genuinely absent the handler (and the
+  // apply-time fallback) surface an honest error instead of a silent no-op.
   let projections: SessionProjectionRegistry | undefined = undefined;
 
   const missing = (): void =>
@@ -325,13 +305,12 @@ export function applyOrchestrate(
     sp.register<'orchestrate', OrchestrateState>({
       key: ORCHESTRATE_PROJECTION_KEY,
       stateVersion: 1,
-      // Real @deepseek-ai/dsh-session-projection contract (SessionProjectionRegistry):
-      // `stateSchema` validates host state (persisted-cache restore path); a
-      // client-visible unit MUST declare `wire: { viewSchema, view }` or
-      // `snapshot()` SKIPS it entirely (`if (def.wire === undefined) continue`),
-      // so `snapshot().values['orchestrate']` is never populated and the prompt
-      // section always reads undefined → no injection. The prior `schema` + bare
-      // `view` made this a host-only unit — the actual root cause of the
+      // Real @deepseek-ai/dsh-session-projection contract: `stateSchema`
+      // validates host state (persisted-cache restore path); a client-visible
+      // unit MUST declare `wire: { viewSchema, view }` or `snapshot()` SKIPS it
+      // entirely (`if (def.wire === undefined) continue`), so the prompt
+      // section always reads undefined → no injection. The prior `schema` +
+      // bare `view` made this a host-only unit — the actual root cause of the
       // on==off byte-identical system prompts. Fix: declare both correctly.
       stateSchema: z.object({ mode: z.enum(ORCHESTRATE_VALID_MODES) }),
       init: (): OrchestrateState => ({ mode: 'off' }),
@@ -354,18 +333,13 @@ export function applyOrchestrate(
     registerProjection(spNow);
   } else {
     // Reactive path: register once the host mounts sessionProjections. The
-    // child fiber's callback only runs when the dependency is present, so
-    // this also covers the "ready slightly later" case that the one-shot get
-    // missed. If the service never appears, the handler below returns an
-    // honest error — no silent no-op.
-    //
-    // The child fiber is owned by this plugin's fiber lifecycle (its
-    // registration effect lives on the parent fiber), so it unloads
-    // automatically with the plugin. Do NOT wrap it in ctx.effect: cordis
-    // effects run their callback immediately and treat the return value as
-    // the disposer, so `ctx.effect(() => fiber.dispose())` would unload the
-    // child at birth — pinned by the real-cordis probe in
-    // test/orchestrate-cordis.test.ts.
+    // child fiber's callback only runs when the dependency is present, so this
+    // also covers the "ready slightly later" case. The child fiber is owned by
+    // this plugin's fiber lifecycle and unloads with the plugin. Do NOT wrap
+    // it in ctx.effect: cordis effects run their callback immediately and
+    // treat the return value as the disposer, so `ctx.effect(() =>
+    // fiber.dispose())` would unload the child at birth — pinned by the
+    // real-cordis probe in test/orchestrate-cordis.test.ts.
     ctx.inject(['sessionProjections'], (injectedCtx: Context) => {
       registerProjection(injectedCtx.get('sessionProjections')!);
     });
@@ -381,12 +355,9 @@ export function applyOrchestrate(
   // recovers from a host that mounts `commands` slightly after `apply`. The
   // handler reads `projections` from the closure, so command availability and
   // projection availability are decoupled: the handler still refuses honestly
-  // (with a warning) if the projection service never came up.
-  // The child fiber is owned by this plugin's fiber lifecycle and unloads
-  // with the plugin — never wrap it in ctx.effect (cordis effects run their
-  // callback immediately and treat the return value as the disposer, so
-  // `ctx.effect(() => fiber.dispose())` would unload the child at birth;
-  // pinned by the real-cordis probe in test/orchestrate-cordis.test.ts).
+  // (with a warning) if the projection service never came up. The child fiber
+  // is owned by this plugin's fiber lifecycle and unloads with the plugin —
+  // never wrap it in ctx.effect (see the projection note above).
   ctx.inject(['commands'], (injectedCtx: Context) => {
     const commands: any = injectedCtx.get('commands');
     commands.register({
@@ -402,9 +373,6 @@ export function applyOrchestrate(
         // /orchestrate cannot take effect. Refuse with an honest message
         // instead of falsely reporting success (P0 silent-degradation fix).
         if (projections === undefined) {
-          // Service never became available (truly absent host): refuse with an
-          // honest message and warn, instead of falsely reporting success (P0
-          // silent-degradation fix).
           missing();
           return {
             kind: 'error',
@@ -563,4 +531,3 @@ export function applyOrchestrate(
     });
   }
 }
-

@@ -7,17 +7,16 @@
  *
  * Dependency posture: tools/subagents/llm/settings are required through inject
  * (both web and headless bundles mount the settings service); systemPrompt
- * remains optional and is acquired lazily so its absence does not block the
- * rest. The /orchestrate command's `commands` dependency likewise stays
- * optional — acquired reactively (ctx.inject child fiber) in orchestrate.ts,
+ * stays optional and is acquired lazily. The /orchestrate command's `commands`
+ * dependency is acquired reactively (ctx.inject child fiber) in orchestrate.ts,
  * so hosts without a command registry lose only that command. The
- * webServer-dependent HTTP bridge lives in the separate
- * \`subagent-director-bridge\` entry (src/bridge-entry.ts).
+ * webServer-dependent HTTP bridge lives in the separate `subagent-director-bridge`
+ * entry (src/bridge-entry.ts).
  *
  * Background modes: 'one-shot' defaults calls to foreground and runs background
  * calls as a plain Task; 'continuable' defaults them to background via
  * ctx.subagents.startContinuable() and requires the transport provider's
- * prepareContinuable capability, which is validated at mount time (mirrors
+ * prepareContinuable capability, validated at mount time (mirrors
  * dsh-tool-subagent).
  */
 import type { Context } from '@deepseek-ai/cordis';

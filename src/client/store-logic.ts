@@ -5,12 +5,10 @@
  * plain node environment without a running host.
  *
  * The persisted section shape mirrors the Host schema (see src/settings.ts):
- *   {
- *     defaultProvider?, defaultModel?, defaultReasoningEffort?,
+ *   { defaultProvider?, defaultModel?, defaultReasoningEffort?,
  *     defaultRole?, fallbackOnInvalid?,
  *     roles?: { [id]: { displayName, description, persona?, provider?,
- *                       model?, reasoningEffort?, toolFilter? } }
- *   }
+ *                       model?, reasoningEffort?, toolFilter? } } }
  */
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-host-apiproxy/api';
 
@@ -55,11 +53,6 @@ export function optional(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
-}
-
-/** Blank/whitespace-only check used to decide "clear to undefined". */
-export function isBlank(value: string | undefined | null): boolean {
-  return value === undefined || value === null || value.trim().length === 0;
 }
 
 /** Kebab-case role ids (mirrors the Host validator in src/settings.ts). */

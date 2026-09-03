@@ -9,12 +9,8 @@
  *
  * Clicking asks the Host bridge's `subagentClose` endpoint to
  * drainContinuableChildren under the address's durable parent authority; on
- * success the button turns into a settled label (the child's handle is
- * released), on failure a short inline error shows the core message.
- *
- * The seat is a list slot declared by ui-conversation; the framework session
- * standard kit supplies `useSession`/`sessionId` (ui-session merge over the
- * alpha.4 SessionSnapshot), the registration injects the RPC caller.
+ * success the button turns into a settled label, on failure a short inline
+ * error shows the core message.
  */
 
 import { useEffect, useState } from 'react';
