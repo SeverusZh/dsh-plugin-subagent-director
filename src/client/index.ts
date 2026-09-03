@@ -6,10 +6,27 @@
  * and optional provider/model to a delegation). Data flows through the
  * connection's wire API into a snapshot store; writes travel as path ops
  * through settings.mutate with an optimistic-revision lock.
+ *
+ * On the DSH alpha.4/alpha.5 host line the client context is the plain cordis
+ * Context (the client service merges come from the imported client packages),
+ * the store runtime is `@deepseek-ai/dsh-client-store`, and the composer-dock
+ * readout reads the current session's chat-view snapshot through the
+ * uiConversation binding (see SubagentModelDock).
  */
+import { useSyncExternalStore } from 'react';
+import type { Context as ClientContext } from '@deepseek-ai/cordis';
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client';
-import type { ClientContext, ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client';
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store';
+import type { SessionId } from '@deepseek-ai/dsh-session/types';
+import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client';
+// Type-only: pulls the ui-conversation SlotMap + Context merges (the dock and
+// header-action seats, and the uiConversation service) into this compilation.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type {} from '@deepseek-ai/dsh-client-locale/client';
+// Type-only: pulls the ui-renderer Context merge (ctx.slots) and the
+// api-remotes Context merge (ctx.remote) into this compilation.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
+import type {} from '@deepseek-ai/dsh-api-remotes/client';
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 import { bindSnapshotSelector } from './bind.js';
 import { en, zh, type SubagentDirectorKey } from './locales.js';
@@ -26,26 +43,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Subagent Director settings-page copy. */
     'settings.subagentDirector': SubagentDirectorKey;
-  }
-}
-/**
- * Compile-time view of `conversation.composer.dock`: declared here only to
- * strongly type our occupant. The runtime seat is owned by
- * dsh-client-ui-conversation's bundle; this augmentation contributes no
- * runtime declaration (it stays in this package's own module scope).
- */
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface SlotMap {
-    'conversation.composer.dock': {
-      kind: 'list';
-      scope: 'session';
-      owner: { readonly session: ConversationSnapshot | undefined; readonly input: unknown };
-    };
-    /** Additive per-session header action row (ui-conversation seat). */
-    'conversation.session.header.actions': {
-      kind: 'list';
-      scope: 'session';
-    };
   }
 }
 
@@ -90,7 +87,36 @@ export function apply(ctx: ClientContext): void {
     useSnapshot,
     t: t as SubagentOptionsSectionInjected['t'],
   });
-  const dockInjected = (): SubagentModelDockInjected => ({ rpc: connection.rpc });
+
+  // Per-session chat-view snapshot sources for the composer-dock readout.
+  // The uiConversation service is read lazily (the dock only renders inside
+  // the conversation shell, where the service is live) so the settings page
+  // does not depend on the conversation UI being present.
+  const chatSources = new Map<string, ObservableSnapshot<ChatSnapshot | undefined>>();
+  const chatSource = (sessionId: SessionId): ObservableSnapshot<ChatSnapshot | undefined> => {
+    let source = chatSources.get(sessionId);
+    if (source === undefined) {
+      const uiConversation = ctx.get('uiConversation');
+      if (uiConversation === undefined) {
+        source = { getSnapshot: () => undefined, subscribe: () => () => {} };
+      } else {
+        const target = uiConversation.binding(sessionId).target('chat');
+        source = {
+          getSnapshot: () => target.getSnapshot(),
+          subscribe: (listener) => target.subscribe(listener),
+        };
+      }
+      chatSources.set(sessionId, source);
+    }
+    return source;
+  };
+  const useChatSnapshot = (sessionId: SessionId | undefined): ChatSnapshot | undefined =>
+    useSyncExternalStore(
+      (listener) => (sessionId === undefined ? () => {} : chatSource(sessionId).subscribe(listener)),
+      () => (sessionId === undefined ? undefined : chatSource(sessionId).getSnapshot()),
+    );
+
+  const dockInjected = (): SubagentModelDockInjected => ({ rpc: connection.rpc, useChatSnapshot });
   const closeInjected = (): SubagentCloseActionInjected => ({ rpc: connection.rpc });
 
   ctx.effect(() => {

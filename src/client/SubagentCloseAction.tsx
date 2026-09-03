@@ -13,13 +13,13 @@
  * released), on failure a short inline error shows the core message.
  *
  * The seat is a list slot declared by ui-conversation; the framework session
- * standard kit supplies `useSession`/`sessionId` (dsh-client-runtime merge),
- * the registration injects the RPC caller.
+ * standard kit supplies `useSession`/`sessionId` (ui-session merge over the
+ * alpha.4 SessionSnapshot), the registration injects the RPC caller.
  */
 
 import { useEffect, useState } from 'react';
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client';
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client';
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client';
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import {
   SUBAGENT_DIRECTOR_RPC_CHANNEL,
@@ -81,7 +81,7 @@ export function SubagentCloseAction({
   rpc,
   t,
 }: SubagentCloseActionProps): React.JSX.Element | null {
-  const session = useSession((s: ConversationSnapshot) => s);
+  const session = useSession((s: SessionSnapshot) => s);
   const [state, setState] = useState<ActionState>('idle');
   const [error, setError] = useState<string | null>(null);
 

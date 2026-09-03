@@ -4,6 +4,42 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **客户端半 alpha.4/alpha.5 兼容性修复（beta.1）**：移除全部 7 处对 rc 时代
+  `@deepseek-ai/dsh-client-runtime/client` 的引用（该包 npm 最新仅 0.1.1-rc.2，
+  alpha.4/alpha.5 宿主均不携带，客户端 bundle 的运行时 `require` 在浏览器加载即
+  失败，设置页/模型读数/关闭按钮整体不可用）：
+  - `createSnapshotStore`/`SnapshotStore` 改从 `@deepseek-ai/dsh-client-store`
+    导入（alpha 运行时，宿主 web bundle 虚拟模块）；
+  - `ClientContext` 改为 cordis `Context`（官方 alpha 客户端模式），`ctx.slots` /
+    `ctx.remote` / `ctx.uiConversation` 等 Context 增强经 `dsh-client-ui-renderer` /
+    `dsh-api-remotes` / `dsh-client-ui-conversation` 的类型导入引入；
+  - 会话类型改从 alpha 包导入：`SessionSnapshot`（`dsh-api-session-controller`）、
+    `ConversationNode`/`AssistantMessageNode`/`AssistantProvenanceView`
+    （`dsh-client-ui-conversation`）、`ChatSnapshot`（`dsh-client-ui-chat`）、
+    `SessionListState`（`dsh-api-session-controller`）；
+  - **composer.dock 读数适配 alpha.4 会话架构**：dock 槽位不再经 owner props 提供
+    session（渲染时传空 `{}`），改为消费框架标准会话套件（`useSession`/`sessionId`），
+    转录节点改从当前会话 chat 视图快照的 `legacy.nodes` 读取（`uiConversation`
+    绑定 → `chat` target，惰性解析，设置页不依赖会话 UI）；RPC 兜底查询保留；
+  - 移除过时的 `conversation.composer.dock` / `conversation.session.header.actions`
+    SlotMap 增强（alpha.4 由 ui-conversation 声明，重复声明会类型冲突）；
+  - `package.json` peer/dev 依赖移除 `dsh-client-runtime`，新增
+    `dsh-client-store`、`dsh-client-ui-conversation`、`dsh-client-ui-chat`、
+    `dsh-api-session-controller`、`dsh-client-ui-session`、`dsh-client-ui-renderer`、
+    `dsh-api-remotes`（均 `^0.1.2-alpha.4`，同时覆盖 alpha.4/alpha.5 宿主）。
+
+### 测试
+
+- 新增 `client-compat.test.ts` 兼容性守卫：扫描 `src/client` 与 `package.json`，
+  任何 `dsh-client-runtime` 残留引用即失败（本次 bug 的回归测试）；
+- `subagent-model.test.ts` 更新为 alpha.4 形状（`SessionSnapshot.subagent` 地址、
+  chat 视图 legacy 节点切片、`SubagentAddress` 的 continuable/one-shot 判别）；
+- 新增 `client-apply-probe.test.ts` 真实 cordis 探针：客户端半在 alpha.4 形状
+  服务（slots/locale/remote/connection）上挂载，设置页/dock/关闭按钮均注册，
+  dock 注入面携带 `useChatSnapshot`，且设置页不依赖 `uiConversation` 存在。
+
 ### 变更
 
 - **alpha.4 兼容性移植（Host 半）**：`dsh-settings` 服务 API 升级——移除的

@@ -6,7 +6,10 @@
  * addressed subagent child it shows the provider/model that child actually
  * ran on:
  *   - fast path: the opened transcript's latest assistant message already
- *     records provenance/requestConfig (zero extra RPC — see subagent-model.ts);
+ *     records provenance/requestConfig (zero extra RPC — see subagent-model.ts).
+ *     On the alpha.4/alpha.5 host line the transcript nodes come from the
+ *     chat view snapshot's `legacy.nodes` slice, read through the injected
+ *     `useChatSnapshot(sessionId)` hook (uiConversation binding → 'chat' target);
  *   - fallback: current DSH runtimes do not populate those fields, so the
  *     dock asks the Host bridge for the child's last `request/header` event
  *     (`subagentModel` endpoint) and caches the answer per child session.
@@ -14,13 +17,16 @@
  * sessions render nothing, so the dock stays clean.
  *
  * The dock is an additive list slot declared by ui-conversation at runtime;
- * we only contribute an occupant, never re-declare it. Our compile-time
- * SlotMap augmentation in index.ts narrows the registration typing.
+ * we only contribute an occupant, never re-declare it. The framework session
+ * standard kit (ui-session merge) supplies `useSession`/`sessionId`; the
+ * registration injects the RPC caller and the chat-snapshot hook.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client';
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client';
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client';
+import type { SessionId } from '@deepseek-ai/dsh-session/types';
+import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client';
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import {
   SUBAGENT_DIRECTOR_RPC_CHANNEL,
@@ -37,19 +43,20 @@ import {
   type SubagentModelRef,
 } from './subagent-model.js';
 
-/** Owner currency of the composer dock as ui-conversation declares it. */
-export interface ComposerDockOwner {
-  readonly session: ConversationSnapshot | undefined;
-  readonly input: unknown;
-}
-
 /** Business face injected by the registration (client/index.ts). */
 export interface SubagentModelDockInjected {
   /** Generic RPC caller for the /subagent-director bridge channel. */
   rpc: ClientConnectionRpc;
+  /**
+   * Alpha.4 chat-view snapshot hook: subscribes to the current session's
+   * `chat` Conversation target (uiConversation binding) and returns its
+   * snapshot, or undefined while no session is current / the target is
+   * unassembled. The transcript nodes live at `snapshot.legacy.nodes`.
+   */
+  useChatSnapshot: (sessionId: SessionId | undefined) => ChatSnapshot | undefined;
 }
 
-/** Full props of the dock entry: runtime (owner session) + inject + locale. */
+/** Full props of the dock entry: session kit + inject + locale. */
 export type SubagentModelDockProps = PropsRuntime<'conversation.composer.dock'> &
   InjectFace<SubagentModelDockInjected> &
   PropsLocale<typeof NS>;
@@ -84,18 +91,23 @@ const style: { [key: string]: React.CSSProperties } = {
 
 /** Render the provider/model readout for an addressed subagent, or nothing. */
 export function SubagentModelDock({
-  session,
+  useSession,
+  sessionId,
   rpc,
+  useChatSnapshot,
   t,
 }: SubagentModelDockProps): React.JSX.Element | null {
+  const session = useSession((s: SessionSnapshot) => s);
+  const chat = useChatSnapshot(sessionId);
   const [query, setQuery] = useState<QueryState>({ status: 'idle' });
   const cache = useRef<Map<string, QueryState>>(new Map());
 
-  const local = latestSubagentModel(session as ConversationSnapshot);
+  const nodes = chat?.legacy?.nodes;
+  const local = latestSubagentModel({ nodes: nodes ?? [] });
   const childSessionId = session?.subagent?.address?.childSessionId;
   const lastSeq =
-    session && Array.isArray(session.nodes) && session.nodes.length > 0
-      ? (session.nodes[session.nodes.length - 1] as { seq?: number }).seq ?? 0
+    nodes !== undefined && nodes.length > 0
+      ? (nodes[nodes.length - 1] as { seq?: number }).seq ?? 0
       : 0;
 
   useEffect(() => {

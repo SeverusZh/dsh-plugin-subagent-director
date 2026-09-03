@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { SnapshotSelectorHook } from './bind.js';
-import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client';
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
 import { modelsForProvider, providerNames } from './allowed-routes.js';
 import type { SubagentDirectorKey } from './locales.js';
