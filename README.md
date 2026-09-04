@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="npm version" src="https://img.shields.io/npm/v/dsh-plugin-subagent-director?label=npm">
   <img alt="license" src="https://img.shields.io/npm/l/dsh-plugin-subagent-director">
-  <img alt="DeepSeek Harness" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.2--alpha.4-blue">
+  <img alt="DeepSeek Harness" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.2--rc.1-blue">
   <img alt="Awesome DSH Plugin" src="https://awesome-dsh-plugin.com/badge.svg">
 </p>
 
@@ -35,7 +35,7 @@
 
 ## 与官方子代理选择器的适配
 
-> **兼容性**：v0.5.0 支持 DSH **0.1.2-alpha.4+**（`alpha4-probe` + real-cordis 探针 278/278 通过，实测 alpha.4/alpha.5 依赖集）。旧版 DSH（0.1.0-rc.6 及更早）请使用最后兼容的 npm 版本 **0.4.0**。
+> **兼容性**：v0.5.0 支持 DSH **0.1.2-alpha.4+**，已在当前运行时 **0.1.2-rc.1** 实测（`alpha4-probe` + real-cordis 探针 278/278 通过，实测 alpha.4/alpha.5/0.1.2-rc.1 依赖集）。旧版 DSH（0.1.0-rc.6 及更早）请使用最后兼容的 npm 版本 **0.4.0**。
 
 DSH alpha.4 起，官方内置 subagent 的模型选择收敛到 `subagent-model-selection` 设置段（`allowedModels` 授权列表）。本插件 v0.5.0 完全适配该机制：
 
@@ -225,6 +225,6 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 - **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "Release subagent" button in the subagent session header, freeing resident children through the core `drainContinuableChildren` API;
 - **Observability** — the addressed subagent’s actual provider/model shown under the composer, read from the session’s `request/header` records (graceful degradation when no run is recorded yet).
 
-**Official subagent selector adaptation (v0.5.0+)** — since DSH alpha.4 the built-in subagent constrains model selection to the official `subagent-model-selection` allowlist (`allowedModels`). v0.5.0 aligns with it: routes are selected only from the allowlist (unauthorized explicit routes hard-fail; unauthorized default/role routes are dropped and fall back to inheritance), the rc-era `applyDefaultRoute` patch seam is removed (no double-writing of model routes with the official selector), and the client half no longer references the rc-era `dsh-client-runtime` package. **Compatibility**: v0.5.0 targets DSH **0.1.2-alpha.4+**; for older DSH releases use npm version **0.4.0**.
+**Official subagent selector adaptation (v0.5.0+)** — since DSH alpha.4 the built-in subagent constrains model selection to the official `subagent-model-selection` allowlist (`allowedModels`). v0.5.0 aligns with it: routes are selected only from the allowlist (unauthorized explicit routes hard-fail; unauthorized default/role routes are dropped and fall back to inheritance), the rc-era `applyDefaultRoute` patch seam is removed (no double-writing of model routes with the official selector), and the client half no longer references the rc-era `dsh-client-runtime` package. **Compatibility**: v0.5.0 targets DSH **0.1.2-alpha.4+**, verified on the current runtime **0.1.2-rc.1**; for older DSH releases use npm version **0.4.0**.
 
 **Install** — `dsh plugin --profile <name> add dsh-plugin-subagent-director` mounts the main and bridge entries automatically from the package's bundle patch (`cordis.patch.yml`); optionally override the main entry's config in your profile's cordis.patch.yml (see the Chinese section above). License: MIT.
