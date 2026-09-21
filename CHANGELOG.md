@@ -2,6 +2,24 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.1] - 2026-09-22
+
+### 变更
+
+- **新增 `dsh.compatibility` 声明**（DSH STORE 上架契约）：`dsh` 字段下新增
+  `compatibility`（保留原 `bundle` / `client`），逐版本声明兼容矩阵——`dshReleases`
+  中 `0.1.5-rc.1` / `0.1.5-rc.2` / `0.1.6-alpha.2` 均为 `compatible`（三版本均已在本机
+  真实装载运行，插件正常加载、零错误）；未实测的版本不声明（扫描时按 `unknown` 处理）。
+- **`node` 范围判定为 `>=20`**：本仓库 `package.json` 未声明 `engines`、README 亦无 Node
+  要求。判定依据——`tsconfig.json` 的 `target`/`lib` 均为 `ES2023`（完整 ES2023 内建能力
+  对应 Node 20 的 V8），CI 在 Node 22 上执行 typecheck/test/build，且同作者的
+  `dsh-yolo-mode` / `dsh-notify-windows` 均声明 `>=20`。代码中未使用 `Symbol.dispose`
+  等 Node 20 独占 API，故此处为声明性的支持下限，而非编译期硬约束。
+
+### 测试
+
+- `npm run typecheck`、`npm test`、`npm run build` 全部通过（与 CI 步骤一致）。
+
 ## [0.5.0] - 2026-09-04
 
 ### 变更
