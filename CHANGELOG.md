@@ -2,6 +2,18 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3-beta.0] - 2026-09-24
+
+### Beta（DSH 0.1.7-rc.1 适配，测试版）
+
+- 本分支（`dev-0.1.7.rc1`，尚未合并 `main`）相对 `main` 的适配改动共两项：
+  设置子系统迁移至 0.1.7 的 `SettingsForms`（见 `0.5.2` 条目，`src/settings.ts` /
+  `src/index.ts` / `src/remote.ts` 等），以及悬空 `defaultRole` 改为「读时告警」
+  （见 `0.5.3` 条目）；全部 `@deepseek-ai/dsh*` peer 范围升至 `^0.1.7-rc.1`，
+  `dsh.compatibility.dshReleases` 新增 `"0.1.7-rc.1": "compatible"`，README 徽章与
+  兼容性说明同步。
+- 发布为 npm 测试版（`--tag beta`）；`latest` 保持不变。正式版 `0.5.3` 待 `main` 合并后发布。
+
 ## [0.5.3] - 2026-09-24
 
 ### 加固：悬空 `defaultRole` 改为「读时告警」，恢复等价安全性
