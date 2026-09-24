@@ -13,7 +13,7 @@
  * section) while staying robust to roles appearing at runtime.
  */
 import type { Context } from '@deepseek-ai/cordis';
-import type { SubagentDirectorSettings } from './settings.js';
+import { danglingDefaultRoleWarning, type SubagentDirectorSettings } from './settings.js';
 
 /** Prompt order: just after dsh-tool-subagent's 116.5 tool section. */
 export const GUIDANCE_SECTION_ORDER = 117;
@@ -44,6 +44,12 @@ export function renderRolesGuidance(settings: SubagentDirectorSettings, toolName
     lines.push(`- ${role.displayName || id}${bound}: ${role.description}`);
     lines.push(`    Delegate with: ${toolName}({ role: "${id}", prompt: "..." })`);
   }
+  // Read-time hardening: carry a dangling defaultRole into the guidance so it
+  // is visible to the agent even where no logger exporter is registered. Only
+  // appended when the section already renders — an empty role set stays dropped
+  // (AC-6.1), it does not get resurrected just to carry a warning.
+  const warning = danglingDefaultRoleWarning(settings);
+  if (warning !== undefined) lines.push('', warning);
   return lines.join('\n');
 }
 

@@ -16,6 +16,10 @@
  *  - Cross-field / semantic constraints the schema cannot express are still
  *    documented by `validateDirectorSettings`, but the new write path only
  *    enforces what the schema declares (per-field shape). See the export comment.
+ *    The one cross-field reference the schema cannot express — a dangling
+ *    `defaultRole` — is surfaced at READ time by `readDirectorSettings` /
+ *    `settingsWarnings` instead (logs + settingsView), restoring the equivalent
+ *    safety without refusing the write.
  *  - `installDirectorSettingsPage` registers the instance page policy
  *    (`auto:false`) because the plugin ships its own Web settings page.
  *
@@ -112,11 +116,26 @@ export interface DirectorSettingsHandles {
  * Project the live Config handles onto the plain settings snapshot consumed by
  * the resolver/guidance. Mirrors the Host schema in src/settings.ts.
  *
+ * Read-time hardening: the only cross-field constraint a schemastery schema
+ * cannot express — a `defaultRole` that references no defined role — is checked
+ * here and reported through the optional `warnings` collector. On 0.1.7 the
+ * settings write path admits such a dangling reference (the schema is the write
+ * gate and it is per-field only); surfacing it at read time restores the
+ * equivalent safety the old write-time validator gave, without refusing the
+ * write. The dangling value itself is returned UNCHANGED — the user's stored
+ * configuration must stay as written so the mistake remains correctable.
+ *
  * @param config - the resolved Cordis config carrying the volatile handles.
+ * @param warnings - optional out-collector; when supplied it receives every
+ *   read-time warning (see {@link settingsWarnings}). Omitted by callers that
+ *   only need the snapshot, keeping the no-arg path byte-identical.
  * @returns a detached settings snapshot (fresh object each call).
  */
-export function readDirectorSettings(config: DirectorSettingsHandles): SubagentDirectorSettings {
-  return {
+export function readDirectorSettings(
+  config: DirectorSettingsHandles,
+  warnings?: string[],
+): SubagentDirectorSettings {
+  const settings: SubagentDirectorSettings = {
     defaultProvider: config.defaultProvider.get(),
     defaultModel: config.defaultModel.get(),
     defaultReasoningEffort: config.defaultReasoningEffort.get(),
@@ -125,6 +144,53 @@ export function readDirectorSettings(config: DirectorSettingsHandles): SubagentD
     // Volatile snapshots are deeply readonly; consumers only read settings, so
     // the cast to the mutable-typed interface is safe.
     roles: config.roles.get() as SubagentDirectorSettings['roles'],
+  };
+  if (warnings !== undefined) warnings.push(...settingsWarnings(settings));
+  return settings;
+}
+
+/**
+ * Warning for a `defaultRole` that references no defined role, or undefined
+ * when the reference is sound (or unset). The cross-field reference the
+ * schemastery schema cannot express; pure — reads the snapshot only.
+ */
+export function danglingDefaultRoleWarning(settings: SubagentDirectorSettings): string | undefined {
+  const roleId = settings.defaultRole;
+  if (isEmpty(roleId)) return undefined;
+  const roles = settings.roles ?? {};
+  if (roles[roleId!] !== undefined) return undefined;
+  return (
+    'subagent-director: defaultRole "' + roleId +
+    '" does not reference a defined role; its binding (persona/provider/model) is skipped and the default route is used'
+  );
+}
+
+/**
+ * Read-time warnings for a resolved settings snapshot. A list (not a single
+ * value) so further read-time checks can be added without changing callers.
+ * Today the only entry is a dangling `defaultRole`.
+ */
+export function settingsWarnings(settings: SubagentDirectorSettings): string[] {
+  const warning = danglingDefaultRoleWarning(settings);
+  return warning === undefined ? [] : [warning];
+}
+
+/**
+ * Wrap a warn sink in a deduplicating emitter keyed on the warning-set
+ * signature, so a persistent misconfiguration warns once per read rather than
+ * on every read: an unchanged set is swallowed, an empty set clears the
+ * memory (a fixing write stops the noise), and a changed set re-warns.
+ *
+ * @param emit - receives each warning string that should be logged.
+ * @returns a function to call with the warnings of one settings read.
+ */
+export function createSettingsWarner(emit: (message: string) => void): (warnings: readonly string[]) => void {
+  let lastSignature = '';
+  return (warnings) => {
+    const signature = warnings.join('\n');
+    if (signature === lastSignature) return;
+    lastSignature = signature;
+    for (const warning of warnings) emit(warning);
   };
 }
 

@@ -49,6 +49,8 @@ import {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
   SUBAGENT_MODEL_SELECTION_NAMESPACE,
   readNamespaceValue,
+  settingsWarnings,
+  type SubagentDirectorSettings,
 } from './settings.js';
 import {
   SUBAGENT_DIRECTOR_RPC_VIEW,
@@ -174,12 +176,22 @@ export function pickDirectorNamespaceView(
 /**
  * Read the current redacted namespace view straight from the settings seam.
  * Exported for reuse by tests and by the bridge handler.
+ *
+ * Read-time hardening: the live namespace value is checked with the same
+ * `settingsWarnings` the plugin's own read path uses, so a dangling
+ * `defaultRole` (admitted by the 0.1.7 write gate) is visible in the settings
+ * view, not only in the plugin logs. Absent warnings omit the field entirely
+ * to keep the sound-configuration response shape unchanged.
  */
 export function readDirectorNamespaceView(settings: SettingsForms): DirectorViewSuccess {
   const descriptors = settings.describe({ redactSecrets: true });
+  const view = pickDirectorNamespaceView(descriptors);
+  const warnings =
+    view === undefined ? [] : settingsWarnings((view.value ?? {}) as SubagentDirectorSettings);
   return {
     writable: settings.writable,
-    view: pickDirectorNamespaceView(descriptors),
+    view,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 

@@ -11,6 +11,11 @@ import {
   SettingsSchema,
   installDirectorSettingsPage,
   validateDirectorSettings,
+  readDirectorSettings,
+  settingsWarnings,
+  danglingDefaultRoleWarning,
+  createSettingsWarner,
+  type DirectorSettingsHandles,
   type RoleTemplate,
   type SubagentDirectorSettings,
 } from '../src/settings.js';
@@ -188,5 +193,111 @@ describe('settings schema toolFilter 物化（issue #2）', () => {
       allow: ['read'],
       deny: [],
     });
+  });
+});
+
+describe('read-time dangling defaultRole surfacing (0.1.7 hardening)', () => {
+  /** Build DirectorSettingsHandles reading from a fixed snapshot. */
+  function handles(overrides: Partial<SubagentDirectorSettings> = {}): DirectorSettingsHandles {
+    const values: SubagentDirectorSettings = {
+      defaultProvider: undefined,
+      defaultModel: undefined,
+      defaultReasoningEffort: undefined,
+      defaultRole: undefined,
+      fallbackOnInvalid: true,
+      roles: {},
+      ...overrides,
+    };
+    return {
+      defaultProvider: { get: () => values.defaultProvider },
+      defaultModel: { get: () => values.defaultModel },
+      defaultReasoningEffort: { get: () => values.defaultReasoningEffort },
+      defaultRole: { get: () => values.defaultRole },
+      fallbackOnInvalid: { get: () => values.fallbackOnInvalid ?? true },
+      roles: { get: () => values.roles },
+    } as unknown as DirectorSettingsHandles;
+  }
+
+  it('reports a dangling defaultRole and returns the raw value unchanged', () => {
+    const warnings: string[] = [];
+    const settings = readDirectorSettings(
+      handles({ defaultRole: 'ghost', roles: { coder: role() } }),
+      warnings,
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/defaultRole/);
+    expect(warnings[0]).toMatch(/ghost/);
+    // The user's stored value must not be silently rewritten.
+    expect(settings.defaultRole).toBe('ghost');
+  });
+
+  it('reports nothing when defaultRole references a defined role', () => {
+    const warnings: string[] = [];
+    const settings = readDirectorSettings(
+      handles({ defaultRole: 'coder', roles: { coder: role() } }),
+      warnings,
+    );
+    expect(warnings).toEqual([]);
+    expect(settings.defaultRole).toBe('coder');
+  });
+
+  it('reports nothing when defaultRole is unset, empty, or blank', () => {
+    for (const dr of [undefined, '', '   ']) {
+      const warnings: string[] = [];
+      readDirectorSettings(handles({ defaultRole: dr, roles: { coder: role() } }), warnings);
+      expect(warnings).toEqual([]);
+    }
+  });
+
+  it('reports nothing for a dangling role only when roles is empty', () => {
+    const warnings: string[] = [];
+    readDirectorSettings(handles({ defaultRole: 'ghost', roles: undefined }), warnings);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('omits the collector entirely when none is supplied (no signature change)', () => {
+    const settings = readDirectorSettings(handles({ defaultRole: 'ghost' }));
+    expect(settings.defaultRole).toBe('ghost');
+  });
+
+  it('settingsWarnings lists exactly the dangling-defaultRole warning (pure)', () => {
+    expect(settingsWarnings({ defaultRole: 'ghost', roles: { coder: role() } })).toHaveLength(1);
+    expect(settingsWarnings({ defaultRole: 'coder', roles: { coder: role() } })).toEqual([]);
+    expect(settingsWarnings({})).toEqual([]);
+  });
+
+  it('danglingDefaultRoleWarning is undefined for sound references only', () => {
+    expect(danglingDefaultRoleWarning({ defaultRole: 'ghost', roles: { coder: role() } })).toMatch(/ghost/);
+    expect(danglingDefaultRoleWarning({ defaultRole: 'coder', roles: { coder: role() } })).toBeUndefined();
+    expect(danglingDefaultRoleWarning({ defaultRole: undefined })).toBeUndefined();
+  });
+});
+
+describe('createSettingsWarner (deduped log emission)', () => {
+  it('emits a warning once and swallows repeats of the same set', () => {
+    const emitted: string[] = [];
+    const warn = createSettingsWarner((m) => emitted.push(m));
+    warn(['a', 'b']);
+    warn(['a', 'b']);
+    warn(['a', 'b']);
+    expect(emitted).toEqual(['a', 'b']);
+  });
+
+  it('stays silent for a sound configuration', () => {
+    const emitted: string[] = [];
+    const warn = createSettingsWarner((m) => emitted.push(m));
+    warn([]);
+    warn([]);
+    expect(emitted).toEqual([]);
+  });
+
+  it('re-warns after the set changes, including break → fix → break', () => {
+    const emitted: string[] = [];
+    const warn = createSettingsWarner((m) => emitted.push(m));
+    warn(['a']);           // break → warn
+    warn([]);              // fix → silent (clears memory)
+    warn(['a']);           // break again → warn
+    warn(['a', 'c']);      // set changed → warn only the new set
+    expect(emitted).toEqual(['a', 'a', 'a', 'c']);
   });
 });

@@ -2,6 +2,26 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3] - 2026-09-24
+
+### 加固：悬空 `defaultRole` 改为「读时告警」，恢复等价安全性
+
+0.5.2 迁移到 DSH 0.1.7-rc.1 时，`defaultRole` 指向不存在 role 的跨字段约束无法用
+schemastery 表达，写入时不再被拒绝——配置错误不再被主动暴露。本次把该防护从
+「写时拒绝」改为「读时告警」，覆盖所有消费者，且不破坏 fail-safe：
+
+- **读时检测**（`src/settings.ts`）：新增纯函数 `settingsWarnings(settings)` /
+  `danglingDefaultRoleWarning(settings)`；唯一读取入口 `readDirectorSettings(config,
+  warnings?)` 增加可选告警收集器，悬空时推入告警。**悬空值原样返回，不静默改写**用户
+  配置（写错的值仍是用户写下的那个，便于更正）。不悬空/空值时返回 `[]`，无新噪音。
+- **告警可见（日志）**（`src/index.ts`）：所有消费者共用的 `getSettings` 读取点把
+  告警经 `ctx.logger.warn` 输出；按告警集合签名去重，持续悬空只告警一次，修好后清空、
+  再次写错会重新告警。
+- **告警可见（settingsView）**（`src/remote.ts` / `src/bridge-contract.ts`）：桥的
+  `settingsView` 响应新增可选 `warnings: string[]`（由同一 `settingsWarnings` 计算），
+  非悬空时省略该字段，响应形状保持不变。
+- **保留**：`validateDirectorSettings` 与路由解析器既有的「警告 + 跳过绑定」行为均不变。
+
 ## [0.5.2] - 2026-09-24
 
 ### 兼容：设置子系统迁移至 DSH 0.1.7-rc.1 的 `SettingsForms`

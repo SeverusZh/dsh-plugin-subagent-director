@@ -28,7 +28,7 @@ import { createDelegationTool } from './delegation-tool.js';
 import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 import { applyGuidance } from './guidance.js';
 import { applyOrchestrate } from './orchestrate.js';
-import { readDirectorSettings, installDirectorSettingsPage, type DirectorSettingsHandles } from './settings.js';
+import { readDirectorSettings, installDirectorSettingsPage, createSettingsWarner, type DirectorSettingsHandles } from './settings.js';
 
 export { Config } from './config.js';
 export type { DirectorConfig } from './config.js';
@@ -70,6 +70,9 @@ export {
   validateDirectorSettings,
   installDirectorSettingsPage,
   readDirectorSettings,
+  settingsWarnings,
+  danglingDefaultRoleWarning,
+  createSettingsWarner,
   type RoleTemplate,
   type SubagentDirectorSettings,
 } from './settings.js';
@@ -94,7 +97,17 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   // `config.<field>.get()`；写入经 configEditor 就地更新引用，插件无需重启即
   // 生效（设置面板改动即时生效）。页面策略 auto:false = 使用插件自建 UI。
   installDirectorSettingsPage(ctx);
-  const getSettings = () => readDirectorSettings(config);
+  // Single settings-read chokepoint for every consumer (guidance / orchestrate
+  // / resolver). Read-time warnings — currently a dangling defaultRole the
+  // 0.1.7 write path admits — are logged here, deduped by warning-set signature
+  // (persistent misconfiguration warns once, not on every read).
+  const warnSettings = createSettingsWarner((message) => ctx.logger.warn('[' + name + '] ' + message));
+  const getSettings = () => {
+    const warnings: string[] = [];
+    const settings = readDirectorSettings(config, warnings);
+    warnSettings(warnings);
+    return settings;
+  };
 
   // ---- role guidance ----------------------------------------------------
   applyGuidance(ctx, getSettings, toolName);

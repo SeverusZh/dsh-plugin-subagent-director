@@ -20,6 +20,7 @@ import {
   directorCatalogOk,
   pickDirectorNamespaceView,
   toDirectorNamespaceView,
+  readDirectorNamespaceView,
   directorMutate,
   dispatchSubagentClose,
   dispatchSubagentModel,
@@ -90,6 +91,36 @@ describe('pickDirectorNamespaceView', () => {
     expect(view).toBeDefined();
     expect(view!.ns).toBe(String(NS));
     expect(view!.revision).toBe(3);
+  });
+});
+
+describe('readDirectorNamespaceView read-time warnings', () => {
+  const settingsWith = (value: unknown) =>
+    ({ writable: true, describe: () => [descriptor({ value })] }) as never;
+
+  it('surfaces a dangling defaultRole as a warning on the view', () => {
+    const view = readDirectorNamespaceView(
+      settingsWith({ defaultRole: 'ghost', roles: { coder: { displayName: 'C', description: 'd' } } }),
+    );
+    expect(view.warnings).toBeDefined();
+    expect(view.warnings).toHaveLength(1);
+    expect(view.warnings![0]).toMatch(/defaultRole/);
+    expect(view.warnings![0]).toMatch(/ghost/);
+    // The view still carries the raw (unrewritten) stored value.
+    expect((view.view!.value as { defaultRole?: string }).defaultRole).toBe('ghost');
+  });
+
+  it('omits the warnings field for a sound configuration (no shape change)', () => {
+    const view = readDirectorNamespaceView(
+      settingsWith({ defaultRole: 'coder', roles: { coder: { displayName: 'C', description: 'd' } } }),
+    );
+    expect('warnings' in view).toBe(false);
+  });
+
+  it('omits the warnings field when the namespace is not registered', () => {
+    const view = readDirectorNamespaceView({ writable: true, describe: () => [] } as never);
+    expect(view.view).toBeUndefined();
+    expect('warnings' in view).toBe(false);
   });
 });
 

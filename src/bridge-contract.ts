@@ -53,6 +53,13 @@ export interface DirectorViewSuccess {
   writable: boolean;
   /** The redacted namespace wire view, absent when the namespace is not registered. */
   view: SettingsNamespaceView | undefined;
+  /**
+   * Read-time settings warnings for the current namespace value (e.g. a
+   * `defaultRole` referencing no defined role — a cross-field constraint the
+   * schemastery write gate cannot express). Omitted when there are none, so a
+   * sound configuration yields the exact pre-existing response shape.
+   */
+  warnings?: string[];
 }
 
 /** Request payload for the settingsMutate bridge endpoint. */
