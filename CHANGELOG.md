@@ -2,6 +2,62 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.2] - 2026-09-24
+
+### 兼容：设置子系统迁移至 DSH 0.1.7-rc.1 的 `SettingsForms`
+
+DSH 0.1.7 移除了 `@deepseek-ai/dsh-settings` 的 `SettingsProvider.installSection`
+（默认导出改为 `SettingsForms`），本插件原设置子系统因此在新版抛
+`TypeError: ctx.settings.installSection is not a function` 而无法激活。本次按官方新模型重写：
+
+- **设置声明 → 插件 Config schema**：`src/config.ts` 的 `Config` 现由「组合字段
+  （普通，重启生效）」+ `src/settings.ts` 的 `SettingsFields`（设置字段，全部
+  `.volatile()` 热更）合并而成。只有 volatile 字段进入宿主设置表单（`volatileForm`），
+  故设置页内容不变；条目 id `subagent-director` 即 `describe()`/`mutate()` 的 ns。
+- **设置读取 → `config.<field>.get()`**（`readDirectorSettings`）：快照实时跟随
+  loader 的就地更新，设置面板改动即时生效、无需重启。
+- **页面策略 → `settings.configure({ auto:false }, fiber)`**
+  （`installDirectorSettingsPage`）：插件自带 Web 设置页，`auto:false` 避免宿主重复生成。
+- **字段级写时校验下移到 schema**：旧 `installSection` 的 `validate` 钩子（kebab-case
+  role id、非空 displayName/description、非空 provider）无法在新写路径表达，改为在
+  `RoleTemplateSchema` / `SettingsFields` 中声明（role id 用 dict 的 key schema 校验；
+  displayName/description 用 `required().pattern(/\S/)`），由 configEditor 在写回时校验
+  Config schema 而拒绝非法写入。**保留限制**：`defaultRole` 指向不存在 role 的跨字段
+  约束无法用 schemastery 表达，0.1.7 下不再于写入时拒绝；运行期路由解析器已对该情形
+  警告并跳过绑定（`validateDirectorSettings` 仍保留该检查供显式调用/测试）。
+- **官方 allowlist 读取改写**：0.1.7 无 `settings.get(ns)`，`directorCatalogOk` 与
+  `readModelSelection` 改由 `settings.describe()` 的 `subagent-model-selection-settings`
+  描述符读取（新增 `readNamespaceValue`）。
+- **自发布设置桥与客户端协议不变**：`describe / mutate / writable /
+  SettingsConflictError` 方法面在 `SettingsForms` 中不变，`/subagent-director` 的
+  `settingsView` / `settingsMutate` 端点形状与乐观锁语义无需改动。
+
+### 兼容：连带修复 0.1.7 客户端 API 漂移（随依赖走廊一并暴露）
+
+依赖升到 0.1.7-rc.1 后 `tsc` 暴露两处客户端类型破坏，随本次一并最小适配：
+
+- `AssistantProvenanceView` → `AssistantProviderMetadataView`，
+  `assistant.provenance` → `assistant.providerMetadata`（形状不变）。
+- `SessionListState` 移除 `current`（`settings.section` 的 owner props 仅 `close`）：
+  移除设置页中已失效的 current-session 选择器；工具目录改由宿主全局注册表枚举
+  （**已知回归**：角色工具集编辑器的「按当前会话枚举 agent 作用域工具」不再生效）。
+
+### 兼容性
+
+- `peerDependencies` 的 `@deepseek-ai/dsh*` 下限提升至 `^0.1.7-rc.1`（`dsh-host-apiproxy`
+  历史例外保持 `^0.1.1-rc.2`）；`@deepseek-ai/cordis` 下限提至 `^4.0.4`（`Volatile` 类型导出）。
+- devDependencies 补齐 0.1.7 `dsh-tools` 的新 peer（`dsh-sandbox` / `dsh-sandbox-policy` /
+  `dsh-ptc-runtime` / `dsh-user-approval` / `dsh-invariants`）以便离线跑测试。
+- `dsh.compatibility.dshReleases` 增列 `0.1.7-rc.1: compatible`。
+
+### 测试
+
+- `test/alpha4-probe.test.ts` 重写至 0.1.7：经真实 cordis 的 Config schema 挂载、
+  断言 `configure({auto:false})`、经 `describe()` 读取官方 allowlist。
+- `test/settings-schema.test.ts` 更新为 volatile 读取与 schema 级写入拒绝；
+  删除 `test/settings-snapshot.test.ts`（`createSettingsSnapshot` 已随旧模型移除）。
+- `npm test` 277/277 通过；`npm run typecheck` 与 `npm run build` 通过。
+
 ## [0.5.1] - 2026-09-22
 
 ### 变更

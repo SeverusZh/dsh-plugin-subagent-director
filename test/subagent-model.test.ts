@@ -71,8 +71,8 @@ describe('latestSubagentModel', () => {
   it('returns the reported provenance of the latest assistant message', () => {
     const result = latestSubagentModel(
       chatLegacy([
-        assistant({ provenance: { provider: 'deepseek', model: 'older-v1' } }),
-        assistant({ provenance: { provider: 'opencode-go', model: 'deepseek-v4-flash' } }),
+        assistant({ providerMetadata: { provider: 'deepseek', model: 'older-v1' } }),
+        assistant({ providerMetadata: { provider: 'opencode-go', model: 'deepseek-v4-flash' } }),
       ]),
     );
     expect(result).toEqual({ found: true, provider: 'opencode-go', model: 'deepseek-v4-flash' });
@@ -80,7 +80,7 @@ describe('latestSubagentModel', () => {
 
   it('returns not-found when no assistant message records a provenance or config', () => {
     const result = latestSubagentModel(
-      chatLegacy([assistant(), assistant({ provenance: null, requestConfig: null })]),
+      chatLegacy([assistant(), assistant({ providerMetadata: null, requestConfig: null })]),
     );
     expect(result).toEqual({ found: false });
   });
@@ -88,9 +88,9 @@ describe('latestSubagentModel', () => {
   it('prefers the latest of several recorded assistant messages (tail wins)', () => {
     const result = latestSubagentModel(
       chatLegacy([
-        assistant({ provenance: { provider: 'a', model: 'm1' } }),
+        assistant({ providerMetadata: { provider: 'a', model: 'm1' } }),
         sourceNode(),
-        assistant({ provenance: { provider: 'b', model: 'm2' } }),
+        assistant({ providerMetadata: { provider: 'b', model: 'm2' } }),
       ]),
     );
     expect(result).toEqual({ found: true, provider: 'b', model: 'm2' });
@@ -100,7 +100,7 @@ describe('latestSubagentModel', () => {
     const result = latestSubagentModel(
       chatLegacy([
         assistant({
-          provenance: { provider: 'reported-p', model: 'reported-m' },
+          providerMetadata: { provider: 'reported-p', model: 'reported-m' },
           requestConfig: { provider: 'requested-p', model: 'requested-m' },
         }),
       ]),
@@ -132,7 +132,7 @@ describe('latestSubagentModel', () => {
   it('skips non-assistant and guard-invalid nodes while walking to the tail', () => {
     const result = latestSubagentModel(
       chatLegacy([
-        assistant({ provenance: { provider: 'early', model: 'model-x' } }),
+        assistant({ providerMetadata: { provider: 'early', model: 'model-x' } }),
         sourceNode(),
         { kind: 'unknown' } as unknown as ConversationNode,
         assistant({}),
@@ -145,14 +145,14 @@ describe('latestSubagentModel', () => {
 
 describe('provenanceOf', () => {
   it('accepts a provenance with provider and model', () => {
-    const ref = provenanceOf(assistant({ provenance: { provider: 'p', model: 'm' } }));
+    const ref = provenanceOf(assistant({ providerMetadata: { provider: 'p', model: 'm' } }));
     expect(ref).toEqual({ found: true, provider: 'p', model: 'm' });
   });
 
   it('rejects a provenance with empty provider or model and falls to requestConfig', () => {
     const fromRequest = provenanceOf(
       assistant({
-        provenance: { provider: '', model: 'm' },
+        providerMetadata: { provider: '', model: 'm' },
         requestConfig: { provider: 'rp', model: 'rm' },
       }),
     );
@@ -161,7 +161,7 @@ describe('provenanceOf', () => {
 
   it('returns null when neither provenance nor requestConfig records a model', () => {
     expect(provenanceOf(assistant({}))).toBeNull();
-    expect(provenanceOf(assistant({ provenance: null, requestConfig: null }))).toBeNull();
+    expect(provenanceOf(assistant({ providerMetadata: null, requestConfig: null }))).toBeNull();
   });
 });
 
@@ -198,7 +198,7 @@ describe('isAddressedSubagent (哪个表面才渲染读数)', () => {
 
   it('drives the degradation decision: not-addressed surfaces no readout', () => {
     // Ordinary sessions must not render even when nodes carry provenance.
-    const ordinary = { subagent: null, nodes: [assistant({ provenance: { provider: 'p', model: 'm' } })] };
+    const ordinary = { subagent: null, nodes: [assistant({ providerMetadata: { provider: 'p', model: 'm' } })] };
     expect(isAddressedSubagent(ordinary as never)).toBe(false);
     // An addressed subagent whose transcript proves no model yields not-found,
     // which is exactly the "尚无模型" degradation path in the dock.

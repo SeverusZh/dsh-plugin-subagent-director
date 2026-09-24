@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
   SettingsSchema,
-  installDirectorSettings,
+  installDirectorSettingsPage,
   validateDirectorSettings,
   type RoleTemplate,
   type SubagentDirectorSettings,
@@ -36,49 +36,58 @@ describe('settings namespace', () => {
   });
 });
 
-describe('installDirectorSettings', () => {
-  it('delegates to ctx.settings.installSection with the director namespace', () => {
-    const calls: unknown[][] = [];
-    const ctx = {
-      get: (name: string) => (name === 'settings' ? {} : undefined),
+describe('installDirectorSettingsPage', () => {
+  it('registers the auto:false page policy on the settings inject', () => {
+    const configured: Array<{ auto?: boolean }> = [];
+    const effects: Array<() => unknown> = [];
+    const childCtx = {
+      effect: (fn: () => unknown) => { effects.push(fn); },
       settings: {
-        installSection(...args: unknown[]) {
-          calls.push(args);
+        configure(presentation: { auto?: boolean }) {
+          configured.push(presentation);
+          return () => {};
         },
       },
-      logger: { debug: () => {} },
     };
-    installDirectorSettings(
-      ctx as never,
-      { defaultProvider: 'opencode-go' },
-      { setSource: () => {}, onChange: () => {} } as never,
-    );
-    expect(calls).toHaveLength(1);
-    expect(calls[0][1]).toBe('subagent-director');
-    expect(calls[0][3]).toEqual({ defaultProvider: 'opencode-go' });
-  });
-
-  it('skips registration (no-op) when the settings service is absent', () => {
-    const ctx = { get: () => undefined, logger: { debug: () => {} } };
-    expect(() =>
-      installDirectorSettings(ctx as never, {}, { setSource: () => {}, onChange: () => {} } as never),
-    ).not.toThrow();
+    let injectedNames: readonly string[] | undefined;
+    const ctx = {
+      fiber: {},
+      inject(names: readonly string[], cb: (child: unknown) => void) {
+        injectedNames = names;
+        cb(childCtx);
+      },
+    };
+    installDirectorSettingsPage(ctx as never);
+    expect(injectedNames).toEqual(['settings']);
+    // The registered effect runs configure({ auto:false }, fiber).
+    expect(effects).toHaveLength(1);
+    effects[0]();
+    expect(configured).toEqual([{ auto: false }]);
   });
 });
 
 describe('settings schema', () => {
   it('resolves an empty section to defaults (fallbackOnInvalid defaults true)', () => {
     const resolved = SettingsSchema({});
-    expect(resolved.fallbackOnInvalid).toBe(true);
-    expect(resolved.defaultProvider).toBeUndefined();
+    // 0.1.7: settings fields are volatile references → read via .get().
+    expect(resolved.fallbackOnInvalid.get()).toBe(true);
+    expect(resolved.defaultProvider.get()).toBeUndefined();
     // schemastery normalizes an absent dict to an empty object
-    expect(resolved.roles).toEqual({});
+    expect(resolved.roles.get()).toEqual({});
   });
 
   it('accepts a fully-formed valid section', () => {
     const resolved = SettingsSchema(validSettings());
-    expect(resolved.defaultProvider).toBe('deepseek-official');
-    expect(resolved.roles?.coder.displayName).toBe('Coder');
+    expect(resolved.defaultProvider.get()).toBe('deepseek-official');
+    expect(resolved.roles.get()?.coder.displayName).toBe('Coder');
+  });
+
+  it('rejects a role with an empty displayName at schema level (0.1.7 write gate)', () => {
+    expect(() => SettingsSchema({ roles: { coder: { displayName: '', description: 'x' } } })).toThrow();
+  });
+
+  it('rejects a non-kebab-case role id at schema level', () => {
+    expect(() => SettingsSchema({ roles: { 'Bad Key': { displayName: 'B', description: 'x' } } })).toThrow();
   });
 });
 
@@ -166,7 +175,7 @@ describe('settings schema toolFilter 物化（issue #2）', () => {
     const resolved = SettingsSchema({
       roles: { observer: { displayName: '观察者', description: '测试' } },
     });
-    expect((resolved.roles as Record<string, RoleTemplate>).observer.toolFilter).toBeUndefined();
+    expect((resolved.roles.get() as Record<string, RoleTemplate>).observer.toolFilter).toBeUndefined();
   });
 
   it('an explicit toolFilter still resolves', () => {
@@ -175,7 +184,7 @@ describe('settings schema toolFilter 物化（issue #2）', () => {
         reviewer: { displayName: 'Reviewer', description: 'Reviews', toolFilter: { allow: ['read'] } },
       },
     });
-    expect((resolved.roles as Record<string, RoleTemplate>).reviewer.toolFilter).toEqual({
+    expect((resolved.roles.get() as Record<string, RoleTemplate>).reviewer.toolFilter).toEqual({
       allow: ['read'],
       deny: [],
     });

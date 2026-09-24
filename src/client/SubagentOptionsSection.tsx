@@ -10,9 +10,8 @@
  * section only ever echoes the acknowledge-and-reload outcome. Failures return
  * a localized message that the save/delete/restore controls surface inline.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SnapshotSelectorHook } from './bind.js';
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
 import { modelsForProvider, providerNames } from './allowed-routes.js';
 import type { SubagentDirectorKey } from './locales.js';
@@ -45,10 +44,7 @@ export interface SubagentOptionsSectionInjected {
 }
 
 /** Props delivered by the slot outlet: the inject face spread flat. */
-export type SubagentOptionsSectionProps = Partial<SubagentOptionsSectionInjected> & {
-    /** Framework global kit: current-session selector (for the tool catalog). */
-    useSessions?: SnapshotSelectorHook<SessionListState>;
-};
+export type SubagentOptionsSectionProps = Partial<SubagentOptionsSectionInjected>;
 
 /** Local draft of the default-model row. */
 interface DefaultRowDraft {
@@ -63,42 +59,31 @@ interface DefaultRowDraft {
  * @returns the section, or null while the shell has not injected yet.
  */
 export function SubagentOptionsSection(props: SubagentOptionsSectionProps): JSX.Element | null {
-    const { controller, useSnapshot, t, useSessions } = props;
+    const { controller, useSnapshot, t } = props;
     if (controller === undefined || useSnapshot === undefined || t === undefined) return null;
-    return <Loaded injected={{ controller, useSnapshot, t, useSessions }} />;
+    return <Loaded injected={{ controller, useSnapshot, t }} />;
 }
 
 interface LoadedInjected {
     controller: SubagentOptionsStore;
     useSnapshot: SnapshotSelectorHook<SubagentOptionsState>;
     t: (key: SubagentDirectorKey) => string;
-    useSessions?: SnapshotSelectorHook<SessionListState>;
 }
 
 function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null {
     const { controller, t } = injected;
     const state = injected.useSnapshot((s) => s);
-    // Current session id drives the tool catalog: preset tools (bash/read/write)
-    // live in the agent scope, so the Host enumerates that agent's view.
-    const sessionId = injected.useSessions !== undefined ? injected.useSessions((s) => s.current) : undefined;
-    const lastSessionRef = useRef<string | undefined>(undefined);
 
     // Kick the first load once when the page mounts (post-load refreshes ride
-    // the pushed invalidations wired in apply()).
+    // the pushed invalidations wired in apply()). The tool catalog is requested
+    // without a session id: DSH 0.1.7's SessionListState no longer exposes a
+    // "current" session (the settings.section slot's owner props carry only
+    // `close`), so the Host enumerates its global tool registry. The scoped
+    // per-agent catalog is a documented 0.1.7 regression (see CHANGELOG).
     useEffect(() => {
-        if (state.status === 'idle' && !state.loading) void controller.load(sessionId);
+        if (state.status === 'idle' && !state.loading) void controller.load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [state.status, state.loading, sessionId]);
-
-    // Refresh the tool catalog when the current session changes (a different
-    // agent may expose a different tool set), without re-mounting the page.
-    useEffect(() => {
-        if (state.status === 'ready' && sessionId !== lastSessionRef.current) {
-            lastSessionRef.current = sessionId;
-            void controller.load(sessionId);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionId, state.status]);
+    }, [state.status, state.loading]);
 
     if (state.status === 'error') {
         return (

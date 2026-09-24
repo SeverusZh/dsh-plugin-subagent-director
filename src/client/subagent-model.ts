@@ -18,7 +18,7 @@
 
 import type {
   AssistantMessageNode,
-  AssistantProvenanceView,
+  AssistantProviderMetadataView,
   ConversationNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client';
@@ -67,7 +67,7 @@ export function latestSubagentModel(
 export function provenanceOf(
   assistant: AssistantMessageNode,
 ): SubagentModelRef | null {
-  const reported: AssistantProvenanceView | undefined = assistant.provenance;
+  const reported: AssistantProviderMetadataView | undefined = assistant.providerMetadata;
   if (
     reported !== null &&
     typeof reported === 'object' &&

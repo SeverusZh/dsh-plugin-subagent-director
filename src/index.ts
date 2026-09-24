@@ -28,7 +28,7 @@ import { createDelegationTool } from './delegation-tool.js';
 import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 import { applyGuidance } from './guidance.js';
 import { applyOrchestrate } from './orchestrate.js';
-import { createSettingsSnapshot, installDirectorSettings } from './settings.js';
+import { readDirectorSettings, installDirectorSettingsPage, type DirectorSettingsHandles } from './settings.js';
 
 export { Config } from './config.js';
 export type { DirectorConfig } from './config.js';
@@ -68,7 +68,8 @@ export {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
   SettingsSchema,
   validateDirectorSettings,
-  installDirectorSettings,
+  installDirectorSettingsPage,
+  readDirectorSettings,
   type RoleTemplate,
   type SubagentDirectorSettings,
 } from './settings.js';
@@ -77,7 +78,7 @@ export const name = 'subagent-director';
 
 export const inject = ['tools', 'subagents', 'llm', 'settings'];
 
-export function apply(ctx: Context, config: import('./config.js').DirectorConfig) {
+export function apply(ctx: Context, config: import('./config.js').DirectorConfig & DirectorSettingsHandles) {
   const backgroundMode = config.backgroundMode ?? 'one-shot';
   const toolName = config.toolName ?? 'subagent_role';
   const providerName = config.subagentProvider ?? 'spawn';
@@ -88,12 +89,12 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   // through ctx.get(). The main entry must not touch webServer, or headless
   // profiles would lose the delegation tool.
 
-  // ---- settings snapshot -------------------------------------------------
-  // 快照跟随 dsh-settings 的 onChange 热更新（settings.yaml / 设置面板改动
-  // 即时生效），不再只在挂载时读取一次。
-  const settingsSnapshot = createSettingsSnapshot<import('./settings.js').SubagentDirectorSettings>({});
-  installDirectorSettings(ctx, {}, settingsSnapshot.hooks);
-  const getSettings = settingsSnapshot.get;
+  // ---- settings (0.1.7: plugin Config schema, volatile = live) ------------
+  // 设置声明为插件 Config schema（src/config.ts 的 SettingsFields），读取用
+  // `config.<field>.get()`；写入经 configEditor 就地更新引用，插件无需重启即
+  // 生效（设置面板改动即时生效）。页面策略 auto:false = 使用插件自建 UI。
+  installDirectorSettingsPage(ctx);
+  const getSettings = () => readDirectorSettings(config);
 
   // ---- role guidance ----------------------------------------------------
   applyGuidance(ctx, getSettings, toolName);

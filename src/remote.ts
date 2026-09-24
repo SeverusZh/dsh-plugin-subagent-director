@@ -34,7 +34,7 @@ import { SessionId } from '@deepseek-ai/dsh-session';
 import {
   SettingsConflictError,
   type SettingsDescriptor,
-  type SettingsProvider,
+  type SettingsForms,
 } from '@deepseek-ai/dsh-settings';
 import type {
   RpcResult,
@@ -47,6 +47,8 @@ import type {
 import {
   SettingsSchema,
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
+  SUBAGENT_MODEL_SELECTION_NAMESPACE,
+  readNamespaceValue,
 } from './settings.js';
 import {
   SUBAGENT_DIRECTOR_RPC_VIEW,
@@ -95,7 +97,7 @@ export type { DirectorMutateRequest, DirectorViewSuccess, DirectorCloseRequest, 
  * them lazily through ctx.get and may leave optional ones undefined.
  */
 export interface BridgeDeps {
-  settings: SettingsProvider;
+  settings: SettingsForms;
   /** Live agent registry (dsh-agent ctx.agents). */
   agents?: { get(id: SessionId): unknown };
   /** Subagent service (dsh-subagent ctx.subagents). */
@@ -173,7 +175,7 @@ export function pickDirectorNamespaceView(
  * Read the current redacted namespace view straight from the settings seam.
  * Exported for reuse by tests and by the bridge handler.
  */
-export function readDirectorNamespaceView(settings: SettingsProvider): DirectorViewSuccess {
+export function readDirectorNamespaceView(settings: SettingsForms): DirectorViewSuccess {
   const descriptors = settings.describe({ redactSecrets: true });
   return {
     writable: settings.writable,
@@ -211,46 +213,45 @@ export function directorConflict(conflict: SettingsConflictError): RpcError {
  * Mirrors the apiproxy `settings.describe` value minus `hasDocument` (the
  * bridge does not own the document affordance; the client ignores it).
  */
-export function directorViewOk(settings: SettingsProvider): RpcResult<DirectorViewSuccess> {
+export function directorViewOk(settings: SettingsForms): RpcResult<DirectorViewSuccess> {
   return { ok: true, value: readDirectorNamespaceView(settings) };
 }
 
 /**
  * Build the ok payload for the settingsCatalog endpoint: the official Subagent
- * model-selection allowlist (the `subagent-model-selection` section the user
- * edits in the official "Subagent" settings card). The page may select a
- * provider/model ONLY from this list. An absent/disabled/empty section yields
- * an empty list — the client then shows the "no authorized models" notice and
- * the host-side resolver applies no constraint (inherits the parent model).
+ * model-selection allowlist (the settings section the user edits in the official
+ * "Subagent" settings card). The page may select a provider/model ONLY from this
+ * list. An absent/disabled/empty section yields an empty list — the client then
+ * shows the "no authorized models" notice and the host-side resolver applies no
+ * constraint (inherits the parent model).
+ *
+ * On 0.1.7 the section's live value is read from the settings seam's
+ * `describe()` under the entry id `subagent-model-selection-settings` (there is
+ * no `settings.get(ns)`); readNamespaceValue guards an inactive/unreadable
+ * section as "no allowlist".
  */
 export function directorCatalogOk(
-  settings: SettingsProvider | undefined,
+  settings: SettingsForms | undefined,
 ): RpcResult<DirectorCatalogSuccess> {
-  if (settings === undefined) {
+  const selection = readNamespaceValue(settings, SUBAGENT_MODEL_SELECTION_NAMESPACE);
+  if (selection === null || typeof selection !== 'object') {
     return { ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } };
   }
-  try {
-    const section = settings.get('subagent-model-selection') as
-      | { enabled?: unknown; allowedModels?: unknown }
-      | undefined;
-    const enabled = section !== null && typeof section === 'object' && section.enabled === true;
-    const raw = enabled && Array.isArray(section?.allowedModels) ? section.allowedModels : [];
-    const allowedRoutes = raw
-      .filter(
-        (entry): entry is { provider: string; model: string } =>
-          entry !== null &&
-          typeof entry === 'object' &&
-          typeof entry.provider === 'string' &&
-          entry.provider.length > 0 &&
-          typeof entry.model === 'string' &&
-          entry.model.length > 0,
-      )
-      .map(({ provider, model }) => ({ provider, model }));
-    return { ok: true, value: { modelSelectionEnabled: enabled, allowedRoutes } };
-  } catch {
-    // Unregistered namespace / malformed section: treat as "no allowlist".
-    return { ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } };
-  }
+  const section = selection as { enabled?: unknown; allowedModels?: unknown };
+  const enabled = section.enabled === true;
+  const raw = enabled && Array.isArray(section.allowedModels) ? section.allowedModels : [];
+  const allowedRoutes = raw
+    .filter(
+      (entry): entry is { provider: string; model: string } =>
+        entry !== null &&
+        typeof entry === 'object' &&
+        typeof entry.provider === 'string' &&
+        entry.provider.length > 0 &&
+        typeof entry.model === 'string' &&
+        entry.model.length > 0,
+    )
+    .map(({ provider, model }) => ({ provider, model }));
+  return { ok: true, value: { modelSelectionEnabled: enabled, allowedRoutes } };
 }
 
 /**
@@ -262,8 +263,8 @@ export function directorCatalogOk(
  * `settings-rejected`).
  */
 export async function directorMutate(
-  mutate: SettingsProvider['mutate'],
-  describe: SettingsProvider['describe'],
+  mutate: SettingsForms['mutate'],
+  describe: SettingsForms['describe'],
   ns: string,
   ops: readonly SettingsPathOpView[],
   expectedRevision: number | undefined,
@@ -568,7 +569,7 @@ export async function dispatchSubagentModel(
  * service and installs nothing. Returns a disposer.
  */
 export function installDirectorRemoteBridge(ctx: Context): () => void {
-  const settings = ctx.get('settings') as SettingsProvider | undefined;
+  const settings = ctx.get('settings') as SettingsForms | undefined;
   const webServer = ctx.get('webServer');
   if (settings === undefined || webServer === undefined) {
     ctx.logger.debug(

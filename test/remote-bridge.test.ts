@@ -26,7 +26,7 @@ import {
   dispatchSubagentTools,
   latestRequestHeaderModel,
 } from '../src/remote.js';
-import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE } from '../src/settings.js';
+import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE, SUBAGENT_MODEL_SELECTION_NAMESPACE } from '../src/settings.js';
 
 const NS = SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE;
 
@@ -164,13 +164,19 @@ describe('directorMutate', () => {
 
 
 describe('directorCatalogOk', () => {
-  const settingsLike = (get: (ns: string) => unknown) => ({ get }) as never;
+  // 0.1.7: the section value is read from describe()'s descriptor for the entry
+  // id `subagent-model-selection-settings` (no settings.get(ns)).
+  const settingsLike = (descriptors: Array<{ ns: string; value?: unknown }>) =>
+    ({ describe: () => descriptors }) as never;
+  const selectionDescriptor = (value: unknown) => [
+    { ns: SUBAGENT_MODEL_SELECTION_NAMESPACE, value },
+  ];
 
   it('returns the authorized routes when the official selection is enabled with a non-empty list', () => {
-    const result = directorCatalogOk(settingsLike((ns) => {
-      expect(ns).toBe('subagent-model-selection');
-      return { enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, { provider: 'pi-ai', model: 'gpt-5' }] };
-    }));
+    const result = directorCatalogOk(settingsLike(selectionDescriptor({
+      enabled: true,
+      allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-v4-flash' }, { provider: 'pi-ai', model: 'gpt-5' }],
+    })));
     expect(result).toEqual({
       ok: true,
       value: {
@@ -184,19 +190,22 @@ describe('directorCatalogOk', () => {
   });
 
   it('returns an empty allowlist when the official selection is disabled', () => {
-    const result = directorCatalogOk(settingsLike(() => ({ enabled: false, allowedModels: [{ provider: 'x', model: 'y' }] })));
+    const result = directorCatalogOk(settingsLike(selectionDescriptor({ enabled: false, allowedModels: [{ provider: 'x', model: 'y' }] })));
     expect(result).toEqual({ ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } });
   });
 
   it('returns an empty allowlist when the section is absent', () => {
-    const result = directorCatalogOk(settingsLike(() => {
-      throw new Error('settings namespace not registered');
-    }));
-    expect(result).toEqual({ ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } });
+    const absent = directorCatalogOk(settingsLike([]));
+    expect(absent).toEqual({ ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } });
+  });
+
+  it('returns an empty allowlist when describe() throws (inactive seam)', () => {
+    const throwing = { describe: () => { throw new Error('settings namespace not registered'); } } as never;
+    expect(directorCatalogOk(throwing)).toEqual({ ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } });
   });
 
   it('drops malformed route entries and returns an empty allowlist without a settings service', () => {
-    const malformed = directorCatalogOk(settingsLike(() => ({
+    const malformed = directorCatalogOk(settingsLike(selectionDescriptor({
       enabled: true,
       allowedModels: [{ provider: '', model: 'y' }, { provider: 'ok', model: '' }, null, 'junk'],
     })));

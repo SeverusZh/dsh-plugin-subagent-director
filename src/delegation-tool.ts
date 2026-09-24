@@ -41,6 +41,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent';
 
 import type { DirectorConfig } from './config.js';
+import { readNamespaceValue, SUBAGENT_MODEL_SELECTION_NAMESPACE } from './settings.js';
 import { resolveRoute, type RouteToolFilter, type SubagentDirectorSettings } from './route-resolver.js';
 
 /** Stable log namespace prefix for delegation/tool diagnostics (design section 10). */
@@ -243,20 +244,18 @@ export interface ModelSelectionRead {
 }
 
 /**
- * Read the official `subagent-model-selection` section through the settings
- * seam at execute time (the official dsh-tool-subagent owns this namespace).
- * `settings.get` throws for namespace values the seam rejects, so the read is
- * guarded — an unreadable section simply means no authorized list.
+ * Read the official model-selection settings section through the settings seam
+ * at execute time (the official dsh-tool-subagent owns this namespace). On
+ * 0.1.7 there is no `settings.get(ns)`; the live value is read from
+ * `describe()`'s descriptor for the entry id `subagent-model-selection-settings`
+ * (see readNamespaceValue). An inactive/unreadable section simply means no
+ * authorized list.
  */
 export function readModelSelection(ctx: Context): ModelSelectionRead {
-  const settings = ctx.get('settings') as { get(ns: string): unknown } | undefined;
-  if (settings === undefined) return { sectionPresent: false, allowedRoutes: undefined };
-  let selection: unknown;
-  try {
-    selection = settings.get('subagent-model-selection');
-  } catch {
-    return { sectionPresent: false, allowedRoutes: undefined };
-  }
+  const settings = ctx.get('settings') as
+    | { describe(options?: { redactSecrets?: boolean }): readonly { ns: string; value?: unknown }[] }
+    | undefined;
+  const selection = readNamespaceValue(settings, SUBAGENT_MODEL_SELECTION_NAMESPACE);
   if (selection === null || typeof selection !== 'object') {
     return { sectionPresent: false, allowedRoutes: undefined };
   }

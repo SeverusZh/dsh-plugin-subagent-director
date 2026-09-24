@@ -15,8 +15,10 @@
  */
 import z from '@deepseek-ai/schemastery';
 
+import { SettingsFields } from './settings.js';
+
 /**
- * Cordis-layer plugin configuration.
+ * Cordis-layer plugin configuration (composition fields).
  *
  * All fields are optional so an empty composition entry degrades to the DSH
  * default behaviour (inherit the parent agent's model; one-shot foreground).
@@ -62,12 +64,25 @@ export interface DirectorConfig {
   maxDepth?: number | 'provider-managed';
 }
 
-/** Schemastery schema for {@link DirectorConfig}. */
-export const Config = z.object({
+/** The composition-layer field map (restart-managed; not part of the settings form). */
+const CompositionFields = {
   subagentProvider: z.string().default('spawn'),
   toolName: z.string().default('subagent_role'),
   enableRunInBackground: z.boolean().default(true),
   backgroundMode: z.union(['one-shot', 'continuable']).default('one-shot'),
   maxDepth: z
     .union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed')]),
+};
+
+/**
+ * Schemastery schema for the plugin Config — the authoritative schema on DSH
+ * 0.1.7. It carries both the composition fields (plain, restart-managed) and the
+ * settings fields (volatile, live-editable); only the volatile settings fields
+ * surface in the Host settings form (`volatileForm`), so the settings UI is
+ * unchanged. The entry id `subagent-director` is the ns `describe()`/`mutate()`
+ * address.
+ */
+export const Config = z.object({
+  ...CompositionFields,
+  ...SettingsFields,
 });

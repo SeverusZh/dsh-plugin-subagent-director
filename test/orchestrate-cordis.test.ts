@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection';
-import { name as pluginName, inject as pluginInject, apply } from '../src/index.js';
+import { name as pluginName, inject as pluginInject, apply, Config } from '../src/index.js';
 import { ORCHESTRATE_PROJECTION_KEY } from '../src/orchestrate.js';
 
 /** Let cordis fiber loads / reactivations settle (they resolve in microtasks). */
@@ -65,7 +65,7 @@ function loadEntry(ctx: Context, toolsRegister: (def: unknown) => () => void, se
       return () => {};
     },
   });
-  void ctx.plugin({ name: pluginName, inject: pluginInject, apply }, {});
+  void ctx.plugin({ name: pluginName, inject: pluginInject, apply, Config }, {});
 }
 
 describe('real cordis probe — entry activation', () => {
@@ -115,7 +115,7 @@ describe('real cordis probe — entry activation', () => {
         hooks.onChange();
       },
     });
-    void ctx.plugin({ name: pluginName, inject: pluginInject, apply }, {});
+    void ctx.plugin({ name: pluginName, inject: pluginInject, apply, Config }, {});
     await settle();
     await settle();
     expect(registered).toEqual([]);
