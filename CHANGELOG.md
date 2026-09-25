@@ -2,19 +2,17 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
-## [0.5.3-beta.0] - 2026-09-24
+## [0.5.3] - 2026-09-25
 
-### Beta（DSH 0.1.7-rc.1 适配，测试版）
+### 兼容：适配 DSH 0.1.7-rc.2
 
-- 本分支（`dev-0.1.7.rc1`，尚未合并 `main`）相对 `main` 的适配改动共两项：
-  设置子系统迁移至 0.1.7 的 `SettingsForms`（见 `0.5.2` 条目，`src/settings.ts` /
-  `src/index.ts` / `src/remote.ts` 等），以及悬空 `defaultRole` 改为「读时告警」
-  （见 `0.5.3` 条目）；全部 `@deepseek-ai/dsh*` peer 范围升至 `^0.1.7-rc.1`，
-  `dsh.compatibility.dshReleases` 新增 `"0.1.7-rc.1": "compatible"`，README 徽章与
+- 在本机 **0.1.7-rc.2** 上真实装载运行通过：全部入口激活、零错误、无 pending；
+  设置读写（`settingsView` / `settingsMutate` 乐观锁）实测往返成功。
+  `dsh.compatibility.dshReleases` 新增 `"0.1.7-rc.2": "compatible"`；README 徽章与
   兼容性说明同步。
-- 发布为 npm 测试版（`--tag beta`）；`latest` 保持不变。正式版 `0.5.3` 待 `main` 合并后发布。
-
-## [0.5.3] - 2026-09-24
+- 0.1.7-rc.1 → rc.2 的官方 `@deepseek-ai/dsh-*` 公开 API 无移除、无改名（增量新增）。
+  `dsh-subagent` 移除了对 `dsh-session-projection-cache` 的 peer 依赖并调整了后代
+  列举语义（`listDescendants` / `listChildren`）——本插件不使用这些接口，无需适配。
 
 ### 加固：悬空 `defaultRole` 改为「读时告警」，恢复等价安全性
 
@@ -33,6 +31,11 @@ schemastery 表达，写入时不再被拒绝——配置错误不再被主动�
   `settingsView` 响应新增可选 `warnings: string[]`（由同一 `settingsWarnings` 计算），
   非悬空时省略该字段，响应形状保持不变。
 - **保留**：`validateDirectorSettings` 与路由解析器既有的「警告 + 跳过绑定」行为均不变。
+
+### Beta 说明
+
+- 测试版 `0.5.3-beta.0`（`--tag beta`）的内容——设置子系统迁移至 `SettingsForms`
+  （`0.5.2` 条目）与本条加固——随本版一并正式发布。
 
 ## [0.5.2] - 2026-09-24
 
