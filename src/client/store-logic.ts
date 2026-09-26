@@ -12,7 +12,7 @@
  *                       model?, reasoningEffort?, toolFilter? } }
  *   }
  */
-import type { SettingsPathOpView } from '@deepseek-ai/dsh-host-apiproxy/api';
+import type { SettingsPathOpView } from '@deepseek-ai/dsh-settings/types';
 
 /** One role as the user edits it in a card (empty string = "clear the field"). */
 export interface RoleDraft {
@@ -99,7 +99,7 @@ export function addRoleOps(id: string, role: RoleDraft | StoredRole): SettingsPa
         ...optional(role.reasoningEffort) !== undefined ? { reasoningEffort: optional(role.reasoningEffort) } : {},
         ...(role.toolFilter?.allow?.length ?? 0) > 0 ? { toolFilter: { allow: role.toolFilter!.allow, deny: [] } } : {}
       }
-    }
+    } as SettingsPathOpView
   ];
 }
 

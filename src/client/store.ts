@@ -13,7 +13,7 @@
  * connection/reset) refresh the page.
  */
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client';
-import type { SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-host-apiproxy/api';
+import type { SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-settings/types';
 import {
   SUBAGENT_DIRECTOR_RPC_CHANNEL,
   SUBAGENT_DIRECTOR_RPC_VIEW,

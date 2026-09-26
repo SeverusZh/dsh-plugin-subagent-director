@@ -15,10 +15,33 @@
  * Referenced semantics: dsh-client-connection/lib/index.js:275-300
  * (rpcFetchHandler) and 322-328 (fullResponse).
  */
-import type {
-  RpcError,
-  RpcResult,
-} from '@deepseek-ai/dsh-host-apiproxy/api';
+/**
+ * Closed set of failure codes this bridge emits. The generic Connection RPC
+ * carrier (dsh-client-connection) types `code` as a plain string; the bridge
+ * keeps its own closed union so a mistyped code stays a compile error.
+ */
+export type BridgeRpcErrorCode =
+  | 'bad-request'
+  | 'settings-conflict'
+  | 'settings-rejected'
+  | 'session-not-found'
+  | 'internal';
+
+/**
+ * Failure branch of one bridge result. Structurally the generic Connection RPC
+ * failure (`ConnectionRpcFailure` in dsh-client-connection): a business error
+ * rides the result slot rather than being thrown.
+ */
+export interface RpcError {
+  readonly code: BridgeRpcErrorCode;
+  readonly message: string;
+  readonly details: object;
+}
+
+/** Business success/failure result carried in the response result slot. */
+export type RpcResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: RpcError };
 
 /** The rpcId the host uses for envelopes that fail top-level validation. */
 export const INVALID_REQUEST_RPC_ID = 'invalid-request';

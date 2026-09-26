@@ -36,13 +36,7 @@ import {
   type SettingsDescriptor,
   type SettingsForms,
 } from '@deepseek-ai/dsh-settings';
-import type {
-  RpcResult,
-  RpcError,
-  RpcErrorDetailsMap,
-  SettingsNamespaceView,
-  SettingsPathOpView,
-} from '@deepseek-ai/dsh-host-apiproxy/api';
+import type { SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-settings/types';
 
 import {
   SettingsSchema,
@@ -76,6 +70,8 @@ import {
   isLoopbackHost,
   endpointFromPath,
   type ServerResponseEnvelope,
+  type RpcResult,
+  type RpcError,
 } from './envelope.js';
 
 /** Wire route path the bridge owns on the Host web server. */
@@ -138,17 +134,24 @@ export function latestRequestHeaderModel(events: readonly unknown[]): { provider
 }
 
 /**
- * Map one redacted settings descriptor to its wire view — mirrors apiproxy's
- * `namespaceView` (dsh-host-apiproxy/lib/index.js:2385-2399) exactly, so the
- * client store sees the same `SettingsNamespaceView` shape it already renders.
+ * Map one redacted settings descriptor to its wire view. The shape is the
+ * 0.1.7 configuration-form view (`SettingsNamespaceView` from
+ * dsh-settings/types), the same one the client store renders.
  */
 export function toDirectorNamespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
+  // The descriptor types its JSON layers as `unknown`; the 0.1.7 wire view
+  // (dsh-settings/types) types them as JsonValue, so cast at this boundary.
   return {
+    autoGenerate: descriptor.autoGenerate,
     ns: String(descriptor.ns),
-    schema: descriptor.schema,
-    value: descriptor.value,
-    ...(descriptor.base === undefined ? {} : { base: descriptor.base }),
-    ...(descriptor.user === undefined ? {} : { user: descriptor.user }),
+    schema: descriptor.schema as SettingsNamespaceView['schema'],
+    value: descriptor.value as SettingsNamespaceView['value'],
+    ...(descriptor.base === undefined
+      ? {}
+      : { base: descriptor.base as SettingsNamespaceView['base'] }),
+    ...(descriptor.user === undefined
+      ? {}
+      : { user: descriptor.user as SettingsNamespaceView['user'] }),
     applies: descriptor.applies,
     secrets: (descriptor.secrets ?? []).map((secret) => ({
       path: [...secret.path],
@@ -502,12 +505,7 @@ export async function dispatchSubagentClose(
       error: {
         code: 'session-not-found',
         message: 'parent agent ' + request.parentSessionId + ' is not live; its continuable children are released with it',
-        // dsh-host-apiproxy (0.1.1-rc.2) carries its own nested dsh-session
-        // copy, so its SessionId brand differs from the root alpha.4 one; the
-        // value itself is a plain id string, cast at the boundary.
-        details: {
-          sessionId: SessionId(request.parentSessionId) as unknown as RpcErrorDetailsMap['session-not-found']['sessionId'],
-        },
+        details: { sessionId: SessionId(request.parentSessionId) },
       },
     };
   }

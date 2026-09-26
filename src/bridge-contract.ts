@@ -10,7 +10,7 @@
  * connection.rpc.call(channel, endpoint, payload) and the Host handler answers
  * with the existing RpcResult shape.
  */
-import type { SettingsNamespaceView } from '@deepseek-ai/dsh-host-apiproxy/api';
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types';
 
 /** Absolute RPC channel the bridge owns on the Host web server. */
 export const SUBAGENT_DIRECTOR_RPC_CHANNEL = '/subagent-director';

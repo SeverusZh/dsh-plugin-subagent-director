@@ -35,6 +35,7 @@ const NS = SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE;
 function descriptor(overrides: Partial<SettingsDescriptor> = {}): SettingsDescriptor {
   return {
     ns: NS,
+    autoGenerate: true,
     schema: { type: 'dict' },
     value: { defaultProvider: 'deepseek-official' },
     revision: 3,
@@ -52,6 +53,7 @@ describe('toDirectorNamespaceView', () => {
       descriptor({ secrets: [{ path: ['apiKey'], set: true }], user: { apiKey: '__REDACTED__' } }),
     );
     expect(view).toEqual({
+      autoGenerate: true,
       ns: String(NS),
       schema: { type: 'dict' },
       value: { defaultProvider: 'deepseek-official' },
