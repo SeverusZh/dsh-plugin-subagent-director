@@ -347,23 +347,19 @@ async function handleDirectorBridgeRequestInner(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  // Non-POST → 404.
   if (req.method !== 'POST') {
     sendPlain(res, 404, 'not found');
     return;
   }
-  // Content type must be application/json → 415.
   const contentType = (req.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
   if (contentType !== 'application/json') {
     sendPlain(res, 415, 'content type must be application/json');
     return;
   }
-  // Loopback Host fence → 403.
   if (hostHeader === undefined || !isLoopbackHost(hostHeader)) {
     sendPlain(res, 403, 'forbidden');
     return;
   }
-  // Read the JSON body → 400 on unparseable.
   const raw = await readBody(req);
   let body: unknown;
   try {
@@ -372,20 +368,17 @@ async function handleDirectorBridgeRequestInner(
     sendPlain(res, 400, 'body is not JSON');
     return;
   }
-  // Envelope validation → 200 bad-request.
   const parsed = parseClientRequestEnvelope(body);
   if (!parsed.ok) {
     sendJson(res, 200, buildBadRequestResponse(parsed.issues));
     return;
   }
   const envelope = parsed.envelope;
-  // Method must match the path-derived endpoint.
   const endpoint = endpointFromPath(SUBAGENT_DIRECTOR_ROUTE_PATH, pathnameOf(rawUrl));
   if (endpoint === undefined || envelope.method !== endpoint) {
     sendJson(res, 200, buildMethodMismatchResponse(envelope.rpcId, envelope.method, endpoint ?? '(invalid path)'));
     return;
   }
-  // Dispatch.
   const result = await dispatchBridgeEndpoint(deps, endpoint, envelope.payload);
   sendJson(res, 200, buildServerResponse(envelope.rpcId, result));
 }

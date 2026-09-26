@@ -402,9 +402,6 @@ export function applyOrchestrate(
         // /orchestrate cannot take effect. Refuse with an honest message
         // instead of falsely reporting success (P0 silent-degradation fix).
         if (projections === undefined) {
-          // Service never became available (truly absent host): refuse with an
-          // honest message and warn, instead of falsely reporting success (P0
-          // silent-degradation fix).
           missing();
           return {
             kind: 'error',
