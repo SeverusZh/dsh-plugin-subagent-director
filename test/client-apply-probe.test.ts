@@ -8,8 +8,8 @@
  * contract — the regression that the rc-era `dsh-client-runtime` import
  * broke at bundle load:
  *
- *   a) the settings section, the composer-dock readout, and the header close
- *      action all register through the slots seam;
+ *   a) the bundle configuration entry, the composer-dock readout, and the header
+ *      close action all register through the slots seam;
  *   b) the dock's injected face carries the alpha.4 chat-snapshot hook
  *      (`useChatSnapshot`) next to the RPC caller — the data source that
  *      replaced the removed `ConversationSnapshot.nodes` owner prop;
@@ -32,7 +32,7 @@ function slotsStub() {
       fn();
       return () => {};
     },
-    register: (opts: { name: string; id: string; inject?: () => unknown }, _component: unknown) => {
+    register: (opts: { name: string; id?: string; key?: string; inject?: () => unknown }, _component: unknown) => {
       registrations.push(opts);
       return () => {};
     },
@@ -83,7 +83,7 @@ function loadClient(ctx: Context, slots: ReturnType<typeof slotsStub>, locale: R
 }
 
 describe('real cordis probe — client half mounts on alpha.4-shaped services', () => {
-  it('registers the settings section, the composer dock, and the header close action', async () => {
+  it('registers the bundle configuration, the composer dock, and the header close action', async () => {
     const ctx = new Context();
     const slots = slotsStub();
     const locale = localeStub();
@@ -93,9 +93,15 @@ describe('real cordis probe — client half mounts on alpha.4-shaped services', 
     await settle();
 
     const names = slots.registrations.map((r) => r.name);
-    expect(names).toContain('settings.section');
+    expect(names).toContain('plugins.bundle.config');
     expect(names).toContain('conversation.composer.dock');
     expect(names).toContain('conversation.session.header.actions');
+    // The config entry must be keyed by the npm package name, otherwise the
+    // plugin manager never renders it (configured = ledger.bundles.has(pkg.name)).
+    const config = slots.registrations.find((r) => r.name === 'plugins.bundle.config');
+    expect(config?.key).toBe('dsh-plugin-subagent-director');
+    // The settings page is no longer used for configuration.
+    expect(names).not.toContain('settings.section');
     expect(locale.namespaces).toContain('settings.subagentDirector');
     expect(remote.topics).toEqual(
       expect.arrayContaining(['settings/document-updated', 'llm/adapters-updated']),
@@ -115,16 +121,16 @@ describe('real cordis probe — client half mounts on alpha.4-shaped services', 
     expect(typeof injected.useChatSnapshot).toBe('function');
   });
 
-  it('keeps the settings page independent of the conversation UI (lazy uiConversation)', async () => {
+  it('keeps the plugin page independent of the conversation UI (lazy uiConversation)', async () => {
     const ctx = new Context();
     const slots = slotsStub();
     // No uiConversation service provided: apply must still mount and the
-    // settings section must register (the chat source is only resolved at
+    // bundle config entry must register (the chat source is only resolved at
     // render time, inside the conversation shell).
     loadClient(ctx, slots, localeStub(), remoteStub(), connectionStub());
     await settle();
 
-    expect(slots.registrations.map((r) => r.name)).toContain('settings.section');
+    expect(slots.registrations.map((r) => r.name)).toContain('plugins.bundle.config');
     expect(slots.registrations.map((r) => r.name)).toContain('conversation.composer.dock');
   });
 });

@@ -1,9 +1,15 @@
 /**
- * Subagent Director settings section (design section 9): the default-model row
- * plus the role-template cards. The slot outlet erases the share boundary and
- * delivers the inject face flat (PropsRuntime<'settings.section'> renderer is
- * the DSH shell); this component guards for a not-yet-injected render and then
- * renders its content column from the live snapshot.
+ * Subagent Director configuration section (design section 9): the default-model
+ * row plus the role-template cards. It is registered into
+ * `plugins.bundle.config` keyed by the package name, so it renders on this
+ * plugin's own page in the DSH plugin manager (插件列表 →
+ * dsh-plugin-subagent-director), between the package description and the
+ * component rows — not in the DSH settings panel any more.
+ *
+ * The slot outlet erases the share boundary and delivers the inject face flat
+ * plus the `view` the page dispatches; this component guards for a
+ * not-yet-injected render (and for `summary`) and then renders its content
+ * column from the live snapshot.
  *
  * State lives in the page store (SubagentOptionsStore); every write travels as
  * path ops through settings.mutate with an optimistic-revision lock, so the
@@ -11,6 +17,11 @@
  * a localized message that the save/delete/restore controls surface inline.
  */
 import { useEffect, useState } from 'react';
+// Type-only: pulls in the Plugins page's slot contract so the
+// `plugins.bundle.config` cell (and its `view`/`form` owner props) merge into
+// the client `SlotMap` via module augmentation. The package is never imported at
+// runtime — the slot outlet owns rendering; this import exists purely for types.
+import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client';
 import type { SnapshotSelectorHook } from './bind.js';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
 import { modelsForProvider, providerNames } from './allowed-routes.js';
@@ -43,8 +54,8 @@ export interface SubagentOptionsSectionInjected {
     t: (key: SubagentDirectorKey) => string;
 }
 
-/** Props delivered by the slot outlet: the inject face spread flat. */
-export type SubagentOptionsSectionProps = Partial<SubagentOptionsSectionInjected>;
+/** Props delivered by the slot outlet: the inject face spread flat, plus the view the plugin page dispatches. */
+export type SubagentOptionsSectionProps = Partial<SubagentOptionsSectionInjected> & Partial<PluginConfigViewProps>;
 
 /** Local draft of the default-model row. */
 interface DefaultRowDraft {
@@ -54,13 +65,16 @@ interface DefaultRowDraft {
 }
 
 /**
- * Render the Subagent Director settings section content column.
+ * Render the Subagent Director configuration content column.
  * @param props - slot-delivered injected dependencies.
  * @returns the section, or null while the shell has not injected yet.
  */
 export function SubagentOptionsSection(props: SubagentOptionsSectionProps): JSX.Element | null {
     const { controller, useSnapshot, t } = props;
     if (controller === undefined || useSnapshot === undefined || t === undefined) return null;
+    // `summary` is reserved for official cards and row fallbacks; the bundle
+    // page this section is registered on only ever asks for `page`.
+    if (props.view === 'summary') return null;
     return <Loaded injected={{ controller, useSnapshot, t }} />;
 }
 
@@ -77,8 +91,8 @@ function Loaded({ injected }: { injected: LoadedInjected }): JSX.Element | null 
     // Kick the first load once when the page mounts (post-load refreshes ride
     // the pushed invalidations wired in apply()). The tool catalog is requested
     // without a session id: DSH 0.1.7's SessionListState no longer exposes a
-    // "current" session (the settings.section slot's owner props carry only
-    // `close`), so the Host enumerates its global tool registry. The scoped
+    // "current" session (the plugin-page slot's owner props carry only
+    // `view`), so the Host enumerates its global tool registry. The scoped
     // per-agent catalog is a documented 0.1.7 regression (see CHANGELOG).
     useEffect(() => {
         if (state.status === 'idle' && !state.loading) void controller.load();

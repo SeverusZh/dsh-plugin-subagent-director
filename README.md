@@ -19,13 +19,13 @@
 - **受控的模型选择** —— provider/model 只从官方 `subagent-model-selection` 授权列表
   （`allowedModels`）中选择：显式传入未授权路由为硬错误，角色/默认层未授权路由被
   丢弃并回退继承（不与官方 dsh-tool-subagent 双重写模型路由）；
-- **配置热更新** —— settings.yaml / 设置面板的改动即时生效，无需重启；
+- **配置热更新** —— settings.yaml / 插件配置页的改动即时生效，无需重启；
 - **角色按显示名引用** —— `role` 参数未命中 id 时按 `displayName` 精确匹配（重名
   取定义顺序第一个并提示），模型按显示名也能命中模板；
 - **角色模板** —— 定义「代码审查员」「翻译员」等角色：职责描述（给主代理看）+ persona（注入子代理）+ 可选模型绑定；
 - **四级回退链** —— 单次调用参数 > 角色绑定 > 插件默认 > 继承主代理（未配置时零侵入）；
 - **主代理指引** —— 系统提示自动注入角色清单，主代理知道何时委派给谁；
-- **设置界面** —— DSH 设置面板内可视化配置（默认模型 + 角色卡片增删改）；
+- **配置界面** —— 插件详情页内可视化配置（插件列表 → dsh-plugin-subagent-director；默认模型 + 角色卡片增删改）；设置面板不再承载本插件配置；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
 - **释放可持续子代理** —— 模型可见工具 `close_subagent(subagent_id)` 与子代理会话
   页的「终止可持续状态」按钮，主动释放已完成但仍驻留的 continuable 子代理
@@ -35,7 +35,7 @@
 
 ## 与官方子代理选择器的适配
 
-> **兼容性**：v0.5.3 支持 DSH **0.1.5-rc.1+**，已在 **0.1.5-rc.1 / 0.1.5-rc.2 / 0.1.6-alpha.2 / 0.1.7-rc.1 / 0.1.7-rc.2** 实测（`alpha4-probe` + real-cordis 探针通过，实测 0.1.7-rc.1 / 0.1.7-rc.2 依赖集）。设置子系统已迁移至 0.1.7 的 `SettingsForms`（插件 Config schema + volatile 热更 + 自建设置页）。旧版 DSH（0.1.0-rc.6 及更早）请使用最后兼容的 npm 版本 **0.4.0**。
+> **兼容性**：v0.5.3 支持 DSH **0.1.5-rc.1+**，已在 **0.1.5-rc.1 / 0.1.5-rc.2 / 0.1.6-alpha.2 / 0.1.7-rc.1 / 0.1.7-rc.2** 实测（`alpha4-probe` + real-cordis 探针通过，实测 0.1.7-rc.1 / 0.1.7-rc.2 依赖集）。设置子系统已迁移至 0.1.7 的 `SettingsForms`（插件 Config schema + volatile 热更 + 自建配置页）。旧版 DSH（0.1.0-rc.6 及更早）请使用最后兼容的 npm 版本 **0.4.0**。
 
 DSH alpha.4 起，官方内置 subagent 的模型选择收敛到 `subagent-model-selection` 设置段（`allowedModels` 授权列表）。本插件 v0.5.0 完全适配该机制：
 
@@ -47,7 +47,7 @@ DSH alpha.4 起，官方内置 subagent 的模型选择收敛到 `subagent-model
   「插件-插件配置-Subagent池」里的选项）；
 - **客户端半同步移植** —— 移除 rc 时代对 `@deepseek-ai/dsh-client-runtime/client`
   的全部引用（alpha.4/alpha.5 宿主均不携带该包），dock 读数改读 alpha.4 会话
-  `request/header` 记录，设置页在 alpha.4/alpha.5 宿主均可正常加载。
+  `request/header` 记录，配置页在 alpha.4/alpha.5 宿主均可正常加载。
 
 ## 快速开始
 
@@ -205,7 +205,7 @@ DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插
 [issue #6](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/6)。
 
 **新供应商/API 会自动出现吗？**
-会。设置页订阅了供应商与设置变更事件，在 Models 页新增供应商/API key 后，下拉列表自动刷新，无需重启。
+会。配置页订阅了供应商与设置变更事件，在 Models 页新增供应商/API key 后，下拉列表自动刷新，无需重启。
 
 ## License
 

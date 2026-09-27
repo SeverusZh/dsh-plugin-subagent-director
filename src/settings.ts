@@ -256,11 +256,12 @@ export function validateDirectorSettings(value: SubagentDirectorSettings): void 
  * Register the plugin instance's settings page policy (DSH 0.1.7
  * `SettingsForms.configure`).
  *
- * The plugin ships its own Web settings page (slot `settings.section`), so
- * `auto:false` disables the Host's auto-generated page for this instance and
- * avoids a duplicate page. The policy is registered into the plugin fiber's
- * effects and removed on unload. `settings` is a required inject for this
- * plugin, so the callback always runs on an active deployment.
+ * The plugin ships its own Web configuration page (slot
+ * `plugins.bundle.config`, rendered on the plugin's own page in the plugin
+ * manager), so `auto:false` disables the Host's auto-generated page for this
+ * settings namespace and avoids a duplicate page. The policy is registered into
+ * the plugin fiber's effects and removed on unload. `settings` is a required
+ * inject for this plugin, so the callback always runs on an active deployment.
  *
  * @param ctx - the plugin fiber's context.
  */

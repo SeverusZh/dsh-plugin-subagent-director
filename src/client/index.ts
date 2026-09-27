@@ -1,9 +1,12 @@
 /**
  * Subagent Director — browser half (DSH client plugin).
  *
- * Registers the `settings.section` page that lets a user pick the default LLM
- * provider/model for subagents and manage role templates (each binds a persona
- * and optional provider/model to a delegation). Data flows through the
+ * Registers the bundle configuration entry (`plugins.bundle.config`, keyed by
+ * the npm package name) that lets a user pick the default LLM provider/model
+ * for subagents and manage role templates (each binds a persona and optional
+ * provider/model to a delegation). It renders on this plugin's own page in the
+ * DSH plugin manager (插件列表 → dsh-plugin-subagent-director) — the DSH
+ * settings panel is no longer used for configuration. Data flows through the
  * connection's wire API into a snapshot store; writes travel as path ops
  * through settings.mutate with an optimistic-revision lock.
  *
@@ -57,13 +60,14 @@ export function refreshIfLoaded(controller: SubagentOptionsStore): void {
   void controller.load();
 }
 
-/** Services required by the settings registration (cordis fiber inject). */
+/** Services required by the slot registrations (cordis fiber inject). */
 export const inject = ['slots', 'locale', 'connection', 'remote'];
 
 /**
- * Register the Subagent Director section once the `settings.section`
- * declaration is on the ledger, wire its store to the connection, and keep it
- * fresh on every pushed invalidation (settings or provider topology).
+ * Register the Subagent Director configuration once the
+ * `plugins.bundle.config` declaration is on the ledger, wire its store to the
+ * connection, and keep it fresh on every pushed invalidation (settings or
+ * provider topology).
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'subagent-director: copy dictionaries');
@@ -131,13 +135,19 @@ export function apply(ctx: ClientContext): void {
     };
   }, 'subagent-director: pushed invalidations');
 
-  ctx.slots.inject('settings.section', () =>
+  // Configuration lives on THIS plugin's page in the DSH plugin manager
+  // (插件列表 → dsh-plugin-subagent-director), between the package description
+  // and the component rows. `plugins.bundle.config` is keyed by the npm package
+  // name, and the page renders the section only while that exact key is
+  // registered (`configured = ledger.bundles.has(pkg.name)` in
+  // dsh-client-ui-plugin-manager); the slot has no native fallback form. A
+  // bundle page may hold several configuration entries, so the page passes NO
+  // host `form` — the store keeps owning its own bridge and draft lifecycle.
+  ctx.slots.inject('plugins.bundle.config', () =>
     ctx.slots.register(
       {
-        name: 'settings.section',
-        id: 'subagent-director',
-        order: 20,
-        label: (): string => t('nav'),
+        name: 'plugins.bundle.config',
+        key: 'dsh-plugin-subagent-director',
         locale: NS,
         inject: injected,
       },

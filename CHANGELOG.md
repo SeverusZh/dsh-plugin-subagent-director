@@ -2,6 +2,25 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.4] - 2026-09-27
+
+### 变更：配置移到插件详情页（退役 settings.section）
+
+- **移除 `settings.section` 注册**：DSH 设置面板不再承载本插件的配置。
+- **新增 `plugins.bundle.config` 注册**（key = npm 包名 `dsh-plugin-subagent-director`）：
+  默认模型行 + 角色卡片渲染在「插件列表 → dsh-plugin-subagent-director」页面的
+  **描述与组件行之间**。该 keyed slot 只在注册了等于包名的 key 时由插件管理页渲染
+  （`configured = ledger.bundles.has(pkg.name)`，见 `dsh-client-ui-plugin-manager`），
+  没有原生兜底表单；bundle 页可能含多个条目，故页面不传宿主 `form`，store 继续自持
+  其 bridge 与草稿生命周期。`view === 'summary'` 返回 null。
+- **类型契约**：按官方 README 的做法，`import type { PluginConfigViewProps }` 从
+  `@deepseek-ai/dsh-client-ui-plugin-manager/client` 合并 `SlotMap` 增强（**仅类型**，
+  运行时不引入该包）；因此新增 devDependency
+  `@deepseek-ai/dsh-client-ui-plugin-manager@0.1.7-rc.1`（与本仓库树内 dsh 包同版本，
+  避免 rc.1/rc.2 混装）。
+- README 中「DSH 设置面板内可视化配置」等入口描述同步更新。
+- 不涉及 inject 变更（本插件不读取任何 `ctx.remote.*` 命名空间）。
+
 ## [0.5.3] - 2026-09-25
 
 ### 兼容：适配 DSH 0.1.7-rc.2
