@@ -2,6 +2,20 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.5] - 2026-09-29
+
+### 兼容性
+
+- **适配 DSH 0.2.0-rc.1**：`@deepseek-ai/dsh-*` 的 `peerDependencies` 范围由
+  `^0.1.7-rc.1` 放宽为无上限的 `>=0.1.7-rc.1`（共 19 个 `dsh-*` 包）。DSH 0.2.0-rc.1
+  新增插件兼容性门禁，对所有 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer 做
+  `includePrerelease` 的 semver 校验：旧范围 `^0.1.7-rc.1` 不匹配 0.2.0-rc.1，会导致
+  整个 bundle 被跳过（`skipping profile bundle`）；`>=0.1.7-rc.1` 同时满足 0.1.7-rc.2
+  与 0.2.0-rc.1。`@deepseek-ai/cordis` 不参与门禁，范围未变。
+- 本机 **0.2.0-rc.1** 真实装载验证通过（插件正常加载、零错误，无门禁跳过告警）；
+  兼容矩阵 `dsh.compatibility.dshReleases` 新增 `"0.2.0-rc.1": "compatible"`，
+  README 徽章与兼容性声明同步更新。
+
 ## [0.5.4] - 2026-09-27
 
 ### 变更：配置移到插件详情页（退役 settings.section）
