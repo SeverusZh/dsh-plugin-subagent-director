@@ -591,7 +591,7 @@ export function createDelegationTool(options: {
           jobId: jobs.start({
             kind: 'subagent',
             label: args.description,
-            owner: parent,
+            owner: parent.id,
             run: () => {
               const controller = new AbortController();
               return {
