@@ -2,6 +2,19 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.6] - 2026-10-10
+
+### 修复
+
+- **one-shot 后台委派的 `owner` 传成 Agent 对象（#10）**：`jobs.start({ owner })` 期望
+  父代理的 **SessionId 字符串**，插件此前传入整个父 Agent 对象；内核 `resolveOwner()`
+  以 `agents.get(session)` 按 SessionId 查找活跃代理，对象键查不到即抛
+  `session "[object Object]" has no live agent (background job owner must be live)`。
+  现改为 `owner: parent.id`（与内核自带 `subagent` 工具一致），并新增回归测试
+  `test/delegation-owner.test.ts`：断言传入的 `owner` 为字符串 id（把该行还原为对象后
+  测试立即失败）。仅影响 `backgroundMode: 'one-shot'` + `run_in_background` 路径；
+  continuable 与前台路径不受影响。
+
 ## [0.5.5] - 2026-09-29
 
 ### 兼容性
