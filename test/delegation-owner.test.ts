@@ -1,42 +1,60 @@
 /**
- * Regression test for issue #10: the one-shot background delegation path must
- * pass the parent agent's session id (a string) as `jobs.start`'s `owner`, not
- * the Agent object itself.
+ * Regression test for issue #10 (re-expressed on the 0.2.x startActivation
+ * seam): the background delegation path must hand the exact live parent Agent
+ * to the activation request (`request.parent`), and the runtime derives the
+ * durable owner from it. The old jobs.start `owner: parent.id` string contract
+ * is superseded — startActivation carries the parent Agent object and the
+ * subagent runtime fences ownership by it.
  *
- * Passing the object handed it straight to the core jobs manager's
- * resolveOwner(session), which indexes live agents by SessionId
- * (`agents.get(session)`). A non-string key misses, so the job threw:
- *   session "[object Object]" has no live agent (background job owner must be live)
+ * This test pins the background (delivery 'parent') spec shape: provider,
+ * label, request.parent (the calling agent), signal, and delivery.
  */
 import { describe, it, expect } from 'vitest';
 import type { Context } from '@deepseek-ai/cordis';
 import { createDelegationTool } from '../src/delegation-tool.js';
 
-describe('delegation one-shot background owner (issue #10)', () => {
-  it('passes the parent agent id (string) as jobs.start owner, not the agent object', async () => {
-    const started: Array<{ kind: string; label: string; owner: unknown }> = [];
+describe('delegation background owner (issue #10, 0.2.x startActivation)', () => {
+  it('passes the calling parent Agent to startActivation request.parent and returns the child id', async () => {
+    const activations: Array<{
+      provider: string;
+      label: string;
+      delivery: string;
+      parent: unknown;
+      signal: AbortSignal;
+    }> = [];
     const ctx = {
       get(key: string) {
-        if (key === 'jobs') {
-          return {
-            start: (spec: { kind: string; label: string; owner: unknown }) => {
-              started.push(spec);
-              return 'job-1';
-            },
-          };
-        }
+        if (key === 'llm') return undefined;
+        if (key === 'settings') return undefined;
         return undefined;
+      },
+      subagents: {
+        startActivation: async (spec: {
+          provider: string;
+          label: string;
+          delivery: string;
+          request: { parent: unknown };
+          signal: AbortSignal;
+        }) => {
+          activations.push({
+            provider: spec.provider,
+            label: spec.label,
+            delivery: spec.delivery,
+            parent: spec.request.parent,
+            signal: spec.signal,
+          });
+          return { childId: 'child-session-1', result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} };
+        },
       },
       logger: { info() {}, warn() {} },
     } as unknown as Context;
 
+    const parentAgent = { id: 'parent-session-1', options: {} };
     const provider = {
       name: 'spawn',
       capabilities: { agentOptions: true, outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
       inheritsParentContext: false,
-      start: async () => {
-        throw new Error('transport start must not be reached in this test');
-      },
+      // No prepareContinuable → one-shot external child → 'background' kind.
     };
 
     const tool = createDelegationTool({
@@ -47,7 +65,7 @@ describe('delegation one-shot background owner (issue #10)', () => {
     });
 
     const exec = {
-      agent: { id: 'parent-session-1', options: {} },
+      agent: parentAgent,
       signal: new AbortController().signal,
     };
 
@@ -56,11 +74,52 @@ describe('delegation one-shot background owner (issue #10)', () => {
       exec as never,
     );
 
-    expect(result).toEqual({ kind: 'background', jobId: 'job-1' });
-    expect(started).toHaveLength(1);
-    expect(started[0].kind).toBe('subagent');
-    expect(typeof started[0].owner).toBe('string');
-    expect(started[0].owner).toBe('parent-session-1');
-    expect(started[0].owner).not.toBe(exec.agent);
+    expect(result).toEqual({ kind: 'background', jobId: 'child-session-1' });
+    expect(activations).toHaveLength(1);
+    expect(activations[0].provider).toBe('spawn');
+    expect(activations[0].label).toBe('demo task');
+    expect(activations[0].delivery).toBe('parent');
+    // The exact live parent Agent is handed to the request (the runtime fences
+    // ownership by it); its id is the durable owner address.
+    expect(activations[0].parent).toBe(parentAgent);
+    expect(typeof (activations[0].parent as { id: string }).id).toBe('string');
+    expect((activations[0].parent as { id: string }).id).toBe('parent-session-1');
+    expect(activations[0].signal).toBe(exec.signal);
+  });
+
+  it('returns the continuable kind when the provider supports prepareContinuable', async () => {
+    const ctx = {
+      get: () => undefined,
+      subagents: {
+        startActivation: async () => ({
+          childId: 'child-session-2',
+          result: Promise.resolve({ stopReason: 'completed', output: [] }),
+          dispose: async () => {},
+        }),
+      },
+      logger: { info() {}, warn() {} },
+    } as unknown as Context;
+
+    const parentAgent = { id: 'parent-session-2', options: {} };
+    const provider = {
+      name: 'spawn',
+      capabilities: { agentOptions: true, outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
+      inheritsParentContext: false,
+      prepareContinuable: async () => ({}),
+    };
+
+    const tool = createDelegationTool({
+      ctx,
+      config: { subagentProvider: 'spawn', backgroundMode: 'continuable', enableRunInBackground: true },
+      provider: provider as never,
+      getSettings: () => ({}),
+    });
+
+    const result = await tool.execute(
+      { description: 'demo task', prompt: 'do it' },
+      { agent: parentAgent, signal: new AbortController().signal } as never,
+    );
+
+    expect(result).toEqual({ kind: 'continuable', subagentId: 'child-session-2' });
   });
 });

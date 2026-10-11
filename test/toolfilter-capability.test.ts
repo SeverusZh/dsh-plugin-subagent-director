@@ -29,7 +29,6 @@ describe('buildSubagentRequest (toolFilter 透传到请求组装)', () => {
       toolFilter: { allow: ['apply_patch'], deny: ['bash'] },
     });
     expect(request).toMatchObject({
-      label: 'review',
       prompt: textBlocks('review it'),
       parent,
       persona: 'You are a reviewer.',
@@ -47,7 +46,7 @@ describe('buildSubagentRequest (toolFilter 透传到请求组装)', () => {
     expect(request).not.toHaveProperty('persona');
     expect(request).not.toHaveProperty('agentOptions');
     expect(request).not.toHaveProperty('maxDepth');
-    expect(request).toEqual({ label: 'bare', prompt: textBlocks('go'), parent });
+    expect(request).toEqual({ prompt: textBlocks('go'), parent });
   });
 
   it('carries agentOptions and maxDepth alongside toolFilter when present', () => {

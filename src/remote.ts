@@ -99,7 +99,7 @@ export interface BridgeDeps {
   /** Live agent registry (dsh-agent ctx.agents). */
   agents?: { get(id: SessionId): unknown };
   /** Subagent service (dsh-subagent ctx.subagents). */
-  subagents?: { drainContinuableChildren(parent: unknown, childIds: readonly SessionId[]): Promise<void> };
+  subagents?: { drainChildren(parent: unknown, childIds: readonly SessionId[]): Promise<void> };
   /** Unified session query (dsh-session-query ctx.sessionQuery). */
   sessionQuery?: { readSession(sessionId: SessionId): Promise<{ events: readonly unknown[] }> };
   /** Tool registry (dsh-tools ctx.tools), for the role tool-set catalog. */
@@ -516,7 +516,7 @@ export async function dispatchSubagentClose(
     };
   }
   try {
-    await deps.subagents.drainContinuableChildren(parent, [SessionId(request.childSessionId)]);
+    await deps.subagents.drainChildren(parent, [SessionId(request.childSessionId)]);
   } catch (error) {
     return {
       ok: false,

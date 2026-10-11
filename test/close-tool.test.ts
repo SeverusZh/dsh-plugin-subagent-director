@@ -3,7 +3,7 @@
  *
  * Covers the pure schema builders (model-visible shape) and the execute
  * contract: the calling agent authorizes release of its own direct continuable
- * child through ctx.subagents.drainContinuableChildren(parent, [SessionId]),
+ * child through ctx.subagents.drainChildren(parent, [SessionId]),
  * with the missing-caller hard error. The drain call itself is the core's
  * behavior (UNAUTHORIZED on non-direct children, no-op on absent targets) and
  * is exercised through a fake context here.
@@ -42,11 +42,11 @@ describe('createCloseSubagentTool', () => {
     expect(tool.description).toContain('direct child');
   });
 
-  it('calls drainContinuableChildren with the calling agent and the durable id', async () => {
+  it('calls drainChildren with the calling agent and the durable id', async () => {
     const drain = vi.fn().mockResolvedValue(undefined);
     const parent = { id: 'agent-1' };
     const tool = createCloseSubagentTool({
-      ctx: { subagents: { drainContinuableChildren: drain } } as never,
+      ctx: { subagents: { drainChildren: drain } } as never,
     });
     const result = await tool.execute({ subagent_id: 'child-9' }, { agent: parent } as never);
     expect(drain).toHaveBeenCalledTimes(1);
@@ -59,7 +59,7 @@ describe('createCloseSubagentTool', () => {
   it('throws a structured error when no calling agent is present', async () => {
     const drain = vi.fn().mockResolvedValue(undefined);
     const tool = createCloseSubagentTool({
-      ctx: { subagents: { drainContinuableChildren: drain } } as never,
+      ctx: { subagents: { drainChildren: drain } } as never,
     });
     await expect(
       tool.execute({ subagent_id: 'child-9' }, { agent: undefined } as never),
@@ -70,7 +70,7 @@ describe('createCloseSubagentTool', () => {
   it('propagates a core drain rejection (e.g. UNAUTHORIZED for a non-direct child)', async () => {
     const drain = vi.fn().mockRejectedValue(new Error('subagent "other" is not a direct child of agent "agent-1"'));
     const tool = createCloseSubagentTool({
-      ctx: { subagents: { drainContinuableChildren: drain } } as never,
+      ctx: { subagents: { drainChildren: drain } } as never,
     });
     await expect(
       tool.execute({ subagent_id: 'other' }, { agent: { id: 'agent-1' } } as never),
