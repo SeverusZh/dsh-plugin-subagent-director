@@ -107,9 +107,9 @@ settings 命名空间 `subagent-director`。角色可以不绑定 provider/model
 
 ```yaml
 subagent-director:
-  defaultProvider: opencode-go
-  defaultModel: minimax-m2.7
-  defaultReasoningEffort: low
+  defaultProvider: anthropic
+  defaultModel: mythos-10
+  defaultReasoningEffort:max 
   roles:
     code-reviewer:
       displayName: 代码审查员
