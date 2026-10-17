@@ -10,7 +10,7 @@
 [![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=node.js)](package.json)
 [![GitHub release](https://img.shields.io/github/v/release/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 [![GitHub stars](https://img.shields.io/github/stars/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director)
-[![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.1.7--rc.1-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.1%20%2F%20rc.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
 </div>
@@ -25,12 +25,12 @@
 - **Controlled model selection** — provider/model are chosen only from the official `subagent-model-selection` allowlist (`allowedModels`): an explicitly passed unauthorized route is a hard error, while unauthorized routes at the plugin-default / role-binding layer are dropped and fall back to inheritance (no double-writing of model routes with the official dsh-tool-subagent);
 - **Hot configuration reload** — changes in settings.yaml / the plugin config page take effect immediately, no restart needed;
 - **Roles referenced by display name** — when the `role` argument misses an id it is matched exactly by `displayName` (the first of duplicates in definition order is used, with a notice); models can also be matched by display name;
-- **Role templates** — define roles such as "code reviewer" and "translator": a responsibility description (shown to the main agent) + a persona (injected into the subagent) + an optional model binding;
+- **Role templates** — define roles such as "code reviewer" and "translator": a responsibility description (shown to the main agent) + an optional Agent Preset (persona/tool composition) + an optional model binding;
 - **Four-layer fallback chain** — per-call args > role binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
 - **Main-agent guidance** — the system prompt auto-injects the role list, so the main agent knows when to delegate to whom;
 - **Config UI** — visual configuration inside the plugin detail page (plugin list → dsh-plugin-subagent-director; default models + add/edit/remove role cards); the settings panel no longer hosts this plugin's configuration;
 - **Continuable background** — returns a durable subagent id for ongoing delegation with send_message;
-- **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "terminate continuable state" button on the subagent session page, actively releasing completed but still-resident continuable subagents (internally calling DSH core's `drainContinuableChildren`);
+- **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "terminate continuable state" button on the subagent session page, actively releasing completed but still-resident continuable subagents (internally calling DSH core's `drainChildren`);
 - **Observability** — when a subagent session is opened, its actual provider/model is shown below the composer (the real route is read from the session's `request/header` records; graceful degradation when unavailable);
 
 ## 📦 安装 / Install
@@ -71,7 +71,7 @@ notice); using ids is recommended, see the Delegate line in the system prompt.
 > registers `subagent_role` (the tool name comes from the `toolName` config, `subagent_role`
 > by default); the DSH base bundle also ships the built-in `subagent` / `subagent_fork`, and
 > both appear **side by side** in the tool list of the same request. Only calls through
-> `subagent_role` apply the role persona and `toolFilter`; switching the model to the built-in
+> `subagent_role` applies the role-bound `agentPreset` (persona/tools live inside the preset); switching the model to the built-in
 > `subagent` disables both (model selection is handled by the official dsh-tool-subagent's
 > `modelSelectionSettings`).
 > So when role semantics are needed, explicitly ask in the prompt to call `subagent_role`.
@@ -101,7 +101,7 @@ the default configuration, override the main entry by id:
 
 Settings namespace `subagent-director`. Roles may leave provider/model unbound (inheriting the
 global default model) or bind them as needed. Recommended default roles (with delegation
-guidance and persona):
+guidance and an optional Agent Preset; DSH 0.2.1 owns persona/tool composition in the preset, and the examples assume presets with these ids exist):
 
 ```yaml
 subagent-director:
@@ -112,27 +112,27 @@ subagent-director:
     code-reviewer:
       displayName: 代码审查员
       description: 审查代码质量、安全、可维护性与测试覆盖，输出结构化评审意见（问题清单 + 严重级别 + 修改建议），适合在提交/合并前独立复核改动
-      persona: 你是严谨的代码审查员。先给结论再给证据，区分阻塞项与建议项；逐条指出问题并给出可操作的修改建议，语气客观直接，不吹捧也不刻薄。
+      agentPreset: code-reviewer
     architect:
       displayName: 架构师
       description: 设计系统架构、模块边界与数据流，评估技术选型与演进路线，把模糊需求拆成可落地的设计方案
-      persona: 你是资深架构师。先澄清约束（规模、性能、团队、时间），再权衡取舍；输出带理由的决策，明确边界、扩展点与风险，避免过度设计。
+      agentPreset: architect
     test-engineer:
       displayName: 测试工程师
       description: 编写与评审测试用例，识别边界条件与异常路径，设计单元/集成测试策略
-      persona: 你是细致的测试工程师。以发现缺陷为目标，覆盖正常、边界与异常路径；每个用例说明验证什么、断言什么，报告按严重度排序。
+      agentPreset: test-engineer
     docs-writer:
       displayName: 文档工程师
       description: 撰写与润色技术文档、README、API 说明与变更日志，统一术语与结构
-      persona: 你是技术文档工程师。语言准确简洁、结构清晰、面向读者；不臆造内容，术语全文统一，示例可运行可验证。
+      agentPreset: docs-writer
     researcher:
       displayName: 研究分析员
       description: 检索资料、整理证据、做数据探索与可行性分析，输出带来源与不确定性的结论
-      persona: 你是严谨的研究分析员。优先一手来源，区分事实与推断；结论注明依据、时效与不确定性，不夸大不臆测。
+      agentPreset: researcher
     translator:
       displayName: 翻译员
       description: 中英互译技术文档、代码注释与沟通内容，保留术语准确性与语气
-      persona: 你是专业翻译。术语统一、句式自然、保留原文意图；专有名词与技术缩写保持原文，拿不准的术语标注出来。
+      agentPreset: translator
 ```
 
 ## 🎼 纯编排模式 / Orchestrate Mode
@@ -188,20 +188,16 @@ These are **two separate namespaces**; do not confuse them when configuring.
 
 ## 🧩 兼容性 / Compatibility
 
-The `@deepseek-ai/dsh*` range in `peerDependencies` determines whether the plugin passes DSH's compatibility gate. This plugin declares **`>=0.1.7-rc.1`** (no upper bound), and has been tested on:
+Since DSH 0.2.1 the compatibility gate prefers `engines.dsh`. This plugin declares **`engines.dsh: ">=0.2.1-rc.1"`**, and every `@deepseek-ai/dsh-*` peer is likewise `>=0.2.1-rc.1`:
 
 | DSH version | Status |
 | --- | --- |
-| 0.1.5-rc.1 | ✅ Tested |
-| 0.1.5-rc.2 | ✅ Tested |
-| 0.1.6-alpha.2 | ✅ Tested |
-| 0.1.7-rc.1 | ✅ Tested |
-| 0.1.7-rc.2 | ✅ Tested |
-| 0.2.0-rc.1 | ✅ Tested |
+| 0.2.1-rc.1 | ✅ typecheck / 297 tests / build / gate |
+| 0.2.1-rc.2 | ✅ gate |
 
 > Only versions that were **actually run** are listed; untested versions are omitted.
 
-v0.5.6 targets DSH **0.1.5-rc.1+** (the `@deepseek-ai/dsh-*` peer was relaxed to `>=0.1.7-rc.1`), verified on **0.1.5-rc.1 / 0.1.5-rc.2 / 0.1.6-alpha.2 / 0.1.7-rc.1 / 0.1.7-rc.2 / 0.2.0-rc.1** (`alpha4-probe` + real-cordis probes pass; the 0.1.7-rc.1 / 0.1.7-rc.2 dependency sets measured; on 0.2.0-rc.1 it passes the new compatibility gate and loads normally). The settings subsystem was migrated to 0.1.7's `SettingsForms` (plugin Config schema + volatile hot-reload + a self-built config page). For older DSH (0.1.0-rc.6 and earlier), use the last compatible npm version, **0.4.0**.
+v0.6.0-beta.1 targets DSH **0.2.1-rc.1+**. DSH 0.2.1 unified the subagent seam on `startActivation` / `drainChildren` and removed per-request persona/toolFilter; this release migrates persona/tool composition to an independent Agent Preset and adds an `agentPreset` field to role templates. **Breaking**: no longer compatible with 0.1.x / 0.2.0-rc.1; use **0.5.6** on older hosts.
 
 ## 🛠️ 开发 / Develop
 

@@ -30,8 +30,7 @@ function provideCoreStubs(ctx: Context, toolsRegister: (def: unknown) => () => v
   ctx.provide('tools', { register: toolsRegister });
   ctx.provide('subagents', {
     getProvider: () => undefined,
-    start: async () => ({}) as never,
-    startContinuable: async () => ({}) as never,
+    startActivation: async () => ({}) as never,
   });
   ctx.provide('llm', { listProviders: () => [] });
   // installSettingsSection (dsh-settings) only needs register() to return a
@@ -96,8 +95,7 @@ describe('real cordis probe — entry activation', () => {
     ctx.provide('tools', { register: toolsRegister });
     ctx.provide('subagents', {
       getProvider: () => undefined,
-      start: async () => ({}) as never,
-      startContinuable: async () => ({}) as never,
+      startActivation: async () => ({}) as never,
     });
     ctx.provide('settings', {
       register: (_ns: unknown, _schema: unknown, opts: { base: unknown }) => ({

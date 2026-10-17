@@ -10,7 +10,7 @@
 [![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=node.js)](package.json)
 [![GitHub release](https://img.shields.io/github/v/release/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 [![GitHub stars](https://img.shields.io/github/stars/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director)
-[![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.1.7--rc.1-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.1%20%2F%20rc.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
 </div>
@@ -28,14 +28,14 @@
 - **配置热更新** —— settings.yaml / 插件配置页的改动即时生效，无需重启；
 - **角色按显示名引用** —— `role` 参数未命中 id 时按 `displayName` 精确匹配（重名
   取定义顺序第一个并提示），模型按显示名也能命中模板；
-- **角色模板** —— 定义「代码审查员」「翻译员」等角色：职责描述（给主代理看）+ persona（注入子代理）+ 可选模型绑定；
+- **角色模板** —— 定义「代码审查员」「翻译员」等角色：职责描述（给主代理看）+ 可选 Agent Preset（persona/工具组合）+ 可选模型绑定；
 - **四级回退链** —— 单次调用参数 > 角色绑定 > 插件默认 > 继承主代理（未配置时零侵入）；
 - **主代理指引** —— 系统提示自动注入角色清单，主代理知道何时委派给谁；
 - **配置界面** —— 插件详情页内可视化配置（插件列表 → dsh-plugin-subagent-director；默认模型 + 角色卡片增删改）；设置面板不再承载本插件配置；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
 - **释放可持续子代理** —— 模型可见工具 `close_subagent(subagent_id)` 与子代理会话
   页的「终止可持续状态」按钮，主动释放已完成但仍驻留的 continuable 子代理
-  （内部调用 DSH 核心 `drainContinuableChildren`）；
+  （内部调用 DSH 核心 `drainChildren`）；
 - **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型
   （从会话 `request/header` 记录读取真实路由；读不到时优雅降级）；
 
@@ -75,7 +75,7 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 > **`subagent_role` 与内置 `subagent` 是两个不同的工具。** 本插件注册的是
 > `subagent_role`（工具名由 `toolName` 配置，默认 `subagent_role`）；DSH 基础
 > bundle 另有内置的 `subagent` / `subagent_fork`，两者在同一次请求的工具清单里
-> **并存**。只有走 `subagent_role` 才会应用角色 persona 与 `toolFilter`；模型改用
+> **并存**。只有走 `subagent_role` 才会应用角色绑定的 `agentPreset`（persona/工具由 preset 承载）；模型改用
 > 内置 `subagent` 时这两项不生效（模型选择由官方 dsh-tool-subagent 的
 > `modelSelectionSettings` 负责）。
 > 因此需要角色语义时，请在提示里明确要求调用 `subagent_role`。
@@ -103,38 +103,39 @@ subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." }) 
 ## 🎭 角色模板 / Role Templates
 
 settings 命名空间 `subagent-director`。角色可以不绑定 provider/model（继承全局
-默认模型），也可以按需绑定。推荐默认角色（含委派指引与 persona）：
+默认模型），也可以按需绑定。推荐默认角色（含委派指引与可选 Agent Preset；
+DSH 0.2.1 的 persona/toolFilter 由 Agent Preset 承载，下面示例假定已创建同名 preset）：
 
 ```yaml
 subagent-director:
   defaultProvider: anthropic
   defaultModel: mythos-10
-  defaultReasoningEffort:max 
+  defaultReasoningEffort: max
   roles:
     code-reviewer:
       displayName: 代码审查员
       description: 审查代码质量、安全、可维护性与测试覆盖，输出结构化评审意见（问题清单 + 严重级别 + 修改建议），适合在提交/合并前独立复核改动
-      persona: 你是严谨的代码审查员。先给结论再给证据，区分阻塞项与建议项；逐条指出问题并给出可操作的修改建议，语气客观直接，不吹捧也不刻薄。
+      agentPreset: code-reviewer
     architect:
       displayName: 架构师
       description: 设计系统架构、模块边界与数据流，评估技术选型与演进路线，把模糊需求拆成可落地的设计方案
-      persona: 你是资深架构师。先澄清约束（规模、性能、团队、时间），再权衡取舍；输出带理由的决策，明确边界、扩展点与风险，避免过度设计。
+      agentPreset: architect
     test-engineer:
       displayName: 测试工程师
       description: 编写与评审测试用例，识别边界条件与异常路径，设计单元/集成测试策略
-      persona: 你是细致的测试工程师。以发现缺陷为目标，覆盖正常、边界与异常路径；每个用例说明验证什么、断言什么，报告按严重度排序。
+      agentPreset: test-engineer
     docs-writer:
       displayName: 文档工程师
       description: 撰写与润色技术文档、README、API 说明与变更日志，统一术语与结构
-      persona: 你是技术文档工程师。语言准确简洁、结构清晰、面向读者；不臆造内容，术语全文统一，示例可运行可验证。
+      agentPreset: docs-writer
     researcher:
       displayName: 研究分析员
       description: 检索资料、整理证据、做数据探索与可行性分析，输出带来源与不确定性的结论
-      persona: 你是严谨的研究分析员。优先一手来源，区分事实与推断；结论注明依据、时效与不确定性，不夸大不臆测。
+      agentPreset: researcher
     translator:
       displayName: 翻译员
       description: 中英互译技术文档、代码注释与沟通内容，保留术语准确性与语气
-      persona: 你是专业翻译。术语统一、句式自然、保留原文意图；专有名词与技术缩写保持原文，拿不准的术语标注出来。
+      agentPreset: translator
 ```
 
 ## 🎼 纯编排模式 / Orchestrate Mode
@@ -182,20 +183,16 @@ DSH alpha.4 起，官方内置 subagent 的模型选择收敛到 `subagent-model
 
 ## 🧩 兼容性 / Compatibility
 
-`peerDependencies` 中的 `@deepseek-ai/dsh*` 范围决定插件能否被 DSH 的兼容门禁放行。本插件声明 **`>=0.1.7-rc.1`**（无上限），并已实测：
+DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines.dsh: ">=0.2.1-rc.1"`**，全部 `@deepseek-ai/dsh-*` peer 也收敛到 `>=0.2.1-rc.1`：
 
 | DSH 版本 | 状态 |
 | --- | --- |
-| 0.1.5-rc.1 | ✅ 实测通过 |
-| 0.1.5-rc.2 | ✅ 实测通过 |
-| 0.1.6-alpha.2 | ✅ 实测通过 |
-| 0.1.7-rc.1 | ✅ 实测通过 |
-| 0.1.7-rc.2 | ✅ 实测通过 |
-| 0.2.0-rc.1 | ✅ 实测通过 |
+| 0.2.1-rc.1 | ✅ typecheck / 297 测试 / 构建 / 门禁 |
+| 0.2.1-rc.2 | ✅ 兼容门禁通过 |
 
 > 只列出**实际跑过**的版本；未实测的不列。
 
-v0.5.6 支持 DSH **0.1.5-rc.1+**（`@deepseek-ai/dsh-*` peer 放宽为 `>=0.1.7-rc.1`），已在 **0.1.5-rc.1 / 0.1.5-rc.2 / 0.1.6-alpha.2 / 0.1.7-rc.1 / 0.1.7-rc.2 / 0.2.0-rc.1** 实测（`alpha4-probe` + real-cordis 探针通过，实测 0.1.7-rc.1 / 0.1.7-rc.2 依赖集；0.2.0-rc.1 上通过新的兼容性门禁并正常加载）。设置子系统已迁移至 0.1.7 的 `SettingsForms`（插件 Config schema + volatile 热更 + 自建配置页）。旧版 DSH（0.1.0-rc.6 及更早）请使用最后兼容的 npm 版本 **0.4.0**。
+v0.6.0-beta.1 支持 DSH **0.2.1-rc.1+**。DSH 0.2.1 把子代理接缝统一为 `startActivation` / `drainChildren`，并移除了逐请求的 persona/toolFilter；本版按官方方向把 persona 与工具组合迁移到 **Agent Preset**，角色模板新增 `agentPreset` 字段。**破坏性**：不再兼容 0.1.x / 0.2.0-rc.1，旧宿主请继续使用 **0.5.6**。
 
 ## 🛠️ 开发 / Develop
 

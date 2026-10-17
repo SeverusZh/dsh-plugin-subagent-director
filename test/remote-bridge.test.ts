@@ -461,7 +461,7 @@ describe('dispatchSubagentClose', () => {
   const closeDeps = (overrides: Partial<import('../src/remote.js').BridgeDeps> = {}) => ({
     settings: { writable: true, describe: () => [], mutate: async () => {} } as never,
     agents: { get: () => ({ id: 'parent-1' }) },
-    subagents: { drainContinuableChildren: async () => {} },
+    subagents: { drainChildren: async () => {} },
     ...overrides,
   });
 
@@ -469,7 +469,7 @@ describe('dispatchSubagentClose', () => {
     const calls: unknown[][] = [];
     const deps = closeDeps({
       subagents: {
-        drainContinuableChildren: async (...args: unknown[]) => {
+        drainChildren: async (...args: unknown[]) => {
           calls.push(args);
         },
       },
@@ -496,7 +496,7 @@ describe('dispatchSubagentClose', () => {
   it('rejects with internal when the drain rejects (e.g. non-direct child)', async () => {
     const deps = closeDeps({
       subagents: {
-        drainContinuableChildren: async () => {
+        drainChildren: async () => {
           throw new Error('subagent "other" is not a direct child of agent "parent-1"');
         },
       },

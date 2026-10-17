@@ -20,6 +20,10 @@ export type SubagentDirectorKey =
   | 'model'
   | 'reasoningEffort'
   | 'persona'
+  | 'agentPreset'
+  | 'agentPresetPlaceholder'
+  | 'agentPresetHint'
+  | 'legacyRoleFields'
   | 'rolesHeading'
   | 'rolesHint'
   | 'addRole'
@@ -91,8 +95,12 @@ export const en: Record<SubagentDirectorKey, string> = {
   "model": "Model",
   "reasoningEffort": "Reasoning effort",
   "persona": "Persona",
+  "agentPreset": "Agent Preset",
+  "agentPresetPlaceholder": "e.g. reviewer",
+  "agentPresetHint": "DSH 0.2.1 owns persona and tool composition inside an Agent Preset. Leave empty to inherit the parent preset; spawn-like providers only.",
+  "legacyRoleFields": "Legacy persona/tool filter stored but not applied on DSH 0.2.1.",
   "rolesHeading": "Role templates",
-  "rolesHint": "A role binds delegation guidance, a persona, and optionally a provider/model to a subagent.",
+  "rolesHint": "A role binds delegation guidance and optionally an Agent Preset or provider/model to a subagent.",
   "addRole": "Add role",
   "emptyRoles": "No role templates yet. Add one to start planning subagent responsibilities.",
   "roleId": "Role id",
@@ -163,8 +171,12 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "model": "模型",
   "reasoningEffort": "推理强度",
   "persona": "人设",
+  "agentPreset": "Agent Preset",
+  "agentPresetPlaceholder": "例如 reviewer",
+  "agentPresetHint": "DSH 0.2.1 由 Agent Preset 统一管理 persona 与工具组合。留空则继承父代理预设；仅支持非继承型供应商（如 spawn）。",
+  "legacyRoleFields": "旧版 persona/工具集仍保留，但在 DSH 0.2.1 上不再生效。",
   "rolesHeading": "角色模板",
-  "rolesHint": "角色把委派指引、persona 与可选的供应商/模型绑定到子代理。",
+  "rolesHint": "角色把委派指引与可选的 Agent Preset 或供应商/模型绑定到子代理。",
   "addRole": "添加角色",
   "emptyRoles": "还没有角色模板。添加一个以开始规划子代理职责。",
   "roleId": "角色 id",

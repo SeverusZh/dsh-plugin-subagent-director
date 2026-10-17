@@ -1,14 +1,15 @@
 /** One role template card: read-only summary plus an inline editor.
  * Provider/model picks are limited to the routes authorized in the official
  * Subagent model-selection list; reasoning effort is a free-text field (the
- * alpha.4 client has no effort catalog). Writes go through the controller as
- * path ops, and failures return a localized message. */
+ * alpha.4 client has no effort catalog). DSH 0.2.1 moved persona/tool
+ * composition into an independent Agent Preset, so the card exposes an
+ * `agentPreset` id instead. Writes go through the controller as path ops, and
+ * failures return a localized message. */
 import { useState } from 'react';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
 import type { SubagentDirectorKey } from './locales.js';
 import { modelsForProvider, providerNames } from './allowed-routes.js';
 import type { RoleDraft, StoredRole } from './store-logic.js';
-import { ToolSetPicker } from './ToolSetPicker.js';
 import {
   cardStyle,
   dangerButtonStyle,
@@ -31,8 +32,6 @@ export interface RoleCardProps {
   isDefault: boolean;
   /** Authorized routes (the only selectable provider/model pairs). */
   routes: readonly DirectorAllowedRoute[];
-  /** Distinct model-visible tool names (for the tool-set row). */
-  tools: readonly string[];
   /** Section copy. */
   t: (key: SubagentDirectorKey) => string;
   /** Commit an edited role; returns a localized failure message or undefined. */
@@ -43,13 +42,14 @@ export interface RoleCardProps {
   onSetDefault: () => Promise<string | undefined>;
 }
 
-export function RoleCard({ id, role, isDefault, routes, tools, t, onSave, onDelete, onSetDefault }: RoleCardProps): JSX.Element {
+export function RoleCard({ id, role, isDefault, routes, t, onSave, onDelete, onSetDefault }: RoleCardProps): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [draft, setDraft] = useState<RoleDraft>({
     displayName: role.displayName,
     description: role.description,
+    agentPreset: role.agentPreset ?? '',
     persona: role.persona ?? '',
     provider: role.provider ?? '',
     model: role.model ?? '',
@@ -93,8 +93,6 @@ export function RoleCard({ id, role, isDefault, routes, tools, t, onSave, onDele
     setDraft((d) => ({ ...d, [field]: value }));
   };
 
-  const allowList = draft.toolFilter?.allow ?? [];
-
   if (editing) {
     return (
       <div style={cardStyle}>
@@ -111,8 +109,14 @@ export function RoleCard({ id, role, isDefault, routes, tools, t, onSave, onDele
           <textarea style={textAreaStyle} value={draft.description} placeholder={t('descriptionPlaceholder')} onChange={(e) => setField('description', e.target.value)} />
         </div>
         <div style={rowStyle}>
-          <label style={fieldLabelStyle}>{t('rolePersona')}</label>
-          <textarea style={textAreaStyle} value={draft.persona} placeholder={t('personaPlaceholder')} onChange={(e) => setField('persona', e.target.value)} />
+          <label style={fieldLabelStyle}>{t('agentPreset')}</label>
+          <input
+            style={textInputStyle}
+            value={draft.agentPreset ?? ''}
+            placeholder={t('agentPresetPlaceholder')}
+            onChange={(e) => setField('agentPreset', e.target.value)}
+          />
+          <span style={{ color: token.labelTertiary, fontSize: 12 }}>{t('agentPresetHint')}</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
           <div style={rowStyle}>
@@ -153,14 +157,6 @@ export function RoleCard({ id, role, isDefault, routes, tools, t, onSave, onDele
             />
           </div>
         </div>
-        <div style={rowStyle}>
-          <ToolSetPicker
-            tools={tools}
-            selected={allowList}
-            t={t}
-            onChange={(allow) => setDraft((d) => ({ ...d, toolFilter: { allow } }))}
-          />
-        </div>
         {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={primaryButtonStyle} disabled={busy} onClick={save}>{t('save')}</button>
@@ -183,12 +179,12 @@ export function RoleCard({ id, role, isDefault, routes, tools, t, onSave, onDele
         <p style={{ margin: 0, color: token.labelSecondary, fontSize: 13, lineHeight: '18px' }}>{role.description}</p>
       ) : null}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <Metadata label={t('agentPreset')} value={role.agentPreset} />
         <Metadata label={t('provider')} value={role.provider} />
         <Metadata label={t('model')} value={role.model} />
         <Metadata label={t('reasoningEffort')} value={role.reasoningEffort} />
-        {role.persona ? <Metadata label={t('persona')} value={role.persona} /> : null}
-        {role.toolFilter?.allow?.length ? (
-          <Metadata label={t('toolFilter')} value={role.toolFilter.allow.join(', ')} />
+        {role.persona || role.toolFilter?.allow?.length ? (
+          <span style={{ color: token.danger, fontSize: 12 }}>{t('legacyRoleFields')}</span>
         ) : null}
       </div>
       {failure !== undefined ? <div style={{ color: token.danger, fontSize: 12 }}>{failure}</div> : null}

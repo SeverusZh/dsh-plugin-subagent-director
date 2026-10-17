@@ -14,11 +14,10 @@
  * webServer-dependent HTTP bridge lives in the separate
  * \`subagent-director-bridge\` entry (src/bridge-entry.ts).
  *
- * Background modes: 'one-shot' defaults calls to foreground and runs background
- * calls as a plain Task; 'continuable' defaults them to background via
- * ctx.subagents.startContinuable() and requires the transport provider's
- * prepareContinuable capability, which is validated at mount time (mirrors
- * dsh-tool-subagent).
+ * Background modes (0.2.x startActivation seam): 'one-shot' defaults calls to
+ * foreground (delivery 'caller'); 'continuable' defaults them to background
+ * (delivery 'parent') and requires the transport provider's prepareContinuable
+ * capability, which is validated at mount time (mirrors dsh-tool-subagent).
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent';

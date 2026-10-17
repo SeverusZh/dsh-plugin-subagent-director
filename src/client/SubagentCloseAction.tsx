@@ -8,7 +8,7 @@
  * null, so ordinary sessions and one-shot children see nothing.
  *
  * Clicking asks the Host bridge's `subagentClose` endpoint to
- * drainContinuableChildren under the address's durable parent authority; on
+ * drainChildren under the address's durable parent authority; on
  * success the button turns into a settled label (the child's handle is
  * released), on failure a short inline error shows the core message.
  *

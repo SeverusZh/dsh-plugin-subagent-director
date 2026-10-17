@@ -8,7 +8,7 @@
  * Two provider namespaces live side by side here and MUST NOT be confused
  * (design section 14, risk R2):
  *   - `subagentProvider`: the subagent TRANSPORT provider name handed to
- *     `ctx.subagents.start(...)` (e.g. `spawn`, `fork`, `acp`).
+ *     `ctx.subagents.startActivation({ provider, ... })` (e.g. `spawn`, `fork`, `acp`).
  *   - `agentOptions.provider` / `defaultProvider` (settings): the LLM route
  *     provider that actually serves model requests (e.g. `deepseek-official`,
  *     a pi-ai route). They are unrelated name spaces.
@@ -25,8 +25,8 @@ import { SettingsFields } from './settings.js';
  */
 export interface DirectorConfig {
   /**
-   * The subagent TRANSPORT provider to start runs on. This is the `name`
-   * argument of `ctx.subagents.start(name, request)`, NOT an LLM route.
+   * The subagent TRANSPORT provider to start runs on. This is the `provider`
+   * field of the `ctx.subagents.startActivation(spec)` spec, NOT an LLM route.
    * Default 'spawn'.
    */
   subagentProvider?: string;
@@ -48,12 +48,15 @@ export interface DirectorConfig {
   enableRunInBackground?: boolean;
 
   /**
-   * Background execution policy (default 'one-shot').
-   * 'one-shot' defaults calls to foreground and runs background calls as a
-   * plain Task. 'continuable' defaults calls to background via
-   * ctx.subagents.startContinuable(), requires the transport provider's
-   * prepareContinuable capability, and returns the durable child id for later
-   * send_message follow-up (FR-5.3).
+   * Background execution policy (default 'one-shot'). On the 0.2.x
+   * startActivation seam both policies start a managed activation; the policy
+   * only sets the default of the tool's `run_in_background` argument.
+   * 'one-shot' defaults calls to foreground (delivery 'caller', the tool awaits
+   * the result); a background call (delivery 'parent') returns the durable
+   * child id and the runtime notifies the parent. 'continuable' defaults calls
+   * to background and requires the transport provider's prepareContinuable
+   * capability (validated at mount), so the child is a local session the parent
+   * can later steer with send_message (FR-5.3).
    */
   backgroundMode?: 'one-shot' | 'continuable';
 
