@@ -2,6 +2,38 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0-beta.1] - 2026-10-17
+
+### 兼容性：适配 DSH 0.2.1-rc.1 / rc.2（破坏性）
+
+- **子代理接缝迁移**：DSH 0.2.1 将 `ctx.subagents.start()` /
+  `startContinuable()` 合并为统一的 `ctx.subagents.startActivation(spec)`，
+  并把 `drainContinuableChildren()` 更名为 `drainChildren()`。前台委派改用
+  `delivery: 'caller'`（等待 `activation.result` 并按 stop-reason 报错），
+  后台委派改用 `delivery: 'parent'`（立即返回持久化 child id，由运行时投递结果）；
+  不再依赖 `dsh-jobs` / `dsh-tool-jobs`。本改动基于 @shudingbo 的 PR #12，
+  并在最新 rc 上完成复核、修复与测试。
+- **persona/toolFilter 迁移到 Agent Preset**：0.2.1-rc.1 从
+  `SubagentStartRequest` / `SubagentCapabilities` 移除了 `persona` 与
+  `toolFilter`（官方 `dsh-tool-subagent` 也会对这两个配置项硬报错），角色
+  persona 与工具集改由独立 Agent Preset 统一承载。角色模板新增
+  `agentPreset` 字段并在配置页提供输入框；旧的 `persona` / `toolFilter` 仍保留
+  在设置文档中以免破坏已有数据，但不再发送到子代理接缝，委派时会给出迁移警告。
+  选择 Agent Preset 需要非继承型 provider（如 `spawn`）；`fork` 等继承型
+  provider 会得到明确错误。
+- **依赖与门禁**：全部 `@deepseek-ai/dsh-*` peer 提升为
+  `>=0.2.1-rc.1`，devDependencies 固定到 `0.2.1-rc.1`；新增
+  `engines.dsh: ">=0.2.1-rc.1"`（DSH 0.2.1 起优先按该字段判定兼容性）。
+  `zod` 固定为 `4.4.3`，与 DSH 内部 `dsh-session-projection` 的固定版本一致，
+  避免 4.6.x 与 4.4.x 的 ZodType 身份不兼容。
+  `dsh.compatibility.dshReleases` 收敛为 `0.2.1-rc.1` / `0.2.1-rc.2`。
+- **验证**：`npm run typecheck`、`npm test`（20 文件 / 297 用例）、
+  `npm run build`（host + client bundle）全部通过；新增 real-cordis 探针断言
+  `agentPreset` 透传且 persona/toolFilter 不再进入请求体。
+- **破坏性**：本版本不再兼容 DSH 0.1.x / 0.2.0-rc.1，旧宿主请继续使用
+  `0.5.6`。角色中已有的 persona/toolFilter 需要迁移到 DSH Agent Preset，
+  再在角色里填写 preset id。
+
 ## [0.5.6] - 2026-10-10
 
 ### 修复

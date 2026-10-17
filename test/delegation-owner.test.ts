@@ -52,7 +52,7 @@ describe('delegation background owner (issue #10, 0.2.x startActivation)', () =>
     const parentAgent = { id: 'parent-session-1', options: {} };
     const provider = {
       name: 'spawn',
-      capabilities: { agentOptions: true, outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
+      capabilities: { agentOptions: true, agentPreset: true, outputSchema: false, depthLimit: true },
       inheritsParentContext: false,
       // No prepareContinuable → one-shot external child → 'background' kind.
     };
@@ -103,7 +103,7 @@ describe('delegation background owner (issue #10, 0.2.x startActivation)', () =>
     const parentAgent = { id: 'parent-session-2', options: {} };
     const provider = {
       name: 'spawn',
-      capabilities: { agentOptions: true, outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
+      capabilities: { agentOptions: true, agentPreset: true, outputSchema: false, depthLimit: true },
       inheritsParentContext: false,
       prepareContinuable: async () => ({}),
     };

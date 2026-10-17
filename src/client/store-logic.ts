@@ -18,11 +18,14 @@ import type { SettingsPathOpView } from '@deepseek-ai/dsh-settings/types';
 export interface RoleDraft {
   displayName: string;
   description: string;
+  /** Independent DSH Agent Preset id (0.2.1 owns persona/tool composition there). */
+  agentPreset?: string;
+  /** @deprecated Legacy field, preserved but not edited. */
   persona?: string;
   provider?: string;
   model?: string;
   reasoningEffort?: string;
-  /** Tool scoping: the allow list the editor manages (deny is preserved, not edited). */
+  /** @deprecated Legacy field, preserved but not edited. */
   toolFilter?: { allow?: string[]; deny?: string[] };
 }
 
@@ -30,6 +33,7 @@ export interface RoleDraft {
 export interface StoredRole {
   displayName: string;
   description: string;
+  agentPreset?: string;
   persona?: string;
   provider?: string;
   model?: string;
@@ -93,6 +97,7 @@ export function addRoleOps(id: string, role: RoleDraft | StoredRole): SettingsPa
       value: {
         displayName: role.displayName,
         description: role.description,
+        ...optional(role.agentPreset) !== undefined ? { agentPreset: optional(role.agentPreset) } : {},
         ...optional(role.persona) !== undefined ? { persona: optional(role.persona) } : {},
         ...optional(role.provider) !== undefined ? { provider: optional(role.provider) } : {},
         ...optional(role.model) !== undefined ? { model: optional(role.model) } : {},
@@ -153,6 +158,7 @@ export function updateRoleOps(id: string, before: StoredRole | undefined, draft:
   const base = [ROLES_PATH[0], id];
   push(fieldEdit([...base, 'displayName'], b.displayName, draft.displayName));
   push(fieldEdit([...base, 'description'], b.description, draft.description));
+  push(fieldEdit([...base, 'agentPreset'], b.agentPreset, draft.agentPreset));
   push(fieldEdit([...base, 'persona'], b.persona, draft.persona));
   push(fieldEdit([...base, 'provider'], b.provider, draft.provider));
   push(fieldEdit([...base, 'model'], b.model, draft.model));

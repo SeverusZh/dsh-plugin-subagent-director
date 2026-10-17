@@ -69,7 +69,11 @@ function settingsStub(options: {
 /** Fake subagents service whose startActivation records calls and keeps a marker. */
 function subagentsStub() {
   const calls: Array<{ provider: string; request: Record<string, unknown>; delivery: string }> = [];
-  const provider = { name: 'spawn', capabilities: { persona: true, toolFilter: true, depthLimit: true } };
+  const provider = {
+    name: 'spawn',
+    capabilities: { agentOptions: true, agentPreset: true, outputSchema: false, depthLimit: true },
+    inheritsParentContext: false,
+  };
   const startActivation = Object.assign(
     async (spec: { provider: string; request: Record<string, unknown>; delivery: string }) => {
       calls.push({ provider: spec.provider, request: spec.request, delivery: spec.delivery });
@@ -236,5 +240,32 @@ describe('real cordis probe — delegation constraints wired to the authorized l
     await tool.execute!({ description: 'x', prompt: 'y' }, execContext());
     expect(subagents.calls).toHaveLength(1);
     expect(subagents.calls[0].request.agentOptions).toEqual({ provider: 'rogue', model: 'x' });
+  });
+
+  it('forwards a role agentPreset and never the removed persona/toolFilter', async () => {
+    const ctx = new Context();
+    const tools = captureTools();
+    const settings = settingsStub();
+    const subagents = subagentsStub();
+    loadPlugin(ctx, settings, tools, subagents, {
+      roles: {
+        reviewer: {
+          displayName: 'Reviewer',
+          description: 'Review changes',
+          agentPreset: 'reviewer-preset',
+          // Legacy fields still present in a pre-0.2.1 settings document.
+          persona: 'You are a reviewer.',
+          toolFilter: { allow: ['apply_patch'], deny: [] },
+        },
+      },
+    });
+    await settle();
+
+    const tool = tools.defs.find((d) => d.name === 'subagent_role')!;
+    await tool.execute!({ description: 'x', prompt: 'y', role: 'reviewer' }, execContext());
+    expect(subagents.calls).toHaveLength(1);
+    expect(subagents.calls[0].request.agentPreset).toBe('reviewer-preset');
+    expect(subagents.calls[0].request.persona).toBeUndefined();
+    expect(subagents.calls[0].request.toolFilter).toBeUndefined();
   });
 });

@@ -54,10 +54,14 @@ export const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const NON_BLANK = /\S/;
 
 /** Schemastery schema for one role template. displayName/description are
- * required and non-blank; provider (when set) must be non-blank. */
+ * required and non-blank; provider/agentPreset (when set) must be non-blank. */
 export const RoleTemplateSchema = z.object({
   displayName: z.string().required().pattern(NON_BLANK),
   description: z.string().required().pattern(NON_BLANK),
+  // DSH 0.2.1 selects persona and tool composition through an Agent Preset.
+  agentPreset: z.string().pattern(NON_BLANK),
+  // Legacy fields retained so pre-0.2.1 role documents still validate; they are
+  // read only to warn during delegation and are never forwarded to the seam.
   persona: z.string(),
   provider: z.string().pattern(NON_BLANK),
   model: z.string(),
@@ -238,6 +242,9 @@ export function validateDirectorSettings(value: SubagentDirectorSettings): void 
     }
     if (isBlankString(role?.provider)) {
       throw new Error('subagent-director: role "' + id + '" provider must be a non-empty string when set');
+    }
+    if (isBlankString(role?.agentPreset)) {
+      throw new Error('subagent-director: role "' + id + '" agentPreset must be a non-empty string when set');
     }
   }
 

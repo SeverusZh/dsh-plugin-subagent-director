@@ -1,11 +1,13 @@
 /**
- * Unit tests for the toolFilter capability path (design section 7.3 / FR-8.1).
+ * Unit tests for the Agent Preset capability path (design section 7.3 / FR-8.1).
  *
- * The two pure helpers extracted from delegation-tool.execute cover the parts
- * that were previously untestable without a live DSH context:
- *   - buildSubagentRequest: asserts that a role-resolved toolFilter (and
- *     persona / agentOptions / maxDepth) propagate into the assembled
- *     SubagentStartRequest body only when present — the "透传到请求组装" contract;
+ * DSH 0.2.1 removed per-request persona/toolFilter from the subagent seam and
+ * moved that composition into an independent Agent Preset. The two pure helpers
+ * extracted from delegation-tool.execute cover the parts that were previously
+ * untestable without a live DSH context:
+ *   - buildSubagentRequest: asserts that a role-resolved agentPreset (and
+ *     agentOptions / maxDepth) propagate into the assembled request body only
+ *     when present — the "透传到请求组装" contract;
  *   - assertDelegationCapabilities: asserts the hard error path when a resolved
  *     feature demands a transport capability the provider lacks — the
  *     "无 capability 时的错误路径" contract.
@@ -19,47 +21,44 @@ import {
 const textBlocks = (t: string) => [{ type: 'text' as const, text: t }];
 const parent = { id: 'agent-1' };
 
-describe('buildSubagentRequest (toolFilter 透传到请求组装)', () => {
-  it('propagates toolFilter when the role resolved one', () => {
+describe('buildSubagentRequest (agentPreset 透传到请求组装)', () => {
+  it('propagates agentPreset when the role resolved one', () => {
     const request = buildSubagentRequest({
       description: 'review',
       prompt: textBlocks('review it'),
       parent,
-      persona: 'You are a reviewer.',
-      toolFilter: { allow: ['apply_patch'], deny: ['bash'] },
+      agentPreset: 'reviewer',
     });
     expect(request).toMatchObject({
       prompt: textBlocks('review it'),
       parent,
-      persona: 'You are a reviewer.',
-      toolFilter: { allow: ['apply_patch'], deny: ['bash'] },
+      agentPreset: 'reviewer',
     });
   });
 
-  it('omits toolFilter (and persona) when the role resolved none', () => {
+  it('omits agentPreset when the role resolved none', () => {
     const request = buildSubagentRequest({
       description: 'bare',
       prompt: textBlocks('go'),
       parent,
     });
-    expect(request).not.toHaveProperty('toolFilter');
-    expect(request).not.toHaveProperty('persona');
+    expect(request).not.toHaveProperty('agentPreset');
     expect(request).not.toHaveProperty('agentOptions');
     expect(request).not.toHaveProperty('maxDepth');
     expect(request).toEqual({ prompt: textBlocks('go'), parent });
   });
 
-  it('carries agentOptions and maxDepth alongside toolFilter when present', () => {
+  it('carries agentOptions and maxDepth alongside agentPreset when present', () => {
     const request = buildSubagentRequest({
       description: 'full',
       prompt: textBlocks('x'),
       parent,
       agentOptions: { provider: 'opencode-go', model: 'deepseek-v4-flash' },
-      toolFilter: { deny: ['kill'] },
+      agentPreset: 'reviewer',
       maxDepth: 2,
     });
     expect(request.agentOptions).toEqual({ provider: 'opencode-go', model: 'deepseek-v4-flash' });
-    expect(request.toolFilter).toEqual({ deny: ['kill'] });
+    expect(request.agentPreset).toBe('reviewer');
     expect(request.maxDepth).toBe(2);
   });
 
@@ -72,61 +71,73 @@ describe('buildSubagentRequest (toolFilter 透传到请求组装)', () => {
     });
     expect(request).not.toHaveProperty('agentOptions');
   });
+
+  it('never emits the removed persona/toolFilter request fields', () => {
+    const request = buildSubagentRequest({
+      description: 'legacy',
+      prompt: textBlocks('z'),
+      parent,
+      agentPreset: 'reviewer',
+    });
+    expect(request).not.toHaveProperty('persona');
+    expect(request).not.toHaveProperty('toolFilter');
+  });
 });
 
 describe('assertDelegationCapabilities (无 capability 时的错误路径)', () => {
-  const yes = { persona: true, toolFilter: true, depthLimit: true };
-  const noToolFilter = { persona: true, toolFilter: false, depthLimit: true };
-  const noPersona = { persona: false, toolFilter: true, depthLimit: true };
-  const noDepth = { persona: true, toolFilter: true, depthLimit: false };
+  const yes = { agentOptions: true, agentPreset: true, outputSchema: false, depthLimit: true };
+  const noPreset = { agentOptions: true, agentPreset: false, outputSchema: false, depthLimit: true };
+  const noDepth = { agentOptions: true, agentPreset: true, outputSchema: false, depthLimit: false };
 
   it('does not throw when every resolved feature has a supported capability', () => {
     expect(() =>
       assertDelegationCapabilities({
         providerName: 'spawn',
-        persona: 'reviewer',
-        toolFilter: { allow: ['x'] },
+        agentPreset: 'reviewer',
         capabilities: yes,
+        inheritsParentContext: false,
         maxDepth: 2,
       }),
     ).not.toThrow();
   });
 
-  it('throws a hard toolFilter error when the provider lacks the toolFilter capability', () => {
+  it('throws a hard error when the provider lacks the agentPreset capability', () => {
     expect(() =>
       assertDelegationCapabilities({
         providerName: 'spawn',
-        toolFilter: { allow: ['x'] },
-        capabilities: noToolFilter,
+        agentPreset: 'reviewer',
+        capabilities: noPreset,
       }),
-    ).toThrow(/role binds a tool filter/);
+    ).toThrow(/does not support independent preset selection/);
     expect(() =>
       assertDelegationCapabilities({
         providerName: 'spawn',
-        toolFilter: { allow: ['x'] },
-        capabilities: noToolFilter,
+        agentPreset: 'reviewer',
+        capabilities: noPreset,
       }),
     ).toThrow(/spawn/);
   });
 
-  it('does not gate toolFilter when the role resolved none even if capability is missing', () => {
+  it('throws when an inheriting provider cannot select an independent preset', () => {
     expect(() =>
       assertDelegationCapabilities({
-        providerName: 'spawn',
-        toolFilter: undefined,
-        capabilities: noToolFilter,
+        providerName: 'fork',
+        agentPreset: 'reviewer',
+        capabilities: yes,
+        inheritsParentContext: true,
       }),
-    ).not.toThrow();
+    ).toThrow(/does not support independent preset selection/);
   });
 
-  it('throws a hard persona error when the provider lacks the persona capability', () => {
+  it('does not gate agentPreset when the role resolved none even if capability is missing', () => {
     expect(() =>
       assertDelegationCapabilities({
-        providerName: 'spawn',
-        persona: 'reviewer',
-        capabilities: noPersona,
+        providerName: 'fork',
+        agentPreset: undefined,
+        capabilities: noPreset,
+        inheritsParentContext: true,
       }),
-    ).toThrow(/role binds a persona/);
+    ).not.toThrow();
   });
 
   it('throws a depthLimit error when maxDepth is numeric but the provider cannot enforce it', () => {

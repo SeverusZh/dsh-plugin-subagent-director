@@ -11,8 +11,10 @@
  *                 inherit the parent agent (zero intrusion, AC-3.2)
  *
  * Field resolution is independent: each of provider/model/reasoningEffort is
- * filled by the highest-priority layer that specifies it. persona and
- * toolFilter come ONLY from the role layer.
+ * filled by the highest-priority layer that specifies it. agentPreset comes
+ * ONLY from the role layer. DSH 0.2.1 removed per-request persona/toolFilter
+ * from the subagent seam in favour of an independent Agent Preset; legacy role
+ * fields are still read for migration warnings but never applied.
  *
  * Authorized-model constraint (alpha.4): the official dsh-tool-subagent owns
  * the `subagent-model-selection` settings section and enforces its
@@ -59,7 +61,12 @@ export interface RoleTemplate {
   displayName: string;
   /** Required, non-empty delegation guidance shown to the main agent. */
   description: string;
-  /** Persona text injected into the subagent (role-layer only). */
+  /**
+   * Independent DSH Agent Preset id selected for this role (role-layer only).
+   * DSH 0.2.1 owns persona and tool composition inside the preset.
+   */
+  agentPreset?: string;
+  /** @deprecated DSH 0.2.1 removed per-child persona; migrate it into an Agent Preset. */
   persona?: string;
   /** LLM route provider override (role-layer only). */
   provider?: string;
@@ -67,7 +74,7 @@ export interface RoleTemplate {
   model?: string;
   /** Reasoning effort override (role-layer only). */
   reasoningEffort?: string;
-  /** Tool scoping (role-layer only; requires toolFilter capability at runtime). */
+  /** @deprecated DSH 0.2.1 removed per-child tool filters; migrate them into an Agent Preset. */
   toolFilter?: { allow?: string[]; deny?: string[] };
 }
 
@@ -136,9 +143,11 @@ export interface RouteResult {
   reasoningEffort?: string;
   /** Resolved role id when a valid role template was bound (role layer). */
   roleId?: string;
-  /** Persona contributed by the role layer, when a valid role was bound. */
+  /** Independent Agent Preset selected by the role layer, when configured. */
+  agentPreset?: string;
+  /** @deprecated Legacy role persona; never sent to the 0.2.1 subagent seam. */
   persona?: string;
-  /** Tool filter contributed by the role layer, when a valid role was bound. */
+  /** @deprecated Legacy role tool filter; never sent to the 0.2.1 subagent seam. */
   toolFilter?: RouteToolFilter;
   /** Human-readable warnings for degraded references (nonexistent role, etc.). */
   warnings: string[];
@@ -216,7 +225,7 @@ export function resolveRoute(input: RouteInput): RouteResult {
         }
       } else {
         warnings.push(
-          'subagent-director: role "' + roleIdRaw + '" does not exist; its binding (persona/provider/model) is skipped',
+          'subagent-director: role "' + roleIdRaw + '" does not exist; its binding (agentPreset/provider/model) is skipped',
         );
       }
     }
@@ -323,6 +332,9 @@ export function resolveRoute(input: RouteInput): RouteResult {
     ...(agentOptions !== undefined ? { agentOptions } : {}),
     ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     ...(resolvedRoleId !== undefined ? { roleId: resolvedRoleId } : {}),
+    ...(role !== undefined && !isEmpty(role.agentPreset) ? { agentPreset: role.agentPreset } : {}),
+    // Legacy fields are surfaced only so the caller can warn about them; they
+    // are never forwarded to startActivation (0.2.1 removed them).
     ...(role !== undefined && !isEmpty(role.persona) ? { persona: role.persona } : {}),
     ...(role !== undefined && hasToolFilter(role.toolFilter) ? { toolFilter: role.toolFilter } : {}),
     warnings,

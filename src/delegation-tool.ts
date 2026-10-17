@@ -38,11 +38,11 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
 import { defineTool, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
 import type { JsonValue } from '@deepseek-ai/dsh-util-values';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
-import type { SubagentActivation, SubagentProvider, SubagentResult } from '@deepseek-ai/dsh-subagent';
+import type { SubagentActivation, SubagentCapabilities, SubagentProvider, SubagentResult } from '@deepseek-ai/dsh-subagent';
 
 import type { DirectorConfig } from './config.js';
 import { readNamespaceValue, SUBAGENT_MODEL_SELECTION_NAMESPACE } from './settings.js';
-import { resolveRoute, type RouteToolFilter, type SubagentDirectorSettings } from './route-resolver.js';
+import { resolveRoute, type SubagentDirectorSettings } from './route-resolver.js';
 
 /** Stable log namespace prefix for delegation/tool diagnostics (design section 10). */
 export const DELEGATION_TOOL_PREFIX = 'subagent-director';
@@ -332,25 +332,21 @@ export function renderDelegationResult(value: DelegationResult | { kind: 'foregr
 /**
  * Pure capability gate (extracted from execute for unit testing, behavioral
  * no-op): a resolved delegation feature demands a transport-provider capability,
- * and its absence is a hard error (FR-8.1 / design 7.3). persona, toolFilter,
- * and a numeric maxDepth each require the matching capability flag.
+ * and its absence is a hard error (FR-8.1 / design 7.3). An independent Agent
+ * Preset requires `agentPreset` support and a provider that does not inherit
+ * the parent conversation; a numeric maxDepth requires `depthLimit`.
  */
 export function assertDelegationCapabilities(options: {
   providerName: string;
-  persona?: string;
-  toolFilter?: RouteToolFilter;
-  capabilities: { persona: boolean; toolFilter: boolean; depthLimit: boolean };
+  agentPreset?: string;
+  capabilities: SubagentCapabilities;
+  inheritsParentContext?: boolean;
   maxDepth?: number | 'provider-managed';
 }): void {
-  const { providerName, persona, toolFilter, capabilities, maxDepth } = options;
-  if (persona !== undefined && !capabilities.persona) {
+  const { providerName, agentPreset, capabilities, inheritsParentContext = false, maxDepth } = options;
+  if (agentPreset !== undefined && (!capabilities.agentPreset || inheritsParentContext)) {
     throw new Error(
-      `${ERROR_PREFIX} role binds a persona but transport provider "${providerName}" does not support the persona capability — switch the subagent provider or drop the role persona`,
-    );
-  }
-  if (toolFilter !== undefined && !capabilities.toolFilter) {
-    throw new Error(
-      `${ERROR_PREFIX} role binds a tool filter but transport provider "${providerName}" does not support the toolFilter capability — switch the subagent provider or drop the role filter`,
+      `${ERROR_PREFIX} role binds Agent Preset "${agentPreset}" but transport provider "${providerName}" does not support independent preset selection — switch to a non-inheriting provider (e.g. spawn) or drop the role agentPreset`,
     );
   }
   if (typeof maxDepth === 'number' && !capabilities.depthLimit) {
@@ -366,15 +362,16 @@ export interface SubagentRequestParts {
   prompt: ContentBlock[];
   parent: Agent;
   agentOptions?: Pick<AgentOptions, 'provider' | 'model' | 'reasoningEffort'>;
-  persona?: string;
-  toolFilter?: RouteToolFilter;
+  agentPreset?: string;
   maxDepth?: number;
 }
 
 /**
  * Pure request-body assembly (extracted from execute for unit testing,
- * behavioral no-op): persona and toolFilter propagate into the request only
- * when the role resolved them, so a bare delegation stays zero-intrusion.
+ * behavioral no-op): an Agent Preset propagates into the request only when the
+ * role resolved one, so a bare delegation stays zero-intrusion. DSH 0.2.1
+ * removed per-request persona/toolFilter; role persona/tool composition now
+ * lives inside the selected Agent Preset.
  *
  * On the 0.2.x startActivation seam the `label` and `signal` are hoisted to
  * the activation spec, so the inner request omits them (the spec carries
@@ -385,8 +382,7 @@ export function buildSubagentRequest<Parts extends SubagentRequestParts>(parts: 
     prompt: parts.prompt,
     parent: parts.parent,
     ...(parts.agentOptions !== undefined ? { agentOptions: parts.agentOptions } : {}),
-    ...(parts.persona !== undefined ? { persona: parts.persona } : {}),
-    ...(parts.toolFilter !== undefined ? { toolFilter: parts.toolFilter } : {}),
+    ...(parts.agentPreset !== undefined ? { agentPreset: parts.agentPreset } : {}),
     ...(parts.maxDepth !== undefined ? { maxDepth: parts.maxDepth } : {}),
   };
 }
@@ -538,13 +534,19 @@ export function createDelegationTool(options: {
         }
       }
 
-      // persona/toolFilter require the transport provider's capabilities.
+      // An independent Agent Preset requires the transport provider's
+      // agentPreset capability and a non-inheriting (spawn-like) provider.
       const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined;
+      if (route.persona !== undefined || route.toolFilter !== undefined) {
+        warnings.push(
+          `${ERROR_PREFIX} role legacy persona/toolFilter are not applied on DSH 0.2.1; move them into an Agent Preset and set the role agentPreset`,
+        );
+      }
       assertDelegationCapabilities({
         providerName,
-        persona: route.persona,
-        toolFilter: route.toolFilter,
+        agentPreset: route.agentPreset,
         capabilities: provider.capabilities,
+        inheritsParentContext: provider.inheritsParentContext,
         maxDepth,
       });
 
@@ -553,8 +555,7 @@ export function createDelegationTool(options: {
         prompt: [{ type: 'text' as const, text: args.prompt }],
         parent,
         agentOptions,
-        persona: route.persona,
-        toolFilter: route.toolFilter,
+        agentPreset: route.agentPreset,
         maxDepth,
       });
 
