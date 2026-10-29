@@ -214,6 +214,15 @@ npm run build     # host(tsc) + client(rolldown bundle)
 **为什么需要两个插件条目？**
 DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插件通过自注册的 `/subagent-director` HTTP 路由桥接自己的命名空间，而该路由依赖的 webServer 服务只能经 cordis `inject` 获取，因此拆成独立的 `subagent-director-bridge` 条目（无 Web 的 headless 场景它会自动不激活，主条目不受影响）。
 
+**放在反向代理/网关后面，设置页提示「此服务器尚未提供设置桥接通道」怎么办？**
+桥接路由默认只接受回环 Host（`localhost`、`127.0.0.0/8`、`[::1]`），避免设置写在无人看守的公网上裸奔。经反向代理用域名访问时 Host 不是回环地址，请求被 403 拒绝，而前端把任何失败都渲染成上面那句提示，看不出真实原因。把该域名加进白名单即可（逗号分隔，端口与大小写不敏感）：
+
+```bash
+DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS=dsh.example.com
+```
+
+不配置时行为与之前完全一致（依旧只认回环）；白名单只解除这一层围栏，域名仍需通过你自己的认证层。
+
 **未配置任何角色时行为如何？**
 未配置任何角色且未配置默认模型时与未安装本插件完全一致（零侵入）。配置了
 `defaultProvider`/`defaultModel` 时：若官方 `subagent-model-selection` 已启用并有

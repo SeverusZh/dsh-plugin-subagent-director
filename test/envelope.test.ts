@@ -9,6 +9,10 @@ import {
   parseClientRequestEnvelope,
   isLoopbackHost,
   isLoopbackHostname,
+  isTrustedHost,
+  parseTrustedHosts,
+  trustedHostsFromEnv,
+  TRUSTED_HOSTS_ENV,
   endpointFromPath,
   buildServerResponse,
   buildMethodMismatchResponse,
@@ -142,6 +146,52 @@ describe('loopback Host classification', () => {
     expect(isLoopbackHost('192.168.0.1')).toBe(false);
     expect(isLoopbackHost('')).toBe(false);
     expect(isLoopbackHost('127.0.0.256')).toBe(false);
+  });
+});
+
+describe('trusted Host allowlist (reverse-proxied deployments)', () => {
+  it('parses a comma-separated allowlist into comparable hostnames', () => {
+    expect(parseTrustedHosts(undefined)).toEqual([]);
+    expect(parseTrustedHosts('')).toEqual([]);
+    expect(parseTrustedHosts('   ,  ')).toEqual([]);
+    expect(parseTrustedHosts('dsh.example.com')).toEqual(['dsh.example.com']);
+    expect(parseTrustedHosts(' dsh.example.com:6443 ')).toEqual(['dsh.example.com']);
+    expect(parseTrustedHosts('DSH.Example.com,dsh.example.com:6443')).toEqual(['dsh.example.com']);
+    expect(parseTrustedHosts('a.example.com, b.example.com ,[::1]:80')).toEqual([
+      'a.example.com',
+      'b.example.com',
+      '[::1]',
+    ]);
+  });
+
+  it('reads the allowlist from the named environment variable', () => {
+    expect(trustedHostsFromEnv({})).toEqual([]);
+    expect(trustedHostsFromEnv({ [TRUSTED_HOSTS_ENV]: 'dsh.example.com:6443' })).toEqual(['dsh.example.com']);
+    expect(trustedHostsFromEnv({ OTHER: 'ignored.example.com' })).toEqual([]);
+  });
+
+  it('keeps the fence closed by default: an off-box authority is refused with no allowlist', () => {
+    expect(isTrustedHost('127.0.0.1:3090')).toBe(true);
+    expect(isTrustedHost('localhost')).toBe(true);
+    expect(isTrustedHost('[::1]:3090')).toBe(true);
+    expect(isTrustedHost('dsh.example.com:6443')).toBe(false);
+    expect(isTrustedHost('dsh.example.com:6443', [])).toBe(false);
+  });
+
+  it('lets an allowlisted authority through, port and case insensitive', () => {
+    const trusted = parseTrustedHosts('dsh.example.com');
+    expect(isTrustedHost('dsh.example.com', trusted)).toBe(true);
+    expect(isTrustedHost('dsh.example.com:6443', trusted)).toBe(true);
+    expect(isTrustedHost('DSH.example.com:6443', trusted)).toBe(true);
+  });
+
+  it('still refuses hosts that are not in the allowlist, and malformed authorities', () => {
+    const trusted = parseTrustedHosts('dsh.example.com');
+    expect(isTrustedHost('evil.com', trusted)).toBe(false);
+    expect(isTrustedHost('evil.com:6443', trusted)).toBe(false);
+    expect(isTrustedHost('dsh.example.com.evil.com', trusted)).toBe(false);
+    expect(isTrustedHost('', trusted)).toBe(false);
+    expect(isTrustedHost('[::1', ['[::1'])).toBe(false);
   });
 });
 

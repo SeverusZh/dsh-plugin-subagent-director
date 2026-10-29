@@ -316,6 +316,28 @@ describe('installDirectorRemoteBridge', () => {
     expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{not json}')).code).toBe(400);
   });
 
+  it('accepts an allowlisted reverse-proxied Host and still fences off other off-box hosts', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never);
+
+    const previous = process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    try {
+      process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = 'dsh.example.com:6443';
+      const proxied = await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'dsh.example.com:6443');
+      expect(proxied.code).toBe(200);
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'evil.com:6443')).code).toBe(403);
+    } finally {
+      if (previous === undefined) delete process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+      else process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = previous;
+    }
+
+    // With the allowlist cleared the deployment is back to loopback-only.
+    const loopback = await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', '127.0.0.1:3090');
+    expect(loopback.code).toBe(200);
+    expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'dsh.example.com:6443')).code).toBe(403);
+  });
+
   it('returns 200 bad-request for a malformed envelope and a method mismatch', async () => {
     let route;
     const settings = { writable: true, describe: () => [], mutate: async () => {} };
