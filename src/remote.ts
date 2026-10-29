@@ -67,6 +67,8 @@ import {
   buildMethodMismatchResponse,
   buildBadRequestResponse,
   parseClientRequestEnvelope,
+  isTrustedHost,
+  trustedHostsFromEnv,
   isLoopbackHost,
   endpointFromPath,
   type ServerResponseEnvelope,
@@ -311,6 +313,10 @@ export async function directorMutate(
 /** Re-export the wire-envelope helpers so tests import them from one place. */
 export {
   parseClientRequestEnvelope,
+  isTrustedHost,
+  parseTrustedHosts,
+  trustedHostsFromEnv,
+  TRUSTED_HOSTS_ENV,
   isLoopbackHost,
   isLoopbackHostname,
   endpointFromPath,
@@ -329,7 +335,9 @@ export {
  *   - unparseable JSON body → 400 "body is not JSON"
  *   - malformed client-request envelope → 200 bad-request (fixed rpcId)
  *   - method vs endpoint mismatch → 200 bad-request
- *   - non-loopback Host header → 403 "forbidden" (lightweight trust fence)
+ *   - non-loopback, non-allowlisted Host header → 403 "forbidden"
+ *     (lightweight trust fence; DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS opts a
+ *     reverse-proxied authority in)
  *   - dispatch error → 500 "handler failure: ..."
  */
 export function handleDirectorBridgeRequest(
@@ -358,8 +366,8 @@ async function handleDirectorBridgeRequestInner(
     sendPlain(res, 415, 'content type must be application/json');
     return;
   }
-  // Loopback Host fence → 403.
-  if (hostHeader === undefined || !isLoopbackHost(hostHeader)) {
+  // Loopback Host fence → 403 (an allowlisted authority passes, see TRUSTED_HOSTS_ENV).
+  if (hostHeader === undefined || !isTrustedHost(hostHeader, trustedHostsFromEnv())) {
     sendPlain(res, 403, 'forbidden');
     return;
   }
