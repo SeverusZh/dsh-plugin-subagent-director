@@ -68,6 +68,7 @@ import {
   buildBadRequestResponse,
   parseClientRequestEnvelope,
   isTrustedHost,
+  parseTrustedHosts,
   trustedHostsFromEnv,
   isLoopbackHost,
   endpointFromPath,
@@ -106,6 +107,8 @@ export interface BridgeDeps {
   sessionQuery?: { readSession(sessionId: SessionId): Promise<{ events: readonly unknown[] }> };
   /** Tool registry (dsh-tools ctx.tools), for the role tool-set catalog. */
   tools?: { schemas(): readonly { name: string }[] };
+  /** Host allowlist from the bridge entry's Config (unioned with the env). */
+  trustedHosts?: readonly string[];
 }
 
 /**
@@ -336,8 +339,8 @@ export {
  *   - malformed client-request envelope → 200 bad-request (fixed rpcId)
  *   - method vs endpoint mismatch → 200 bad-request
  *   - non-loopback, non-allowlisted Host header → 403 "forbidden"
- *     (lightweight trust fence; DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS opts a
- *     reverse-proxied authority in)
+ *     (lightweight trust fence; the Config trustedHosts union the legacy
+ *     DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS env opts a reverse-proxied authority in)
  *   - dispatch error → 500 "handler failure: ..."
  */
 export function handleDirectorBridgeRequest(
@@ -366,8 +369,13 @@ async function handleDirectorBridgeRequestInner(
     sendPlain(res, 415, 'content type must be application/json');
     return;
   }
-  // Loopback Host fence → 403 (an allowlisted authority passes, see TRUSTED_HOSTS_ENV).
-  if (hostHeader === undefined || !isTrustedHost(hostHeader, trustedHostsFromEnv())) {
+  // Loopback Host fence → 403. The allowlist is the union of the bridge
+  // Config and the legacy env var, both normalized by parseTrustedHosts.
+  const trustedHosts = new Set([
+    ...parseTrustedHosts(deps.trustedHosts?.join(',')),
+    ...trustedHostsFromEnv(),
+  ]);
+  if (hostHeader === undefined || !isTrustedHost(hostHeader, [...trustedHosts])) {
     sendPlain(res, 403, 'forbidden');
     return;
   }
@@ -586,7 +594,10 @@ export async function dispatchSubagentModel(
  * without that service (e.g. headless) logs a debug line naming the missing
  * service and installs nothing. Returns a disposer.
  */
-export function installDirectorRemoteBridge(ctx: Context): () => void {
+export function installDirectorRemoteBridge(
+  ctx: Context,
+  config?: { readonly trustedHosts?: readonly string[] },
+): () => void {
   const settings = ctx.get('settings') as SettingsForms | undefined;
   const webServer = ctx.get('webServer');
   if (settings === undefined || webServer === undefined) {
@@ -607,6 +618,7 @@ export function installDirectorRemoteBridge(ctx: Context): () => void {
     subagents: ctx.get('subagents') as BridgeDeps['subagents'],
     sessionQuery: ctx.get('sessionQuery') as BridgeDeps['sessionQuery'],
     tools: ctx.get('tools') as BridgeDeps['tools'],
+    trustedHosts: config?.trustedHosts,
   };
 
   const handler = (req: IncomingMessage, res: ServerResponse): Promise<void> | void => {

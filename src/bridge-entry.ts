@@ -20,10 +20,32 @@
  *         name: dsh-plugin-subagent-director/bridge
  */
 import type { Context } from '@deepseek-ai/cordis';
+import z from '@deepseek-ai/schemastery';
+
 import { installDirectorRemoteBridge } from './remote.js';
 
 /** Cordis plugin name for the bridge entry. */
 export const name = 'subagent-director-bridge';
+
+/** Composition config of the standalone bridge entry. */
+export interface BridgeConfig {
+  /** Reverse-proxy Host allowlist for the settings bridge. */
+  readonly trustedHosts?: readonly string[];
+}
+
+/**
+ * Bridge-entry Config: a Host allowlist that exempts a reverse-proxied
+ * deployment from the loopback fence. Independent from the main entry's Config
+ * because this is a separate loader entry (`subagent-director-bridge`).
+ */
+export const Config = z.object({
+  trustedHosts: z
+    .array(z.string())
+    .default([])
+    .description(
+      'Reverse-proxy Host allowlist for the settings bridge; hostname only, port and case insensitive.',
+    ),
+});
 
 /** Required services: webServer (route owner), settings (data seam), and the
  * agent/subagent services backing the subagentClose endpoint (drain needs the
@@ -33,6 +55,6 @@ export const name = 'subagent-director-bridge';
 export const inject = ['webServer', 'settings', 'agents', 'subagents'];
 
 /** Register the settings bridge route; dispose on unload. */
-export function apply(ctx: Context): void {
-  installDirectorRemoteBridge(ctx);
+export function apply(ctx: Context, config: BridgeConfig = {}): void {
+  installDirectorRemoteBridge(ctx, config);
 }
