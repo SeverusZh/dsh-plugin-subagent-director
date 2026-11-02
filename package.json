@@ -149,6 +149,7 @@
     "@deepseek-ai/dsh-cordis-host-runner": "0.2.1-rc.1"
   },
   "engines": {
-    "dsh": ">=0.2.1-rc.1"
+    "dsh": ">=0.2.1-rc.1",
+    "node": ">=22.19.0"
   }
 }
