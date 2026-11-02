@@ -215,7 +215,19 @@ npm run build     # host(tsc) + client(rolldown bundle)
 DSH 的 Web API 只向白名单内的 settings 命名空间开放读写。本插件通过自注册的 `/subagent-director` HTTP 路由桥接自己的命名空间，而该路由依赖的 webServer 服务只能经 cordis `inject` 获取，因此拆成独立的 `subagent-director-bridge` 条目（无 Web 的 headless 场景它会自动不激活，主条目不受影响）。
 
 **放在反向代理/网关后面，设置页提示「此服务器尚未提供设置桥接通道」怎么办？**
-桥接路由默认只接受回环 Host（`localhost`、`127.0.0.0/8`、`[::1]`），避免设置写在无人看守的公网上裸奔。经反向代理用域名访问时 Host 不是回环地址，请求被 403 拒绝，而前端把任何失败都渲染成上面那句提示，看不出真实原因。把该域名加进白名单即可（逗号分隔，端口与大小写不敏感）：
+桥接路由默认只接受回环 Host（`localhost`、`127.0.0.0/8`、`[::1]`），避免设置写在无人看守的公网上裸奔。经反向代理用域名访问时 Host 不是回环地址，请求被 403 拒绝，而前端把任何失败都渲染成上面那句提示，看不出真实原因。把该域名加进白名单即可（端口与大小写不敏感）。
+
+优先在 `config.yaml` 里配置桥接条目：
+
+```yaml
+- id: subagent-director-bridge
+  name: dsh-plugin-subagent-director/bridge
+  config:
+    trustedHosts:
+      - dsh.example.com
+```
+
+旧的逗号分隔环境变量仍保留作 fallback，与 Config 取并集：
 
 ```bash
 DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS=dsh.example.com

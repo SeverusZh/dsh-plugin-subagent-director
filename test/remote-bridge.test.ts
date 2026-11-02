@@ -338,6 +338,90 @@ describe('installDirectorRemoteBridge', () => {
     expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'dsh.example.com:6443')).code).toBe(403);
   });
 
+  it('accepts a Config allowlisted Host and still fences off other off-box hosts', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never, {
+      trustedHosts: ['dsh.example.com'],
+    });
+
+    const previous = process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    delete process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    try {
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'dsh.example.com:6443')).code).toBe(200);
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'evil.com:6443')).code).toBe(403);
+    } finally {
+      if (previous !== undefined) process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = previous;
+    }
+  });
+
+  it('keeps the env allowlist working when Config is not set (backward compatible)', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never);
+
+    const previous = process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    try {
+      process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = 'dsh.example.com:6443';
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'dsh.example.com:6443')).code).toBe(200);
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'evil.com:6443')).code).toBe(403);
+    } finally {
+      if (previous === undefined) delete process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+      else process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = previous;
+    }
+  });
+
+  it('accepts the union of Config and env allowlists', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never, {
+      trustedHosts: ['cfg.example.com'],
+    });
+
+    const previous = process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    try {
+      process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = 'env.example.com';
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'cfg.example.com')).code).toBe(200);
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'env.example.com')).code).toBe(200);
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'evil.example.com')).code).toBe(403);
+    } finally {
+      if (previous === undefined) delete process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+      else process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = previous;
+    }
+  });
+
+  it('falls back to loopback-only when both Config and env are empty', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never, { trustedHosts: [] });
+
+    const previous = process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    delete process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    try {
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', '127.0.0.1:3090')).code).toBe(200);
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'dsh.example.com:6443')).code).toBe(403);
+    } finally {
+      if (previous !== undefined) process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = previous;
+    }
+  });
+
+  it('normalizes Config entries (case, port, surrounding whitespace)', async () => {
+    let route;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    installDirectorRemoteBridge(bridgeCtx(settings, (r) => { route = r; }) as never, {
+      trustedHosts: [' DSH.Example.com:6443 '],
+    });
+
+    const previous = process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    delete process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS;
+    try {
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'dsh.example.com:9000')).code).toBe(200);
+      expect((await callRaw(route, 'POST', '/subagent-director/settingsView', '{}', 'DSH.EXAMPLE.COM')).code).toBe(200);
+    } finally {
+      if (previous !== undefined) process.env.DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS = previous;
+    }
+  });
+
   it('returns 200 bad-request for a malformed envelope and a method mismatch', async () => {
     let route;
     const settings = { writable: true, describe: () => [], mutate: async () => {} };
