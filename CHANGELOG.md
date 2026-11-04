@@ -2,6 +2,17 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.6.0 - 2026-11-04
+
+### 新增
+
+- **反向代理部署支持**：桥接的 Host 围栏可用白名单放行，解决反向代理下用域名访问时面板误报「服务器未提供设置桥接通道」。默认行为不变，仍只认回环。
+- **白名单可写入 config.yaml**：新增 `trustedHosts` 配置项，环境变量 `DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS` 保留兼容。
+
+### 维护
+
+- CI 固定 Actions 到完整 commit SHA，补充 `engines.node`，新增生产依赖审计门禁。
+
 ## 0.6.0-beta.2 - 2026-10-19
 
 ### 新增
