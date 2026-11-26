@@ -43,6 +43,7 @@ import type { SubagentActivation, SubagentCapabilities, SubagentProvider, Subage
 import type { DirectorConfig } from './config.js';
 import { readNamespaceValue, SUBAGENT_MODEL_SELECTION_NAMESPACE } from './settings.js';
 import { resolveRoute, type SubagentDirectorSettings } from './route-resolver.js';
+import { trackResident } from './resident-handles.js';
 
 /** Stable log namespace prefix for delegation/tool diagnostics (design section 10). */
 export const DELEGATION_TOOL_PREFIX = 'subagent-director';
@@ -568,7 +569,7 @@ export function createDelegationTool(options: {
         const activation = await ctx.subagents.startActivation({
           provider: providerName,
           label: args.description,
-          request,
+          ...request,
           signal: exec.signal,
           delivery: 'caller',
         });
@@ -583,11 +584,12 @@ export function createDelegationTool(options: {
       const activation = await ctx.subagents.startActivation({
         provider: providerName,
         label: args.description,
-        request,
+        ...request,
         signal: exec.signal,
         delivery: 'parent',
       });
       if (provider.prepareContinuable !== undefined) {
+        trackResident(String(parent.id), activation);
         return { kind: 'continuable' as const, subagentId: activation.childId };
       }
       return { kind: 'background' as const, jobId: activation.childId };

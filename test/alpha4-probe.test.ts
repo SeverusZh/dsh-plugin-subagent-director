@@ -68,15 +68,15 @@ function settingsStub(options: {
 
 /** Fake subagents service whose startActivation records calls and keeps a marker. */
 function subagentsStub() {
-  const calls: Array<{ provider: string; request: Record<string, unknown>; delivery: string }> = [];
+  const calls: Array<{ provider: string; spec: Record<string, unknown>; delivery: string }> = [];
   const provider = {
     name: 'spawn',
     capabilities: { agentOptions: true, agentPreset: true, outputSchema: false, depthLimit: true },
     inheritsParentContext: false,
   };
   const startActivation = Object.assign(
-    async (spec: { provider: string; request: Record<string, unknown>; delivery: string }) => {
-      calls.push({ provider: spec.provider, request: spec.request, delivery: spec.delivery });
+    async (spec: { provider: string; delivery: string; request?: unknown }) => {
+      calls.push({ provider: spec.provider, spec: spec as unknown as Record<string, unknown>, delivery: spec.delivery });
       return fakeActivation();
     },
     { seamMarker: 'original-startActivation' },
@@ -86,7 +86,6 @@ function subagentsStub() {
     provider,
     startActivation,
     getProvider: () => provider,
-    drainChildren: async () => {},
   };
 }
 
@@ -204,7 +203,7 @@ describe('real cordis probe — delegation constraints wired to the authorized l
     );
     expect(subagents.calls).toHaveLength(1);
     expect(subagents.calls[0].provider).toBe('spawn');
-    expect(subagents.calls[0].request.agentOptions).toEqual({
+    expect(subagents.calls[0].spec.agentOptions).toEqual({
       provider: 'cli',
       model: 'claude',
       reasoningEffort: 'high',
@@ -223,7 +222,7 @@ describe('real cordis probe — delegation constraints wired to the authorized l
     const tool = tools.defs.find((d) => d.name === 'subagent_role')!;
     await tool.execute!({ description: 'x', prompt: 'y' }, execContext());
     expect(subagents.calls).toHaveLength(1);
-    expect(subagents.calls[0].request.agentOptions).toBeUndefined();
+    expect(subagents.calls[0].spec.agentOptions).toBeUndefined();
   });
 
   it('keeps plugin behavior unconstrained when the official selection is disabled', async () => {
@@ -239,7 +238,7 @@ describe('real cordis probe — delegation constraints wired to the authorized l
     const tool = tools.defs.find((d) => d.name === 'subagent_role')!;
     await tool.execute!({ description: 'x', prompt: 'y' }, execContext());
     expect(subagents.calls).toHaveLength(1);
-    expect(subagents.calls[0].request.agentOptions).toEqual({ provider: 'rogue', model: 'x' });
+    expect(subagents.calls[0].spec.agentOptions).toEqual({ provider: 'rogue', model: 'x' });
   });
 
   it('forwards a role agentPreset and never the removed persona/toolFilter', async () => {
@@ -264,8 +263,8 @@ describe('real cordis probe — delegation constraints wired to the authorized l
     const tool = tools.defs.find((d) => d.name === 'subagent_role')!;
     await tool.execute!({ description: 'x', prompt: 'y', role: 'reviewer' }, execContext());
     expect(subagents.calls).toHaveLength(1);
-    expect(subagents.calls[0].request.agentPreset).toBe('reviewer-preset');
-    expect(subagents.calls[0].request.persona).toBeUndefined();
-    expect(subagents.calls[0].request.toolFilter).toBeUndefined();
+    expect(subagents.calls[0].spec.agentPreset).toBe('reviewer-preset');
+    expect(subagents.calls[0].spec.persona).toBeUndefined();
+    expect(subagents.calls[0].spec.toolFilter).toBeUndefined();
   });
 });

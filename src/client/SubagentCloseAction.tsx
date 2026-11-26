@@ -7,10 +7,11 @@
  * (snapshot.subagent.address.mode === 'continuable') and otherwise returns
  * null, so ordinary sessions and one-shot children see nothing.
  *
- * Clicking asks the Host bridge's `subagentClose` endpoint to
- * drainChildren under the address's durable parent authority; on
- * success the button turns into a settled label (the child's handle is
- * released), on failure a short inline error shows the core message.
+ * Clicking asks the Host bridge's `subagentClose` endpoint to dispose the
+ * activation receipt retained for this child. Only children started by
+ * Subagent Director in the same host process are tracked; on success the
+ * button turns into a settled label, on failure a short inline error shows
+ * the bridge message.
  *
  * The seat is a list slot declared by ui-conversation; the framework session
  * standard kit supplies `useSession`/`sessionId` (ui-session merge over the

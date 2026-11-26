@@ -151,10 +151,10 @@ export const en: Record<SubagentDirectorKey, string> = {
   "modelQueryFailed": "Subagent model unavailable",
   "modelRanOnTitle": "Model route: {model}",
   "closeContinuable": "Release subagent",
-  "closeContinuableTitle": "Release this continuable subagent (free its resident handle)",
+  "closeContinuableTitle": "Release this Subagent Director child (free its resident handle); children started by other tools are not tracked",
   "closingContinuable": "Releasing…",
   "closedSubagent": "Released",
-  "confirmCloseContinuable": "Release continuable subagent “{id}”? It will stop being resident; you can no longer continue it with send_message.",
+  "confirmCloseContinuable": "Release Subagent Director child “{id}”? Only children started by this plugin in this process are tracked. A later send_message may cold-resume the session, but that new activation is not tracked here.",
   "closeFailed": "Release failed: {message}"
 };
 
@@ -228,9 +228,9 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "modelQueryFailed": "暂时无法获取子代理模型",
   "modelRanOnTitle": "模型路由：{model}",
   "closeContinuable": "终止可持续状态",
-  "closeContinuableTitle": "释放此可持续子代理（解除驻留句柄）",
+  "closeContinuableTitle": "释放本插件启动的可持续子代理（解除驻留句柄）；其他工具启动的子代理不受跟踪",
   "closingContinuable": "正在终止…",
   "closedSubagent": "已终止",
-  "confirmCloseContinuable": "终止可持续子代理“{id}”？终止后将不再驻留，无法再用 send_message 继续它。",
+  "confirmCloseContinuable": "终止本插件启动的可持续子代理“{id}”？只有本插件在当前进程中启动的子代理会被跟踪；之后仍可用 send_message 冷恢复，但新的 activation 不再由此处跟踪。",
   "closeFailed": "终止失败：{message}"
 };

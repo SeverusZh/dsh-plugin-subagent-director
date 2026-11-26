@@ -76,6 +76,7 @@ import {
   type RpcResult,
   type RpcError,
 } from './envelope.js';
+import { closeResident } from './resident-handles.js';
 
 /** Wire route path the bridge owns on the Host web server. */
 export { SUBAGENT_DIRECTOR_ROUTE_PATH as SUBAGENT_DIRECTOR_RPC_CHANNEL };
@@ -101,8 +102,6 @@ export interface BridgeDeps {
   settings: SettingsForms;
   /** Live agent registry (dsh-agent ctx.agents). */
   agents?: { get(id: SessionId): unknown };
-  /** Subagent service (dsh-subagent ctx.subagents). */
-  subagents?: { drainChildren(parent: unknown, childIds: readonly SessionId[]): Promise<void> };
   /** Unified session query (dsh-session-query ctx.sessionQuery). */
   sessionQuery?: { readSession(sessionId: SessionId): Promise<{ events: readonly unknown[] }> };
   /** Tool registry (dsh-tools ctx.tools), for the role tool-set catalog. */
@@ -495,8 +494,9 @@ export function dispatchSubagentTools(
  * Release one resident continuable child of an exact live parent (issue #1 UI
  * path). The parent agent is looked up by session id; when it is no longer
  * live its continuable children were released with it, which the client
- * surfaces as `subagent-parent-not-live`. A drain rejection (e.g. core
- * UNAUTHORIZED for a non-direct child) maps to `subagent-close-rejected`.
+ * surfaces as `session-not-found`. Only activations started and retained by
+ * this plugin instance are tracked; a host restart or another delegation tool
+ * leaves no receipt, which maps to `subagent-not-tracked`.
  */
 export async function dispatchSubagentClose(
   deps: BridgeDeps,
@@ -514,7 +514,7 @@ export async function dispatchSubagentClose(
       error: { code: 'bad-request', message: 'subagentClose: expected { parentSessionId, childSessionId }', details: { issues: [] } },
     };
   }
-  const parent = deps.agents?.get(SessionId(request.parentSessionId));
+  const parent = deps.agents?.get(SessionId(request.parentSessionId)) as { id: SessionId } | undefined;
   if (parent === undefined) {
     return {
       ok: false,
@@ -525,19 +525,33 @@ export async function dispatchSubagentClose(
       },
     };
   }
-  if (deps.subagents === undefined) {
-    return {
-      ok: false,
-      error: { code: 'internal', message: 'subagents service is not mounted', details: {} },
-    };
-  }
   try {
-    await deps.subagents.drainChildren(parent, [SessionId(request.childSessionId)]);
+    const outcome = await closeResident(String(parent.id), request.childSessionId);
+    if (outcome === 'not-tracked') {
+      return {
+        ok: false,
+        error: {
+          code: 'subagent-not-tracked',
+          message: 'child ' + request.childSessionId + ' was not started by this plugin instance; only resident continuable subagent_role children can be released',
+          details: {},
+        },
+      };
+    }
+    if (outcome === 'unauthorized') {
+      return {
+        ok: false,
+        error: {
+          code: 'subagent-close-rejected',
+          message: 'child ' + request.childSessionId + ' is not a direct child of agent ' + request.parentSessionId,
+          details: {},
+        },
+      };
+    }
   } catch (error) {
     return {
       ok: false,
       error: {
-        code: 'internal',
+        code: 'subagent-close-failed',
         message: error instanceof Error ? error.message : String(error),
         details: {},
       },
@@ -609,13 +623,12 @@ export function installDirectorRemoteBridge(
     return () => {};
   }
 
-  // agents/subagents/sessionQuery stay lazy (ctx.get) so the bridge keeps
-  // working in deployments where one of them is absent: the corresponding
-  // endpoints answer a structured error instead of crashing the route.
+  // agents/sessionQuery/tools stay lazy (ctx.get) so the bridge keeps working
+  // in deployments where one of them is absent: the corresponding endpoints
+  // answer a structured error instead of crashing the route.
   const deps: BridgeDeps = {
     settings,
     agents: ctx.get('agents') as BridgeDeps['agents'],
-    subagents: ctx.get('subagents') as BridgeDeps['subagents'],
     sessionQuery: ctx.get('sessionQuery') as BridgeDeps['sessionQuery'],
     tools: ctx.get('tools') as BridgeDeps['tools'],
     trustedHosts: config?.trustedHosts,
