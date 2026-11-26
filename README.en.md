@@ -17,6 +17,8 @@
 
 **Subagent Director** is an out-of-tree DeepSeek Harness plugin that lets you choose an LLM provider and model for subagents, and plan main-agent / subagent responsibilities through role templates.
 
+> **Latest release 0.7.0**: [npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.7.0) · [GitHub Release](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases/tag/v0.7.0)
+
 ---
 
 ## ✨ 功能特性 / Features
