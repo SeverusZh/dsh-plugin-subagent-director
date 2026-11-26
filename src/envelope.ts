@@ -25,6 +25,9 @@ export type BridgeRpcErrorCode =
   | 'settings-conflict'
   | 'settings-rejected'
   | 'session-not-found'
+  | 'subagent-not-tracked'
+  | 'subagent-close-rejected'
+  | 'subagent-close-failed'
   | 'internal';
 
 /**

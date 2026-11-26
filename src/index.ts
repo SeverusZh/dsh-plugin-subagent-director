@@ -25,6 +25,7 @@ import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 
 import { createDelegationTool } from './delegation-tool.js';
 import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
+import { forgetResident, clearResidentHandles } from './resident-handles.js';
 import { applyGuidance } from './guidance.js';
 import { applyOrchestrate } from './orchestrate.js';
 import { readDirectorSettings, installDirectorSettingsPage, createSettingsWarner, type DirectorSettingsHandles } from './settings.js';
@@ -115,10 +116,17 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   applyOrchestrate(ctx, getSettings, toolName);
 
   // ---- close_subagent tool ----------------------------------------------
-  // Provider-independent (drain is a global subagents operation), so it
-  // registers at mount time like the control tools; on a deployment without
-  // continuable children it is a safe no-op.
+  // Registers at mount time like the control tools. It releases only the
+  // activation receipts this plugin retains for its own continuable children;
+  // a target started elsewhere or before a host restart is rejected.
   ctx.effect(() => ctx.tools.register(createCloseSubagentTool({ ctx })), 'subagent-director: close_subagent tool');
+
+  // A disposed child may have been released by its parent/teardown instead of
+  // close_subagent; drop the stale receipt so the registry does not retain it.
+  ctx.on('agent/disposed', ({ agent }) => {
+    forgetResident(String(agent.id));
+  });
+  ctx.effect(() => () => clearResidentHandles(), 'subagent-director: resident receipts');
 
   // ---- delegation tool registration ------------------------------------
   if (typeof config.maxDepth === 'number') assertSubagentMaxDepth(config.maxDepth);

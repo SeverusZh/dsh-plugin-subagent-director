@@ -10,7 +10,7 @@
 [![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=node.js)](package.json)
 [![GitHub release](https://img.shields.io/github/v/release/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 [![GitHub stars](https://img.shields.io/github/stars/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director)
-[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.1%20%2F%20rc.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5%20%2F%200.2.3--alpha.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
 </div>
@@ -34,8 +34,9 @@
 - **配置界面** —— 插件详情页内可视化配置（插件列表 → dsh-plugin-subagent-director；默认模型 + 角色模板增删改），视觉与 DSH 官方设置页设计语言一致，亮暗主题通用；设置面板不再承载本插件配置；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
 - **释放可持续子代理** —— 模型可见工具 `close_subagent(subagent_id)` 与子代理会话
-  页的「终止可持续状态」按钮，主动释放已完成但仍驻留的 continuable 子代理
-  （内部调用 DSH 核心 `drainChildren`）；
+  页的「终止可持续状态」按钮，释放本插件启动并保留 activation 凭证的 continuable
+  子代理；只覆盖当前进程与当前 activation，send_message 冷恢复后的新 activation 不再跟踪；
+  DSH 0.2.2 起宿主不再提供按 id 关闭任意子代理的公开 API；
 - **可观测性** —— 打开子代理会话时，composer 下方显示其实际运行的供应商/模型
   （从会话 `request/header` 记录读取真实路由；读不到时优雅降级）；
 
@@ -189,22 +190,22 @@ DSH alpha.4 起，官方内置 subagent 的模型选择收敛到 `subagent-model
 
 ## 🧩 兼容性 / Compatibility
 
-DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines.dsh: ">=0.2.1-rc.1"`**，全部 `@deepseek-ai/dsh-*` peer 也收敛到 `>=0.2.1-rc.1`：
+DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines.dsh: ">=0.2.2-rc.2"`**，全部 `@deepseek-ai/dsh-*` peer 也收敛到 `>=0.2.2-rc.2`：
 
 | DSH 版本 | 状态 |
 | --- | --- |
-| 0.2.1-rc.1 | ✅ typecheck / 297 测试 / 构建 / 门禁 |
-| 0.2.1-rc.2 | ✅ 兼容门禁通过 |
+| 0.2.2-rc.5 | ✅ typecheck / 316 测试 / 构建 / 实机验证 |
+| 0.2.3-alpha.2 | ✅ typecheck / 316 测试 / 构建 / 实机验证 |
 
 > 只列出**实际跑过**的版本；未实测的不列。
 
-v0.6.0-beta.2 支持 DSH **0.2.1-rc.1+**。0.6.0-beta.1 把子代理接缝统一到 `startActivation` / `drainChildren`，并按官方方向把 persona 与工具组合迁移到 **Agent Preset**（角色模板新增 `agentPreset` 字段）；0.6.0-beta.2 在此基础上按 DSH 官方设计语言重做了设置界面（主题令牌、字号阶梯、统一卡片 / 按钮 / 开关 / 焦点环，亮暗主题一致），功能与协议不变。**破坏性**：0.1.x / 0.2.0-rc.1 仍不兼容，旧宿主请继续使用 **0.5.6**。
+v0.7.0 支持 DSH **0.2.2-rc.2+**，修复 0.2.2 扁平 activation spec 导致的委派崩溃与 `drainChildren` 移除后的关闭失效。**破坏性**：0.2.1-rc.x / 0.2.2-rc.1 请停留在插件 **0.6.0**。
 
 ## 🛠️ 开发 / Develop
 
 ```bash
 npm install
-npm test          # vitest（297 用例）
+npm test          # vitest（316 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```

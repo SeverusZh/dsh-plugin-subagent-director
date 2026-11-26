@@ -10,7 +10,7 @@
 [![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=node.js)](package.json)
 [![GitHub release](https://img.shields.io/github/v/release/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 [![GitHub stars](https://img.shields.io/github/stars/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director)
-[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.1%20%2F%20rc.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5%20%2F%200.2.3--alpha.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
 </div>
@@ -30,7 +30,7 @@
 - **Main-agent guidance** — the system prompt auto-injects the role list, so the main agent knows when to delegate to whom;
 - **Config UI** — visual configuration inside the plugin detail page (plugin list → dsh-plugin-subagent-director; default models + add/edit/remove role templates), styled with the official DSH design language for both light and dark themes; the settings panel no longer hosts this plugin's configuration;
 - **Continuable background** — returns a durable subagent id for ongoing delegation with send_message;
-- **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "terminate continuable state" button on the subagent session page, actively releasing completed but still-resident continuable subagents (internally calling DSH core's `drainChildren`);
+- **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "terminate continuable state" button on the subagent session page, releasing continuable subagents started by this plugin whose activation receipt is retained; this covers only the current process and activation, and a later send_message cold resume creates a new untracked activation; since DSH 0.2.2 the host no longer exposes a public per-child close API;
 - **Observability** — when a subagent session is opened, its actual provider/model is shown below the composer (the real route is read from the session's `request/header` records; graceful degradation when unavailable);
 
 ## 📦 安装 / Install
@@ -194,16 +194,16 @@ These are **two separate namespaces**; do not confuse them when configuring.
 
 ## 🧩 兼容性 / Compatibility
 
-Since DSH 0.2.1 the compatibility gate prefers `engines.dsh`. This plugin declares **`engines.dsh: ">=0.2.1-rc.1"`**, and every `@deepseek-ai/dsh-*` peer is likewise `>=0.2.1-rc.1`:
+Since DSH 0.2.1 the compatibility gate prefers `engines.dsh`. This plugin declares **`engines.dsh: ">=0.2.2-rc.2"`**, and every `@deepseek-ai/dsh-*` peer is likewise `>=0.2.2-rc.2`:
 
 | DSH version | Status |
 | --- | --- |
-| 0.2.1-rc.1 | ✅ typecheck / 297 tests / build / gate |
-| 0.2.1-rc.2 | ✅ gate |
+| 0.2.2-rc.5 | ✅ typecheck / 316 tests / build / live host |
+| 0.2.3-alpha.2 | ✅ typecheck / 316 tests / build / live host |
 
 > Only versions that were **actually run** are listed; untested versions are omitted.
 
-v0.6.0-beta.2 targets DSH **0.2.1-rc.1+**. 0.6.0-beta.1 unified the subagent seam on `startActivation` / `drainChildren` and migrated persona/tool composition to an independent Agent Preset, adding an `agentPreset` field to role templates; 0.6.0-beta.2 rebuilds the settings UI on the official DSH design language (theme tokens, type scale, unified cards / buttons / switches / focus rings, light and dark themes), with no functional or protocol change. **Breaking**: 0.1.x / 0.2.0-rc.1 remain unsupported; use **0.5.6** on older hosts.
+v0.7.0 targets DSH **0.2.2-rc.2+** and fixes the delegation crash caused by the 0.2.2 flat activation spec and the broken close path after `drainChildren` removal. **Breaking**: DSH 0.2.1-rc.x / 0.2.2-rc.1 users should stay on plugin **0.6.0**.
 
 ## 🛠️ 开发 / Develop
 

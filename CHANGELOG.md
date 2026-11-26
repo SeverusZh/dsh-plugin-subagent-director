@@ -2,6 +2,43 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.7.0 - 2026-11-26
+
+### 修复
+
+- **DSH 0.2.2+ 委派必崩（#19）**：DSH 0.2.2-rc.2 起 `SubagentActivationSpec`
+  把 `prompt` / `parent` / `agentPreset` / `maxDepth` 扁平化到 spec 顶层，删除
+  了 `request` 包装。前台 caller 与后台 parent 两处 `startActivation` 改为展开
+  整份 request，修复 `Cannot read properties of undefined (reading 'id')`，并让
+  Agent Preset、maxDepth 与模型路由重新生效。
+- **close_subagent 在 0.2.2+ 不可用**：`drainChildren` 已从宿主移除。
+  `startActivation` 返回的 `SubagentActivation` 是唯一公开的单子代理关闭凭证；
+  插件现在保留自己启动的每个 continuable activation，`close_subagent` 与 Web
+  会话页释放按钮按 child id dispose 对应 activation，并校验直接父代理。
+  `agent/disposed` 会同步清理已由宿主回收的收据，避免长期驻留泄漏。释放只覆盖
+  当前进程与当前 activation；`send_message` 冷恢复会创建新的、不再由本插件跟踪的
+  activation。
+- **真实宿主契约测试**：新增测试直接调用安装的 `SubagentRuntime.startActivation`，
+  覆盖旧的 `request` 形状被拒绝、扁平形状保留 prompt/parent/preset/maxDepth。
+  旧测试只 mock 了删除后的契约，因而无法发现这次漂移。
+- **依赖对齐**：`@deepseek-ai/cordis` 对齐到 `~4.2.0-alpha.1`，
+  `@deepseek-ai/schemastery` 对齐到 `3.20.0-alpha.1`，`zod` 对齐到 `4.6.6`；
+  devDependencies 固定到 `0.2.3-alpha.2`。
+
+### 变更
+
+- **兼容下限收紧**：`engines.dsh` 改为 `>=0.2.2-rc.2`，`dshReleases` 记录
+  `0.2.2-rc.5` 与 `0.2.3-alpha.2`。`dshReleases` 不参与宿主运行时门禁，真正
+  阻止旧宿主加载的是 `engines.dsh`。
+- **close_subagent 语义收窄**：宿主不再提供按 id 关闭任意 direct child 的公开
+  API；工具只释放本插件进程内启动并保留 receipt 的 continuable 子代理。
+  主机重启、插件重载或由其他工具启动的子代理会返回 `subagent-not-tracked`，
+  而不是静默假装关闭。
+
+### 破坏性
+
+- 不再支持 DSH `0.2.1-rc.x` 与 `0.2.2-rc.1`；请停留在插件 `0.6.0`。
+
 ## 0.6.0 - 2026-11-04
 
 ### 新增

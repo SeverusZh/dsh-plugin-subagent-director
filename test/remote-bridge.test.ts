@@ -9,7 +9,7 @@
  */
 import { EventEmitter } from 'node:events';
 import type { ServerResponse } from 'node:http';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   SettingsConflictError,
   type SettingsDescriptor,
@@ -28,6 +28,7 @@ import {
   latestRequestHeaderModel,
 } from '../src/remote.js';
 import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE, SUBAGENT_MODEL_SELECTION_NAMESPACE } from '../src/settings.js';
+import { clearResidentHandles, trackResident } from '../src/resident-handles.js';
 
 const NS = SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE;
 
@@ -567,26 +568,31 @@ describe('dispatchSubagentClose', () => {
   const closeDeps = (overrides: Partial<import('../src/remote.js').BridgeDeps> = {}) => ({
     settings: { writable: true, describe: () => [], mutate: async () => {} } as never,
     agents: { get: () => ({ id: 'parent-1' }) },
-    subagents: { drainChildren: async () => {} },
     ...overrides,
   });
 
-  it('drains the resolved parent with the child id and returns closed', async () => {
-    const calls: unknown[][] = [];
-    const deps = closeDeps({
-      subagents: {
-        drainChildren: async (...args: unknown[]) => {
-          calls.push(args);
-        },
-      },
-    });
-    const result = await dispatchSubagentClose(deps as never, {
+  const activation = (childId: string, dispose: () => Promise<void> = async () => {}) =>
+    ({
+      childId,
+      name: childId,
+      messageId: 'message-1',
+      result: Promise.resolve({ stopReason: 'completed', output: [] }),
+      dispose,
+    }) as never;
+
+  beforeEach(() => {
+    clearResidentHandles();
+  });
+
+  it('disposes the tracked activation and returns closed', async () => {
+    const dispose = vi.fn(async () => {});
+    trackResident('parent-1', activation('child-9', dispose));
+    const result = await dispatchSubagentClose(closeDeps() as never, {
       parentSessionId: 'parent-1',
       childSessionId: 'child-9',
     });
     expect(result).toEqual({ ok: true, value: { closed: true } });
-    expect(calls).toHaveLength(1);
-    expect(String(calls[0][1][0])).toBe('child-9');
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it('rejects with session-not-found when the parent agent is not live', async () => {
@@ -599,22 +605,37 @@ describe('dispatchSubagentClose', () => {
     if (!result.ok) expect(result.error.code).toBe('session-not-found');
   });
 
-  it('rejects with internal when the drain rejects (e.g. non-direct child)', async () => {
-    const deps = closeDeps({
-      subagents: {
-        drainChildren: async () => {
-          throw new Error('subagent "other" is not a direct child of agent "parent-1"');
-        },
-      },
-    });
-    const result = await dispatchSubagentClose(deps as never, {
+  it('rejects an untracked child with subagent-not-tracked', async () => {
+    const result = await dispatchSubagentClose(closeDeps() as never, {
       parentSessionId: 'parent-1',
       childSessionId: 'other',
     });
     expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('subagent-not-tracked');
+  });
+
+  it('rejects a child recorded under another parent with subagent-close-rejected', async () => {
+    trackResident('parent-2', activation('child-9'));
+    const result = await dispatchSubagentClose(closeDeps() as never, {
+      parentSessionId: 'parent-1',
+      childSessionId: 'child-9',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('subagent-close-rejected');
+  });
+
+  it('maps an activation disposal failure to subagent-close-failed', async () => {
+    trackResident('parent-1', activation('child-9', async () => {
+      throw new Error('teardown failed');
+    }));
+    const result = await dispatchSubagentClose(closeDeps() as never, {
+      parentSessionId: 'parent-1',
+      childSessionId: 'child-9',
+    });
+    expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('internal');
-      expect(result.error.message).toContain('not a direct child');
+      expect(result.error.code).toBe('subagent-close-failed');
+      expect(result.error.message).toContain('teardown failed');
     }
   });
 

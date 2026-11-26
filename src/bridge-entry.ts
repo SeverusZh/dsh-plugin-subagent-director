@@ -48,11 +48,10 @@ export const Config = z.object({
 });
 
 /** Required services: webServer (route owner), settings (data seam), and the
- * agent/subagent services backing the subagentClose endpoint (drain needs the
- * exact live parent Agent). agents/subagents are dsh-base-level services that
- * every profile mounts; headless profiles never activate this entry because
+ * live agent registry backing the subagentClose endpoint (the exact parent is
+ * resolved by session id). Headless profiles never activate this entry because
  * webServer is absent. */
-export const inject = ['webServer', 'settings', 'agents', 'subagents'];
+export const inject = ['webServer', 'settings', 'agents'];
 
 /** Register the settings bridge route; dispose on unload. */
 export function apply(ctx: Context, config: BridgeConfig = {}): void {
