@@ -217,7 +217,7 @@ DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines
 | DSH 版本 | 状态 |
 | --- | --- |
 | 0.2.2-rc.5 | ✅ 兼容声明（0.8.0 基线；本轮未在该运行时复验） |
-| 0.2.3-alpha.2 | ✅ typecheck / 338 测试 / 构建 / 既有 Cordis 探针 |
+| 0.2.3-alpha.2 | ✅ typecheck / 340 测试 / 构建 / 既有 Cordis 探针 |
 
 > 只列出**实际跑过**的版本；未实测的不列。
 
@@ -227,7 +227,7 @@ v0.7.0 支持 DSH **0.2.2-rc.2+**，修复 0.2.2 扁平 activation spec 导致�
 
 ```bash
 npm install
-npm test          # vitest（338 用例）
+npm test          # vitest（340 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```

@@ -17,6 +17,7 @@
     "lib",
     "CHANGELOG.md",
     "cordis.patch.yml",
+    "locale/*.json",
     "docs/assets/screenshots",
     "docs/character-cards.md",
     "docs/director-mode.md"
@@ -38,6 +39,7 @@
       "default": "./lib/client/index.js"
     },
     "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
     "./bridge": {
       "types": "./lib/bridge-entry.d.ts",
       "default": "./lib/bridge-entry.js"
