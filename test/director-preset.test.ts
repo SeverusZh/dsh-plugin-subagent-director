@@ -24,7 +24,7 @@ const WORK_TOOLS = [
 describe('Director preset composition', () => {
   it('declares a real preset that contributes no work tools', () => {
     expect(DIRECTOR_PRESET.id).toBe(DIRECTOR_PRESET_ID);
-    expect(DIRECTOR_PRESET.name).toBe('Director Mode');
+    expect(DIRECTOR_PRESET.name).toBe('导演模式');
     expect(DIRECTOR_PRESET.plugins.map((entry) => entry.name)).toEqual(
       expect.arrayContaining(['@deepseek-ai/dsh-persona', '@deepseek-ai/dsh-tool-ask-user']),
     );

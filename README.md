@@ -162,7 +162,8 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
 ## 🎬 Director 模式 / Director Mode
 
 Director Mode 是 0.8.5 引入的 **Agent Preset**，不再是命令或工具。在会话预设中选择
-「Director Mode」即可进入。
+「导演模式」即可进入。DSH 不会对第三方预设的 `name` / `description` 做运行时翻译，
+因此菜单统一显示插件声明的中文名称。
 
 - 主代理只保留编排面工具：`subagent_role`、`subagent_card_create`、`close_subagent`、
   `list_agents` / `send_message` / `wait_agent`、`ask_user_question` 与 Agent Teams

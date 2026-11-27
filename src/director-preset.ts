@@ -54,9 +54,11 @@ const COMPACTION_GROUP: DirectorPresetEntry = {
 /** The Director Mode composition. */
 export const DIRECTOR_PRESET: DirectorPresetDefinition = {
   id: DIRECTOR_PRESET_ID,
-  name: 'Director Mode',
-  description:
-    'Orchestration-only mode: the main agent plans and delegates, every subagent is card-bound, and Agent Teams is on by default.',
+  // Third-party preset metadata is not translated by the host roster: the
+  // declared strings are what every locale displays. Keep the Chinese-facing
+  // product copy here, matching the built-in preset labels.
+  name: '导演模式',
+  description: '纯编排模式：主代理只做规划与委派，所有子代理必须由角色卡唤起，默认开启 Agent Teams。',
   order: 5,
   plugins: [
     {

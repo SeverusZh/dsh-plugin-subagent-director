@@ -133,6 +133,7 @@ export type SubagentDirectorKey =
   | 'cardProvider'
   | 'cardModelId'
   | 'cardReasoningEffort'
+  | 'modelAdvisory'
   | 'cardAgentPreset'
   | 'cardAgentPresetHint'
   | 'cardPrompts'
@@ -369,6 +370,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "cardProvider": "Provider",
   "cardModelId": "Model",
   "cardReasoningEffort": "Reasoning effort",
+  "modelAdvisory": "advisory",
   "cardAgentPreset": "Agent Preset",
   "cardAgentPresetHint": "Optional DSH preset for tool composition. Leave empty to inherit.",
   "cardPrompts": "Fixed role prompt",
@@ -606,6 +608,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "cardProvider": "供应商",
   "cardModelId": "模型",
   "cardReasoningEffort": "推理强度",
+  "modelAdvisory": "仅供参考",
   "cardAgentPreset": "Agent Preset",
   "cardAgentPresetHint": "可选的 DSH 预设，用于工具组合；留空则继承。",
   "cardPrompts": "固定角色提示词",

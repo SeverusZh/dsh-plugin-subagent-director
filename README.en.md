@@ -157,7 +157,9 @@ the same page; clearing the legacy settings fields is recommended after migratio
 ## 🎬 Director Mode
 
 Director Mode is an **Agent Preset** introduced in 0.8.5; it is no longer a command or a
-tool. Select "Director Mode" as the session preset to enter it.
+tool. Select 「导演模式」 as the session preset to enter it. DSH does not translate
+third-party preset metadata at runtime, so the declared Chinese label is shown in every
+locale.
 
 - The main agent keeps only orchestration tools: `subagent_role`, `subagent_card_create`,
   `close_subagent`, `list_agents` / `send_message` / `wait_agent`, `ask_user_question`,

@@ -344,7 +344,7 @@ export function CardEditor(props: CardEditorProps): JSX.Element | null {
                   id="sd-card-effort"
                   className="sd-input"
                   value={draft.reasoningEffort}
-                  placeholder={modelSelectionEnabled ? '' : '(advisory)'}
+                  placeholder={modelSelectionEnabled ? '' : t('modelAdvisory')}
                   onChange={(event) => set('reasoningEffort', event.target.value)}
                 />
               </div>
