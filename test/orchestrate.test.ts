@@ -32,8 +32,8 @@ const settings = {
 describe('renderOrchestratorRoles', () => {
   it('tells the user to configure roles when none are set', () => {
     const text = renderOrchestratorRoles({}, 'subagent_role');
-    expect(text).toContain('No Subagent Director roles are configured');
-    expect(text).toContain('subagent-director.roles');
+    expect(text).toContain('No Subagent Director character cards are configured');
+    expect(text).toContain('character cards');
   });
 
   it('lists each configured role by id with its delegate line', () => {
@@ -60,7 +60,7 @@ describe('renderOrchestratorPrompt', () => {
 
   it('injects the empty-roles notice when settings have no roles', () => {
     const text = renderOrchestratorPrompt({}, 'subagent_role');
-    expect(text).toContain('No Subagent Director roles are configured');
+    expect(text).toContain('No Subagent Director character cards are configured');
   });
 });
 

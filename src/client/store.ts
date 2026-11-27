@@ -1,16 +1,16 @@
 /**
- * Subagent Director settings page store: one snapshot joining the authorized
- * Subagent model-selection allowlist (the official `subagent-model-selection`
- * section), the plugin's own settings namespace, and the model-visible tool
- * catalog. The settings namespace and the allowlist are read through the
- * plugin's self-published `/subagent-director` RPC channel (see ../remote.ts)
- * because the Host apiproxy's exposedNamespaces() allowlist answers
- * `settings-not-exposed` for namespaces outside the model-provider plane, and
- * the alpha.4 client no longer has a full llm catalog RPC. The host stays the
- * single fact source: every write travels as path ops through the bridge's
- * settingsMutate endpoint with an expectedRevision optimistic lock, and pushed
- * invalidations (settings/document-updated, llm/adapters-updated,
- * connection/reset) refresh the page.
+ * Character-card settings page store.
+ *
+ * One snapshot joins four host facts: the plugin's own settings namespace
+ * (default model), the official Subagent model-selection allowlist, the
+ * model-visible tool catalog, and the character-card library served by the
+ * self-published `/subagent-director` bridge. Card writes never travel through
+ * the public settings namespace: they call the card endpoints, which update the
+ * independent per-card storage domain.
+ *
+ * Every write reloads the acknowledged library from the Host, so the page never
+ * invents a local truth. Pushed invalidations (settings/document-updated,
+ * llm/adapters-updated, connection/reset) refresh the whole snapshot.
  */
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client';
 import type { SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-settings/types';
@@ -18,37 +18,58 @@ import {
   SUBAGENT_DIRECTOR_RPC_CHANNEL,
   SUBAGENT_DIRECTOR_RPC_VIEW,
   SUBAGENT_DIRECTOR_RPC_MUTATE,
-  SUBAGENT_DIRECTOR_RPC_TOOLS,
   SUBAGENT_DIRECTOR_RPC_CATALOG,
+  SUBAGENT_DIRECTOR_RPC_CARDS,
+  SUBAGENT_DIRECTOR_RPC_CARD_PUT,
+  SUBAGENT_DIRECTOR_RPC_CARD_DELETE,
+  SUBAGENT_DIRECTOR_RPC_CARD_DEFAULT,
+  SUBAGENT_DIRECTOR_RPC_CARD_IMPORT,
+  SUBAGENT_DIRECTOR_RPC_CARD_EXPORT,
+  SUBAGENT_DIRECTOR_RPC_CARD_MIGRATE,
+  SUBAGENT_DIRECTOR_RPC_CARD_BATCH,
   type DirectorAllowedRoute,
+  type DirectorCardBatchRequest,
+  type DirectorCardBatchSuccess,
+  type DirectorCardDefaultRequest,
+  type DirectorCardDeleteRequest,
+  type DirectorCardExportRequest,
+  type DirectorCardExportSuccess,
+  type DirectorCardImportRequest,
+  type DirectorCardImportSuccess,
+  type DirectorCardMigrateRequest,
+  type DirectorCardMigrateSuccess,
+  type DirectorCardPutRequest,
+  type DirectorCardPutSuccess,
   type DirectorCatalogSuccess,
-  type DirectorToolsSuccess,
   type DirectorViewSuccess,
 } from '../bridge-contract.js';
+import type {
+  CardImportResult,
+  CardImportStrategy,
+  CardLibrarySnapshot,
+  CardMigrationResult,
+  CardStorageStatus,
+  CharacterCard,
+  CharacterCardBundle,
+} from '../card-types.js';
 import type { SubagentDirectorKey } from './locales.js';
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store';
 import {
-  addRoleOps,
   classifyMutateError,
   defaultModelOps,
-  removeRoleOps,
   restoreDefaultsOps,
-  setDefaultRoleOps,
-  updateRoleOps,
   type DefaultModelEdits,
   type MutationErrorKind,
-  type RoleDraft,
-  type StoredRole,
   type StoredSection,
 } from './store-logic.js';
 
-/** The settings namespace this page reads and writes. */
+/** The settings namespace this page reads and writes for default model fields. */
 export const SUBAGENT_DIRECTOR_NS = 'subagent-director';
 
-/** Page snapshot rendered by the section component. */
+/** Card-library snapshot held by the page. */
 export interface SubagentOptionsState {
   status: 'idle' | 'loading' | 'ready' | 'error';
-  /** Whole-load failure text; write failures stay in the calling card. */
+  /** Whole-load failure text; write failures stay in the calling surface. */
   error: string | null;
   /** Whether the settings provider accepts writes. */
   writable: boolean;
@@ -56,20 +77,23 @@ export interface SubagentOptionsState {
   namespace: SettingsNamespaceView | undefined;
   /** The plugin's own user-layer section, cast to its known shape. */
   section: StoredSection | undefined;
-  /** Current expectedRevision for the next mutate. */
+  /** Current expectedRevision for the next settings mutate. */
   revision: number;
   /** Whether the official Subagent model selection is enabled. */
   modelSelectionEnabled: boolean;
-  /**
-   * The authorized exact routes — the ONLY selectable provider/model pairs.
-   * Empty when the official selection is off or no model is authorized yet;
-   * the page then shows the "no authorized models" notice and the host-side
-   * resolver inherits the parent model.
-   */
+  /** Authorized exact routes; the only selectable provider/model pairs. */
   allowedRoutes: readonly DirectorAllowedRoute[];
-  /** Distinct model-visible tool names for role tool-set editing. */
-  tools: readonly string[];
-  /** The plugin name surfaced to the section. */
+  /** Character cards as acknowledged by the Host. */
+  cards: CharacterCard[];
+  /** Default card id stored in the card domain. */
+  defaultCardId: string | undefined;
+  /** Legacy settings role ids that still exist. */
+  legacyRoles: string[];
+  /** Legacy settings default role id. */
+  legacyDefaultRole: string | undefined;
+  /** Availability of the independent card storage. */
+  cardStorage: CardStorageStatus;
+  /** First-load indicator. */
   loading: boolean;
 }
 
@@ -84,7 +108,11 @@ export function initialSubagentOptionsState(): SubagentOptionsState {
     revision: 0,
     modelSelectionEnabled: false,
     allowedRoutes: [],
-    tools: [],
+    cards: [],
+    defaultCardId: undefined,
+    legacyRoles: [],
+    legacyDefaultRole: undefined,
+    cardStorage: { state: 'unavailable' },
     loading: false,
   };
 }
@@ -95,111 +123,118 @@ export function messageOf(error: unknown): string {
   return typeof error === 'string' ? error : String(error);
 }
 
-/**
- * Raised when the /subagent-director bridge channel is not reachable on the
- * current transport (a Host that predates the bridge answers nothing). The
- * store surfaces this as the localized `bridgeUnavailable` copy instead of a
- * raw transport string.
- */
+/** Raised when the /subagent-director bridge channel is not reachable. */
 export class BridgeUnavailableError extends Error {
   constructor() {
-    super('Subagent Director settings bridge (/subagent-director) is not available on this server');
+    super('Subagent Director bridge (/subagent-director) is not available on this server');
   }
 }
 
-/** Whether a thrown value means the bridge channel could not be called at all. */
+/** Whether a thrown value means the bridge channel could not be called. */
 export function isBridgeUnavailable(error: unknown): boolean {
   return error instanceof BridgeUnavailableError;
 }
 
-/** Wire faces the settings page needs: the bridge RPC caller and copy. */
+/** Wire faces the page needs. */
 export interface StoreWire {
-  /** Generic RPC caller for the self-published /subagent-director channel. */
   rpc: ClientConnectionRpc;
-  /** Section copy binder (for the localized bridge-unavailable message). */
   t: (key: SubagentDirectorKey) => string;
 }
 
-/** The settings page controller (one per settings surface). */
+/** Generic card action outcome with the host's message preserved. */
+export type CardActionResult<T> = { ok: true; value: T } | { ok: false; message: string };
+
+/** Outcome of one card import/export/migration action. */
+export type CardImportOutcome = CardActionResult<CardImportResult>;
+/** Export outcome. */
+export type CardExportOutcome = CardActionResult<CharacterCardBundle>;
+/** Migration outcome. */
+export type CardMigrationOutcome = CardActionResult<{
+  result: CardMigrationResult;
+  cleared: boolean;
+  clearError?: string;
+}>;
+
+/** The settings page controller. */
 export class SubagentOptionsStore {
   readonly store: SnapshotStore<SubagentOptionsState>;
   private readonly wire: StoreWire;
   private generation = 0;
-  /** Last session id used for the tool catalog (reused by refreshes). */
-  private lastSessionId: string | undefined;
 
   constructor(wire: StoreWire) {
     this.wire = wire;
     this.store = createSnapshotStore<SubagentOptionsState>(initialSubagentOptionsState());
   }
 
-  /**
-   * Call one bridge endpoint over the generic RPC channel. Returns the RpcResult
-   * (ok or error branch). A transport-level rejection — the Host has no
-   * /subagent-director channel — is folded into BridgeUnavailableError so the
-   * caller can show the localized message.
-   */
-  private async callBridge<T>(endpoint: string, payload?: unknown): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+  private async callBridge<T>(
+    endpoint: string,
+    payload?: unknown,
+  ): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
     let result;
     try {
       result = (await this.wire.rpc.call(SUBAGENT_DIRECTOR_RPC_CHANNEL, endpoint, payload)) as
         | { ok: true; value: T }
         | { ok: false; error: { code?: string; message?: string } };
-    } catch (error) {
+    } catch {
       throw new BridgeUnavailableError();
     }
-    if (!result.ok) {
-      return { ok: false, error: result.error };
-    }
+    if (!result.ok) return { ok: false, error: result.error };
     return { ok: true, value: result.value };
   }
 
-  /** Refresh the whole page snapshot: provider directory + model catalog + own namespace. */
-  async load(sessionId?: string): Promise<void> {
+  /** One card call, flattening a failure into a localizable message. */
+  private async callCard<T>(endpoint: string, payload?: unknown): Promise<CardActionResult<T>> {
+    try {
+      const result = await this.callBridge<T>(endpoint, payload);
+      if (!result.ok) return { ok: false, message: this.errorMessage(result.error) };
+      return { ok: true, value: result.value };
+    } catch (error) {
+      return { ok: false, message: isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : messageOf(error) };
+    }
+  }
+
+  /** Refresh the whole page snapshot. */
+  async load(): Promise<void> {
     const generation = ++this.generation;
-    if (sessionId !== undefined) this.lastSessionId = sessionId;
-    const effectiveSessionId = this.lastSessionId;
     this.store.update((s) => {
       s.status = 'loading';
       s.error = null;
       s.loading = true;
     });
     try {
-      // The catalog is best-effort like the tool list: a bridge without the
-      // endpoint degrades to "no allowlist" (inherits the parent model), never
-      // blocks the page.
-      const [viewResult, catalogResult, toolsResult] = await Promise.all([
+      const [viewResult, catalogResult, cardsResult] = await Promise.all([
         this.callBridge<DirectorViewSuccess>(SUBAGENT_DIRECTOR_RPC_VIEW),
         this.callBridge<DirectorCatalogSuccess>(SUBAGENT_DIRECTOR_RPC_CATALOG).catch(() => ({
           ok: false as const,
           error: { code: 'internal', message: 'model-selection catalog unavailable' },
         })),
-        // Passing the current session id lets the Host enumerate the agent's
-        // FULL tool view (preset tools like bash/read/write live in the agent
-        // scope, not the global registry).
-        this.callBridge<DirectorToolsSuccess>(SUBAGENT_DIRECTOR_RPC_TOOLS, { sessionId: effectiveSessionId }).catch(() => ({
+        this.callBridge<CardLibrarySnapshot>(SUBAGENT_DIRECTOR_RPC_CARDS).catch(() => ({
           ok: false as const,
-          error: { code: 'internal', message: 'tool catalog unavailable' },
+          error: { code: 'internal', message: 'card library unavailable' },
         })),
       ]);
       if (!viewResult.ok) throw new Error(this.errorMessage(viewResult.error));
       if (generation !== this.generation) return;
       const view = viewResult.value.view;
       const section = (view?.value ?? {}) as StoredSection;
-      const writable = viewResult.value.writable;
       const catalog = catalogResult.ok ? catalogResult.value : { modelSelectionEnabled: false, allowedRoutes: [] };
-      const tools = toolsResult.ok ? toolsResult.value.tools : [];
       this.store.update((s) => {
         s.status = 'ready';
         s.error = null;
-        s.writable = writable;
+        s.writable = viewResult.value.writable;
         s.modelSelectionEnabled = catalog.modelSelectionEnabled;
         s.allowedRoutes = catalog.allowedRoutes;
-        s.tools = tools;
         s.namespace = view;
         s.section = section;
         s.revision = view?.revision ?? 0;
         s.loading = false;
+        if (cardsResult.ok) {
+          this.applyLibraryTo(s, cardsResult.value);
+        } else {
+          s.cards = [];
+          s.legacyRoles = [];
+          s.cardStorage = { state: 'error', message: this.errorMessage(cardsResult.error) };
+        }
       });
     } catch (error) {
       if (generation !== this.generation) return;
@@ -211,7 +246,18 @@ export class SubagentOptionsStore {
     }
   }
 
-  /** Human text for a bridge RPC error branch. */
+  private applyLibraryTo(state: SubagentOptionsState, library: CardLibrarySnapshot): void {
+    state.cards = library.cards;
+    state.defaultCardId = library.defaultCardId;
+    state.legacyRoles = library.legacyRoles;
+    state.legacyDefaultRole = library.legacyDefaultRole;
+    state.cardStorage = library.storage;
+  }
+
+  private commitLibrary(library: CardLibrarySnapshot): void {
+    this.store.update((s) => this.applyLibraryTo(s, library));
+  }
+
   private errorMessage(error: unknown): string {
     if (error !== null && typeof error === 'object' && 'message' in error) {
       const message = (error as { message?: string }).message;
@@ -220,19 +266,96 @@ export class SubagentOptionsStore {
     return messageOf(error);
   }
 
-  /**
-   * Run one mutate and update the snapshot's revision. Returns a failure
-   * message (localized by the caller) or undefined on success. A
-   * settings-conflict re-reads the namespace and returns the conflict kind so
-   * the UI can show the "please review and retry" message.
-   */
+  // ---- character cards ----------------------------------------------------
+
+  /** Refresh only the card library. */
+  async refreshCards(): Promise<void> {
+    const result = await this.callCard<CardLibrarySnapshot>(SUBAGENT_DIRECTOR_RPC_CARDS);
+    if (result.ok) this.commitLibrary(result.value);
+  }
+
+  /** Create or update one card. */
+  async saveCard(card: CharacterCard, create: boolean): Promise<string | undefined> {
+    const payload: DirectorCardPutRequest = { card, create };
+    const result = await this.callCard<DirectorCardPutSuccess>(SUBAGENT_DIRECTOR_RPC_CARD_PUT, payload);
+    if (!result.ok) return result.message;
+    this.commitLibrary(result.value.library);
+    return undefined;
+  }
+
+  /** Delete one or more cards. */
+  async deleteCards(ids: readonly string[]): Promise<string | undefined> {
+    const payload: DirectorCardDeleteRequest = { ids: [...ids] };
+    const result = await this.callCard<{ library: CardLibrarySnapshot }>(SUBAGENT_DIRECTOR_RPC_CARD_DELETE, payload);
+    if (!result.ok) return result.message;
+    this.commitLibrary(result.value.library);
+    return undefined;
+  }
+
+  /** Set or clear the default card. */
+  async setDefaultCard(id: string | undefined): Promise<string | undefined> {
+    const payload: DirectorCardDefaultRequest = id === undefined ? {} : { id };
+    const result = await this.callCard<{ library: CardLibrarySnapshot }>(SUBAGENT_DIRECTOR_RPC_CARD_DEFAULT, payload);
+    if (!result.ok) return result.message;
+    this.commitLibrary(result.value.library);
+    return undefined;
+  }
+
+  /** Enable/disable/delete a card selection. */
+  async batchCards(action: DirectorCardBatchRequest['action'], ids: readonly string[]): Promise<string | undefined> {
+    const payload: DirectorCardBatchRequest = { action, ids: [...ids] };
+    const result = await this.callCard<DirectorCardBatchSuccess>(SUBAGENT_DIRECTOR_RPC_CARD_BATCH, payload);
+    if (!result.ok) return result.message;
+    this.commitLibrary(result.value.library);
+    return undefined;
+  }
+
+  /** Import a portable payload under the chosen conflict strategy. */
+  async importCards(payload: unknown, strategy: CardImportStrategy): Promise<CardImportOutcome> {
+    const request: DirectorCardImportRequest = { payload, strategy };
+    const result = await this.callCard<DirectorCardImportSuccess>(SUBAGENT_DIRECTOR_RPC_CARD_IMPORT, request);
+    if (!result.ok) return result;
+    this.commitLibrary(result.value.library);
+    return { ok: true, value: result.value.result };
+  }
+
+  /** Export all cards or a selection. */
+  async exportCards(ids?: readonly string[]): Promise<CardExportOutcome> {
+    const request: DirectorCardExportRequest = ids === undefined ? {} : { ids: [...ids] };
+    const result = await this.callCard<DirectorCardExportSuccess>(SUBAGENT_DIRECTOR_RPC_CARD_EXPORT, request);
+    if (!result.ok) return result;
+    return { ok: true, value: result.value.bundle };
+  }
+
+  /** Migrate legacy settings roles; optionally clear the legacy fields. */
+  async migrateLegacy(clearLegacy: boolean): Promise<CardMigrationOutcome> {
+    const request: DirectorCardMigrateRequest = { clearLegacy };
+    const result = await this.callCard<DirectorCardMigrateSuccess>(SUBAGENT_DIRECTOR_RPC_CARD_MIGRATE, request);
+    if (!result.ok) return result;
+    this.commitLibrary(result.value.library);
+    if (result.value.cleared) await this.reloadNamespace();
+    return {
+      ok: true,
+      value: {
+        result: result.value.result,
+        cleared: result.value.cleared,
+        ...(result.value.clearError !== undefined ? { clearError: result.value.clearError } : {}),
+      },
+    };
+  }
+
+  // ---- default model settings ---------------------------------------------
+
   private async mutate(ops: SettingsPathOpView[]): Promise<MutationOutcome> {
     const state = this.store.getSnapshot();
     const ns = SUBAGENT_DIRECTOR_NS;
-    const revision = state.revision;
     let result;
     try {
-      result = await this.callBridge<SettingsNamespaceView>(SUBAGENT_DIRECTOR_RPC_MUTATE, { ns, ops, expectedRevision: revision });
+      result = await this.callBridge<SettingsNamespaceView>(SUBAGENT_DIRECTOR_RPC_MUTATE, {
+        ns,
+        ops,
+        expectedRevision: state.revision,
+      });
     } catch (error) {
       return {
         ok: false,
@@ -244,7 +367,6 @@ export class SubagentOptionsStore {
       const admitted = result.value;
       this.store.update((s) => {
         s.revision = admitted.revision;
-        // Refresh the cached section/namespace from the acknowledged view.
         s.namespace = admitted;
         s.section = (admitted.value ?? {}) as StoredSection;
       });
@@ -253,11 +375,7 @@ export class SubagentOptionsStore {
     const code = this.errorCode(result.error);
     const message = this.errorMessage(result.error);
     const kind = classifyMutateError(code, message);
-    if (kind === 'conflict') {
-      // Re-read the authoritative namespace so the user reviews fresh values.
-      await this.reloadNamespace();
-      return { ok: false, kind, message };
-    }
+    if (kind === 'conflict') await this.reloadNamespace();
     return { ok: false, kind, message };
   }
 
@@ -278,34 +396,12 @@ export class SubagentOptionsStore {
     }
   }
 
-  /** Error code of a bridge RPC error branch, when present. */
   private errorCode(error: unknown): string | undefined {
     if (error !== null && typeof error === 'object' && 'code' in error) {
       const code = (error as { code?: unknown }).code;
       return typeof code === 'string' ? code : undefined;
     }
     return undefined;
-  }
-
-  async addRole(id: string, draft: RoleDraft): Promise<string | undefined> {
-    const result = await this.mutate(addRoleOps(id, draft));
-    return result.ok ? undefined : result.message;
-  }
-
-  async updateRole(id: string, before: StoredRole | undefined, draft: RoleDraft): Promise<string | undefined> {
-    const result = await this.mutate(updateRoleOps(id, before, draft));
-    return result.ok ? undefined : result.message;
-  }
-
-  async removeRole(id: string): Promise<string | undefined> {
-    const state = this.store.getSnapshot();
-    const result = await this.mutate(removeRoleOps(id, { defaultRole: state.section?.defaultRole }));
-    return result.ok ? undefined : result.message;
-  }
-
-  async setDefaultRole(id: string): Promise<string | undefined> {
-    const result = await this.mutate(setDefaultRoleOps(id));
-    return result.ok ? undefined : result.message;
   }
 
   async setDefaultModel(edits: DefaultModelEdits): Promise<string | undefined> {
@@ -321,7 +417,7 @@ export class SubagentOptionsStore {
   }
 }
 
-/** Outcome of one write so the UI can pick the right message. */
+/** Outcome of one settings write. */
 export interface MutationOutcome {
   ok: boolean;
   kind: MutationErrorKind;

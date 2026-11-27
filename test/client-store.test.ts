@@ -175,7 +175,7 @@ describe('defaultModelOps', () => {
 });
 
 describe('restoreDefaultsOps', () => {
-  it('unsets every default field currently present (and leaves absent ones alone)', () => {
+  it('unsets the default model fields and leaves the legacy defaultRole alone', () => {
     expect(
       restoreDefaultsOps({
         defaultProvider: 'a',
@@ -187,7 +187,6 @@ describe('restoreDefaultsOps', () => {
       { op: 'unset', path: ['defaultProvider'] },
       { op: 'unset', path: ['defaultModel'] },
       { op: 'unset', path: ['defaultReasoningEffort'] },
-      { op: 'unset', path: ['defaultRole'] },
     ]);
   });
 

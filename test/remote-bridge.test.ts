@@ -25,6 +25,14 @@ import {
   dispatchSubagentClose,
   dispatchSubagentModel,
   dispatchSubagentTools,
+  dispatchCardList,
+  dispatchCardPut,
+  dispatchCardDelete,
+  dispatchCardDefault,
+  dispatchCardImport,
+  dispatchCardExport,
+  dispatchCardMigrate,
+  dispatchCardBatch,
   latestRequestHeaderModel,
 } from '../src/remote.js';
 import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE, SUBAGENT_MODEL_SELECTION_NAMESPACE } from '../src/settings.js';
@@ -737,5 +745,223 @@ describe('dispatchSubagentTools', () => {
     const deps = toolsDeps({ agents: { get: () => undefined } });
     const result = await dispatchSubagentTools(deps as never, { sessionId: 'session-gone' });
     expect(result).toEqual({ ok: true, value: { tools: ['bash', 'read'] } });
+  });
+});
+
+
+describe('character-card bridge endpoints', () => {
+  const library = () => ({
+    storage: { state: 'ready' as const },
+    cards: [{ id: 'a', name: 'A', delegationGuidance: 'Guide.' }],
+    defaultCardId: 'a',
+    legacyRoles: [] as string[],
+  });
+
+  function fakeCards(overrides: Record<string, unknown> = {}) {
+    return {
+      ready: async () => {},
+      status: () => ({ state: 'ready' }),
+      librarySnapshot: library,
+      put: vi.fn(async (value: unknown) => ({ ...(value as object), id: 'a' })),
+      remove: vi.fn(async () => ['a']),
+      setDefault: vi.fn(async () => {}),
+      setEnabled: vi.fn(async () => []),
+      importCards: vi.fn(async () => ({
+        imported: 1,
+        overwritten: 0,
+        skipped: 0,
+        duplicated: 0,
+        issues: [],
+        cards: [],
+      })),
+      exportCards: vi.fn(() => ({ kind: 'subagent-director/character-card-collection', version: 1, exportedAt: '', cards: [] })),
+      migrateLegacy: vi.fn(async () => ({
+        migrated: ['a'],
+        skipped: [],
+        failed: [],
+        remainingLegacy: ['a'],
+        defaultCardId: 'a',
+      })),
+      dispose: vi.fn(async () => {}),
+      ...overrides,
+    } as never;
+  }
+
+  it('returns the library, and a successful unavailable snapshot when the main entry is absent', async () => {
+    const withCards = await dispatchCardList({ settings: {} as never, cards: () => fakeCards() });
+    expect(withCards.ok).toBe(true);
+    if (withCards.ok) expect((withCards.value as { cards: unknown[] }).cards).toHaveLength(1);
+
+    const without = await dispatchCardList({ settings: {} as never });
+    expect(without.ok).toBe(true);
+    if (without.ok) expect((without.value as { storage: { state: string } }).storage.state).toBe('unavailable');
+  });
+
+  it('creates a card and returns the acknowledged library', async () => {
+    const cards = fakeCards();
+    const result = await dispatchCardPut(
+      { settings: {} as never, cards: () => cards },
+      { card: { id: 'a', name: 'A', delegationGuidance: 'G' }, create: true },
+    );
+    expect(result.ok).toBe(true);
+    expect((cards as unknown as { put: ReturnType<typeof vi.fn> }).put).toHaveBeenCalledWith(
+      { id: 'a', name: 'A', delegationGuidance: 'G' },
+      { create: true },
+    );
+  });
+
+  it('rejects a malformed cardPut payload', async () => {
+    const result = await dispatchCardPut({ settings: {} as never, cards: () => fakeCards() }, { card: 42 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('bad-request');
+  });
+
+  it('deletes, defaults, imports, exports, and batches', async () => {
+    const cards = fakeCards();
+    const deps = { settings: {} as never, cards: () => cards };
+
+    expect((await dispatchCardDelete(deps, { ids: ['a', 3] })).ok).toBe(true);
+    expect((await dispatchCardDefault(deps, { id: 'a' })).ok).toBe(true);
+    const imported = await dispatchCardImport(deps, { payload: { cards: [] }, strategy: 'skip' });
+    expect(imported.ok).toBe(true);
+    const exported = await dispatchCardExport(deps, { ids: ['a'] });
+    expect(exported.ok).toBe(true);
+    expect((await dispatchCardBatch(deps, { ids: ['a'], action: 'enable' })).ok).toBe(true);
+    expect((await dispatchCardBatch(deps, { ids: ['a'], action: 'bad' })).ok).toBe(false);
+  });
+
+  it('migrates legacy roles and clears the settings fields on request', async () => {
+    const mutate = vi.fn(async () => {});
+    const cards = fakeCards({
+      librarySnapshot: () => ({
+        storage: { state: 'ready' as const },
+        cards: [{ id: 'a', name: 'A', delegationGuidance: 'Guide.' }],
+        defaultCardId: 'a',
+        legacyRoles: ['a'],
+        legacyDefaultRole: 'a',
+      }),
+    });
+    const result = await dispatchCardMigrate(
+      {
+        settings: {
+          writable: true,
+          describe: () => [descriptor({ revision: 7 })],
+          mutate,
+        } as never,
+        cards: () => cards,
+      },
+      { clearLegacy: true },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const value = result.value as { cleared: boolean; library: { legacyRoles: string[] } };
+      expect(value.cleared).toBe(true);
+      expect(value.library.legacyRoles).toEqual([]);
+    }
+    expect(mutate).toHaveBeenCalledWith(
+      String(NS),
+      [
+        { op: 'unset', path: ['roles', 'a'] },
+        { op: 'unset', path: ['defaultRole'] },
+      ],
+      7,
+    );
+  });
+
+  it('does not clear legacy settings when a migration failed', async () => {
+    const mutate = vi.fn(async () => {});
+    const cards = fakeCards({
+      migrateLegacy: vi.fn(async () => ({
+        migrated: [],
+        skipped: [],
+        failed: [{ id: 'broken', message: 'bad legacy role' }],
+        remainingLegacy: ['broken'],
+      })),
+    });
+    const result = await dispatchCardMigrate(
+      {
+        settings: {
+          writable: true,
+          describe: () => [descriptor({ revision: 7 })],
+          mutate,
+        } as never,
+        cards: () => cards,
+      },
+      { clearLegacy: true },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const value = result.value as { cleared: boolean; clearError?: string };
+      expect(value.cleared).toBe(false);
+      expect(value.clearError).toContain('failed');
+    }
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('does not clear skipped legacy roles that were not migrated', async () => {
+    const mutate = vi.fn(async () => {});
+    const cards = fakeCards({
+      librarySnapshot: () => ({
+        storage: { state: 'ready' as const },
+        cards: [{ id: 'a', name: 'A', delegationGuidance: 'Guide.' }],
+        legacyRoles: ['a'],
+        legacyDefaultRole: 'a',
+      }),
+      migrateLegacy: vi.fn(async () => ({
+        migrated: [],
+        skipped: ['a'],
+        failed: [],
+        remainingLegacy: ['a'],
+      })),
+    });
+    const result = await dispatchCardMigrate(
+      {
+        settings: {
+          writable: true,
+          describe: () => [descriptor({ revision: 7 })],
+          mutate,
+        } as never,
+        cards: () => cards,
+      },
+      { clearLegacy: true },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const value = result.value as { cleared: boolean; clearError?: string };
+      expect(value.cleared).toBe(false);
+      expect(value.clearError).toContain('no migrated roles');
+    }
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('serves cardList through the captured web-server route', async () => {
+    let route: { handler: (req: unknown, res: ServerResponse) => void | Promise<void> } | undefined;
+    const settings = { writable: true, describe: () => [], mutate: async () => {} };
+    const cards = fakeCards();
+    installDirectorRemoteBridge(
+      {
+        get: (key: string) => {
+          if (key === 'settings') return settings;
+          if (key === 'webServer') {
+            return { register: (value: typeof route) => { route = value; return () => {}; } };
+          }
+          if (key === 'subagentDirectorCards') return cards;
+          return undefined;
+        },
+        logger: { debug: () => {} },
+        effect: (fn: () => () => void) => fn(),
+      } as never,
+    );
+    expect(route).toBeDefined();
+    const result = await callRoute(route!, '/subagent-director/cardList', {
+      type: 'client-request',
+      rpcId: 'cards-1',
+      method: 'cardList',
+      payload: {},
+    });
+    expect(result.code).toBe(200);
+    const body = JSON.parse(result.body) as { result: { ok: boolean; value?: { cards: unknown[] } } };
+    expect(body.result.ok).toBe(true);
+    expect(body.result.value?.cards).toHaveLength(1);
   });
 });

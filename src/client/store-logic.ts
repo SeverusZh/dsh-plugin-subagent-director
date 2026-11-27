@@ -198,13 +198,14 @@ export function defaultModelOps(before: StoredSection, edits: DefaultModelEdits)
   return ops;
 }
 
-/** Ops to clear every default-model field and the defaultRole back to composition defaults. */
+/** Ops to clear every default-model field back to composition defaults. */
 export function restoreDefaultsOps(current: StoredSection): SettingsPathOpView[] {
   const ops: SettingsPathOpView[] = [];
   if (current.defaultProvider !== undefined) ops.push({ op: 'unset', path: ['defaultProvider'] } as SettingsPathOpView);
   if (current.defaultModel !== undefined) ops.push({ op: 'unset', path: ['defaultModel'] } as SettingsPathOpView);
   if (current.defaultReasoningEffort !== undefined) ops.push({ op: 'unset', path: ['defaultReasoningEffort'] } as SettingsPathOpView);
-  if (current.defaultRole !== undefined) ops.push({ op: 'unset', path: ['defaultRole'] } as SettingsPathOpView);
+  // `defaultRole` belongs to the legacy role store and is owned by the
+  // migration flow; restoring the default model must not clear it silently.
   return ops;
 }
 

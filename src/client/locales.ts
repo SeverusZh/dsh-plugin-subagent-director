@@ -79,7 +79,163 @@ export type SubagentDirectorKey =
   | 'closingContinuable'
   | 'closedSubagent'
   | 'confirmCloseContinuable'
-  | 'closeFailed';
+  | 'closeFailed'
+  | 'pageTitle'
+  | 'pageIntro'
+  | 'newCard'
+  | 'importCards'
+  | 'exportAll'
+  | 'cardsHeading'
+  | 'cardsHint'
+  | 'searchCards'
+  | 'filterAll'
+  | 'filterEnabled'
+  | 'filterDisabled'
+  | 'sortUpdated'
+  | 'sortName'
+  | 'emptyCardsTitle'
+  | 'emptyCardsBody'
+  | 'noSearchResults'
+  | 'cardDefault'
+  | 'setDefaultCard'
+  | 'enabled'
+  | 'disabled'
+  | 'enableCard'
+  | 'disableCard'
+  | 'editCard'
+  | 'duplicateCard'
+  | 'exportCard'
+  | 'deleteCard'
+  | 'confirmDeleteCard'
+  | 'batchSelect'
+  | 'batchDone'
+  | 'batchSelected'
+  | 'selectAll'
+  | 'clearSelection'
+  | 'batchEnable'
+  | 'batchDisable'
+  | 'batchExport'
+  | 'batchDelete'
+  | 'confirmBatchDelete'
+  | 'cardEditorNew'
+  | 'cardEditorEdit'
+  | 'cardIdentity'
+  | 'cardName'
+  | 'cardId'
+  | 'cardIdHint'
+  | 'cardIdImmutable'
+  | 'cardEmoji'
+  | 'cardAccent'
+  | 'cardTags'
+  | 'cardTagsHint'
+  | 'cardModel'
+  | 'cardModelHint'
+  | 'cardProvider'
+  | 'cardModelId'
+  | 'cardReasoningEffort'
+  | 'cardAgentPreset'
+  | 'cardAgentPresetHint'
+  | 'cardPrompts'
+  | 'cardSystemPrompt'
+  | 'cardSystemPromptHint'
+  | 'cardPersona'
+  | 'cardPersonaHint'
+  | 'cardGuidance'
+  | 'cardGuidanceHint'
+  | 'cardNotes'
+  | 'cardNotesHint'
+  | 'cardEnabled'
+  | 'cardEnabledHint'
+  | 'cardAdvanced'
+  | 'cardCreate'
+  | 'cardSave'
+  | 'cardCancel'
+  | 'cardDirtyConfirm'
+  | 'cardInvalidId'
+  | 'cardNameRequired'
+  | 'cardGuidanceRequired'
+  | 'cardModelPair'
+  | 'cardDuplicateId'
+  | 'cardSaved'
+  | 'cardDeleted'
+  | 'importTitle'
+  | 'importBody'
+  | 'importDrop'
+  | 'importBrowse'
+  | 'importPaste'
+  | 'importPasteHint'
+  | 'importStrategy'
+  | 'importSkip'
+  | 'importOverwrite'
+  | 'importDuplicate'
+  | 'importSkipHint'
+  | 'importOverwriteHint'
+  | 'importDuplicateHint'
+  | 'importRun'
+  | 'importPreview'
+  | 'importInvalid'
+  | 'importResult'
+  | 'importNoCards'
+  | 'importParseError'
+  | 'importFileTooLarge'
+  | 'exportDone'
+  | 'exportFailed'
+  | 'download'
+  | 'copyJson'
+  | 'copied'
+  | 'copyFailed'
+  | 'storageReady'
+  | 'storageUnavailable'
+  | 'storageError'
+  | 'storageHint'
+  | 'legacyBanner'
+  | 'legacyBannerBody'
+  | 'legacyMigrate'
+  | 'legacyClear'
+  | 'legacyClearHint'
+  | 'legacyResult'
+  | 'legacyNone'
+  | 'legacyFailed'
+  | 'statCards'
+  | 'statEnabled'
+  | 'statDefault'
+  | 'statModel'
+  | 'defaultModelPanel'
+  | 'defaultModelPanelHint'
+  | 'defaultSaved'
+  | 'cardPromptChip'
+  | 'cardNoPrompt'
+  | 'cardTagsNone'
+  | 'closeDialog'
+  | 'confirm'
+  | 'migrateTitle'
+  | 'migrateBody'
+  | 'migrateConfirm'
+  | 'migrateClearLabel'
+  | 'migrateDone'
+  | 'migrateSkipped'
+  | 'migrateFailedCount'
+  | 'cardCount'
+  | 'noAllowedModelsShort'
+  | 'readonlyCardStorage'
+  | 'loadCardsError'
+  | 'retryCards'
+  | 'cardDefaultHint'
+  | 'modelInherited'
+  | 'importHintFiles'
+  | 'importSummary'
+  | 'exportSummary'
+  | 'cardPromptLength'
+  | 'cardGuidanceLength'
+  | 'cardNotesLength'
+  | 'selected'
+  | 'deselect'
+  | 'moreActions'
+  | 'searchEmpty'
+  | 'clearSearch'
+  | 'filterCards'
+  | 'sortCards'
+  | 'cardEditorHint';
 
 /** English dictionary ($subagentDirector). */
 export const en: Record<SubagentDirectorKey, string> = {
@@ -155,7 +311,163 @@ export const en: Record<SubagentDirectorKey, string> = {
   "closingContinuable": "Releasing…",
   "closedSubagent": "Released",
   "confirmCloseContinuable": "Release Subagent Director child “{id}”? Only children started by this plugin in this process are tracked. A later send_message may cold-resume the session, but that new activation is not tracked here.",
-  "closeFailed": "Release failed: {message}"
+  "closeFailed": "Release failed: {message}",
+  "pageTitle": "Character cards",
+  "pageIntro": "Package delegation guidance, a fixed system prompt, persona, and an optional model route into one reusable card.",
+  "newCard": "New card",
+  "importCards": "Import",
+  "exportAll": "Export all",
+  "cardsHeading": "Card library",
+  "cardsHint": "Cards are stored as individual JSON files, separate from plugin configuration.",
+  "searchCards": "Search cards",
+  "filterAll": "All",
+  "filterEnabled": "Enabled",
+  "filterDisabled": "Disabled",
+  "sortUpdated": "Recently updated",
+  "sortName": "Name",
+  "emptyCardsTitle": "No character cards yet",
+  "emptyCardsBody": "Create a card or import a portable JSON bundle to give your subagents a stable role.",
+  "noSearchResults": "No cards match the current search and filters.",
+  "cardDefault": "Default",
+  "setDefaultCard": "Set as default",
+  "enabled": "Enabled",
+  "disabled": "Disabled",
+  "enableCard": "Enable",
+  "disableCard": "Disable",
+  "editCard": "Edit",
+  "duplicateCard": "Duplicate",
+  "exportCard": "Export",
+  "deleteCard": "Delete",
+  "confirmDeleteCard": "Delete card “{id}”? This cannot be undone.",
+  "batchSelect": "Select",
+  "batchDone": "Done",
+  "batchSelected": "{count} selected",
+  "selectAll": "Select all",
+  "clearSelection": "Clear",
+  "batchEnable": "Enable",
+  "batchDisable": "Disable",
+  "batchExport": "Export",
+  "batchDelete": "Delete",
+  "confirmBatchDelete": "Delete {count} selected cards? This cannot be undone.",
+  "cardEditorNew": "New character card",
+  "cardEditorEdit": "Edit character card",
+  "cardIdentity": "Identity",
+  "cardName": "Name",
+  "cardId": "Card id",
+  "cardIdHint": "Lowercase letters, digits, and single hyphens. Used as the delegation role id.",
+  "cardIdImmutable": "The id cannot change after the card is created.",
+  "cardEmoji": "Avatar glyph",
+  "cardAccent": "Accent",
+  "cardTags": "Tags",
+  "cardTagsHint": "Comma separated. Used for search and filtering.",
+  "cardModel": "Model route",
+  "cardModelHint": "Leave empty to inherit the plugin default or the parent model.",
+  "cardProvider": "Provider",
+  "cardModelId": "Model",
+  "cardReasoningEffort": "Reasoning effort",
+  "cardAgentPreset": "Agent Preset",
+  "cardAgentPresetHint": "Optional DSH preset for tool composition. Leave empty to inherit.",
+  "cardPrompts": "Fixed role prompt",
+  "cardSystemPrompt": "System prompt",
+  "cardSystemPromptHint": "Injected as a system section into this card's child sessions, before tool guidance.",
+  "cardPersona": "Persona",
+  "cardPersonaHint": "Additional identity and style text appended to the fixed system prompt.",
+  "cardGuidance": "Delegation guidance",
+  "cardGuidanceHint": "Shown to the main agent. Explain when to delegate and what the child should do.",
+  "cardNotes": "Notes",
+  "cardNotesHint": "Human-only notes. Never sent to a model.",
+  "cardEnabled": "Enabled",
+  "cardEnabledHint": "Disabled cards remain stored but are not offered for delegation.",
+  "cardAdvanced": "Advanced",
+  "cardCreate": "Create card",
+  "cardSave": "Save",
+  "cardCancel": "Cancel",
+  "cardDirtyConfirm": "Discard unsaved changes?",
+  "cardInvalidId": "Use lowercase letters, digits, and single hyphens.",
+  "cardNameRequired": "A card name is required.",
+  "cardGuidanceRequired": "Delegation guidance is required.",
+  "cardModelPair": "Choose both a provider and a model, or neither.",
+  "cardDuplicateId": "A card with this id already exists.",
+  "cardSaved": "Card saved",
+  "cardDeleted": "Card deleted",
+  "importTitle": "Import character cards",
+  "importBody": "Drop JSON files, choose files, or paste a portable card or collection.",
+  "importDrop": "Drop JSON files here",
+  "importBrowse": "Choose files",
+  "importPaste": "Paste JSON",
+  "importPasteHint": "Accepts a single card, a card envelope, a collection, or an array.",
+  "importStrategy": "When a card id already exists",
+  "importSkip": "Skip",
+  "importOverwrite": "Overwrite",
+  "importDuplicate": "Keep both",
+  "importSkipHint": "Leave the existing card untouched.",
+  "importOverwriteHint": "Replace the existing card with the imported one.",
+  "importDuplicateHint": "Import under a new id derived from the name.",
+  "importRun": "Import",
+  "importPreview": "{count} card(s) ready to import.",
+  "importInvalid": "Some entries are invalid.",
+  "importResult": "Imported {imported}, overwritten {overwritten}, skipped {skipped}, duplicates {duplicated}.",
+  "importNoCards": "No cards were found in the selected input.",
+  "importParseError": "Could not parse the JSON input.",
+  "importFileTooLarge": "This file is larger than the import limit.",
+  "exportDone": "Export ready.",
+  "exportFailed": "Export failed: {message}",
+  "download": "Download",
+  "copyJson": "Copy JSON",
+  "copied": "Copied",
+  "copyFailed": "Copy failed",
+  "storageReady": "Card storage ready",
+  "storageUnavailable": "Card storage unavailable",
+  "storageError": "Card storage error",
+  "storageHint": "Cards are persisted by the DSH storage domain `subagent_director`, one JSON document per card.",
+  "legacyBanner": "Legacy roles detected",
+  "legacyBannerBody": "{count} role template(s) still live in the plugin configuration. Migrate them to cards to complete the storage move.",
+  "legacyMigrate": "Migrate",
+  "legacyClear": "Also clear the legacy fields",
+  "legacyClearHint": "Removes `roles` and `defaultRole` from the plugin configuration after a successful migration.",
+  "legacyResult": "Migrated {migrated}, skipped {skipped}, failed {failed}.",
+  "legacyNone": "No legacy roles remain.",
+  "legacyFailed": "Migration failed: {message}",
+  "statCards": "Cards",
+  "statEnabled": "Enabled",
+  "statDefault": "Default",
+  "statModel": "Default model",
+  "defaultModelPanel": "Default model",
+  "defaultModelPanelHint": "Used when a card or call does not bind a provider/model.",
+  "defaultSaved": "Default model saved",
+  "cardPromptChip": "Prompt",
+  "cardNoPrompt": "Inherits baseline prompt",
+  "cardTagsNone": "No tags",
+  "closeDialog": "Close",
+  "confirm": "Confirm",
+  "migrateTitle": "Migrate legacy roles",
+  "migrateBody": "Convert the role templates stored in the plugin configuration into individual character cards.",
+  "migrateConfirm": "Migrate roles",
+  "migrateClearLabel": "Clear the legacy settings after migration",
+  "migrateDone": "Migration complete.",
+  "migrateSkipped": "Skipped {count} role(s) whose ids already exist.",
+  "migrateFailedCount": "{count} role(s) could not be migrated.",
+  "cardCount": "{count} card(s)",
+  "noAllowedModelsShort": "No authorized model routes",
+  "readonlyCardStorage": "Configuration writes are read-only in this deployment; character-card storage remains independent.",
+  "loadCardsError": "Could not load the card library.",
+  "retryCards": "Retry",
+  "cardDefaultHint": "The default card is selected when a delegation does not name a role.",
+  "modelInherited": "Inherited",
+  "importHintFiles": "Each file may contain one card or a collection.",
+  "importSummary": "Imported {count} card(s).",
+  "exportSummary": "Exported {count} card(s).",
+  "cardPromptLength": "{count} characters",
+  "cardGuidanceLength": "{count} / {max}",
+  "cardNotesLength": "{count} / {max}",
+  "selected": "Selected",
+  "deselect": "Deselect",
+  "moreActions": "More actions",
+  "searchEmpty": "Search cards by name, id, tag, or guidance.",
+  "clearSearch": "Clear search",
+  "filterCards": "Filter cards",
+  "sortCards": "Sort cards",
+  "cardEditorHint": "Pack the delegation guidance, fixed prompt, persona, and model route for this card."
 };
 
 /** Chinese dictionary. */
@@ -232,5 +544,161 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "closingContinuable": "正在终止…",
   "closedSubagent": "已终止",
   "confirmCloseContinuable": "终止本插件启动的可持续子代理“{id}”？只有本插件在当前进程中启动的子代理会被跟踪；之后仍可用 send_message 冷恢复，但新的 activation 不再由此处跟踪。",
-  "closeFailed": "终止失败：{message}"
+  "closeFailed": "终止失败：{message}",
+  "pageTitle": "角色卡",
+  "pageIntro": "把委派指引、固定系统提示词、persona 与可选的模型路由收进一张可复用的角色卡。",
+  "newCard": "新建角色卡",
+  "importCards": "导入",
+  "exportAll": "导出全部",
+  "cardsHeading": "角色卡库",
+  "cardsHint": "角色卡以独立 JSON 文件持久化，不再写入插件公共配置。",
+  "searchCards": "搜索角色卡",
+  "filterAll": "全部",
+  "filterEnabled": "已启用",
+  "filterDisabled": "已停用",
+  "sortUpdated": "最近更新",
+  "sortName": "名称",
+  "emptyCardsTitle": "还没有角色卡",
+  "emptyCardsBody": "新建一张角色卡，或导入可移植的 JSON 集合，让子代理拥有稳定的角色。",
+  "noSearchResults": "没有符合当前搜索与筛选条件的角色卡。",
+  "cardDefault": "默认",
+  "setDefaultCard": "设为默认",
+  "enabled": "已启用",
+  "disabled": "已停用",
+  "enableCard": "启用",
+  "disableCard": "停用",
+  "editCard": "编辑",
+  "duplicateCard": "复制",
+  "exportCard": "导出",
+  "deleteCard": "删除",
+  "confirmDeleteCard": "删除角色卡“{id}”？此操作不可撤销。",
+  "batchSelect": "批量选择",
+  "batchDone": "完成",
+  "batchSelected": "已选 {count} 张",
+  "selectAll": "全选",
+  "clearSelection": "清除",
+  "batchEnable": "启用",
+  "batchDisable": "停用",
+  "batchExport": "导出",
+  "batchDelete": "删除",
+  "confirmBatchDelete": "删除选中的 {count} 张角色卡？此操作不可撤销。",
+  "cardEditorNew": "新建角色卡",
+  "cardEditorEdit": "编辑角色卡",
+  "cardIdentity": "身份",
+  "cardName": "名称",
+  "cardId": "角色卡 id",
+  "cardIdHint": "小写字母、数字与单个连字符；同时作为委派 role id。",
+  "cardIdImmutable": "创建后不可修改 id。",
+  "cardEmoji": "头像符号",
+  "cardAccent": "强调色",
+  "cardTags": "标签",
+  "cardTagsHint": "逗号分隔，用于搜索与筛选。",
+  "cardModel": "模型路由",
+  "cardModelHint": "留空则继承插件默认模型或父代理模型。",
+  "cardProvider": "供应商",
+  "cardModelId": "模型",
+  "cardReasoningEffort": "推理强度",
+  "cardAgentPreset": "Agent Preset",
+  "cardAgentPresetHint": "可选的 DSH 预设，用于工具组合；留空则继承。",
+  "cardPrompts": "固定角色提示词",
+  "cardSystemPrompt": "系统提示词",
+  "cardSystemPromptHint": "作为系统提示词段注入此卡片的子代理会话，位于工具指引之前。",
+  "cardPersona": "Persona",
+  "cardPersonaHint": "附加的身份与风格文本，追加在固定系统提示词之后。",
+  "cardGuidance": "委派指引",
+  "cardGuidanceHint": "展示给主代理：何时委派、子代理应完成什么。",
+  "cardNotes": "备注",
+  "cardNotesHint": "仅供人阅读，不会发送给模型。",
+  "cardEnabled": "启用",
+  "cardEnabledHint": "停用的卡片仍会保留，但不会被用于委派。",
+  "cardAdvanced": "高级",
+  "cardCreate": "创建角色卡",
+  "cardSave": "保存",
+  "cardCancel": "取消",
+  "cardDirtyConfirm": "放弃未保存的修改？",
+  "cardInvalidId": "请使用小写字母、数字与单个连字符。",
+  "cardNameRequired": "角色卡名称不能为空。",
+  "cardGuidanceRequired": "委派指引不能为空。",
+  "cardModelPair": "供应商与模型需同时选择，或同时留空。",
+  "cardDuplicateId": "该 id 已被其他角色卡使用。",
+  "cardSaved": "角色卡已保存",
+  "cardDeleted": "角色卡已删除",
+  "importTitle": "导入角色卡",
+  "importBody": "拖入 JSON 文件、选择文件，或粘贴单张卡片与卡片集合。",
+  "importDrop": "将 JSON 文件拖到这里",
+  "importBrowse": "选择文件",
+  "importPaste": "粘贴 JSON",
+  "importPasteHint": "支持单张卡片、卡片信封、集合对象或数组。",
+  "importStrategy": "当卡片 id 已存在时",
+  "importSkip": "跳过",
+  "importOverwrite": "覆盖",
+  "importDuplicate": "保留两者",
+  "importSkipHint": "保留现有卡片不变。",
+  "importOverwriteHint": "用导入内容替换现有卡片。",
+  "importDuplicateHint": "按名称派生新的 id 后导入。",
+  "importRun": "导入",
+  "importPreview": "待导入 {count} 张角色卡。",
+  "importInvalid": "部分条目无效。",
+  "importResult": "已导入 {imported}，覆盖 {overwritten}，跳过 {skipped}，保留两者 {duplicated}。",
+  "importNoCards": "所选输入中没有找到角色卡。",
+  "importParseError": "无法解析 JSON 输入。",
+  "importFileTooLarge": "文件超过导入上限。",
+  "exportDone": "导出已就绪。",
+  "exportFailed": "导出失败：{message}",
+  "download": "下载",
+  "copyJson": "复制 JSON",
+  "copied": "已复制",
+  "copyFailed": "复制失败",
+  "storageReady": "角色卡存储就绪",
+  "storageUnavailable": "角色卡存储不可用",
+  "storageError": "角色卡存储异常",
+  "storageHint": "角色卡由 DSH 存储域 `subagent_director` 持久化，每张卡一个 JSON 文档。",
+  "legacyBanner": "检测到旧版角色",
+  "legacyBannerBody": "插件配置中仍有 {count} 个角色模板。迁移为角色卡后即可完成存储切换。",
+  "legacyMigrate": "迁移",
+  "legacyClear": "同时清除旧配置字段",
+  "legacyClearHint": "迁移成功后从插件配置中移除 `roles` 与 `defaultRole`。",
+  "legacyResult": "已迁移 {migrated}，跳过 {skipped}，失败 {failed}。",
+  "legacyNone": "已无旧版角色。",
+  "legacyFailed": "迁移失败：{message}",
+  "statCards": "角色卡",
+  "statEnabled": "已启用",
+  "statDefault": "默认卡",
+  "statModel": "默认模型",
+  "defaultModelPanel": "默认模型",
+  "defaultModelPanelHint": "当角色卡或单次调用未绑定供应商/模型时使用。",
+  "defaultSaved": "默认模型已保存",
+  "cardPromptChip": "提示词",
+  "cardNoPrompt": "继承基础提示词",
+  "cardTagsNone": "无标签",
+  "closeDialog": "关闭",
+  "confirm": "确认",
+  "migrateTitle": "迁移旧版角色",
+  "migrateBody": "把插件配置中的角色模板转换为独立角色卡。",
+  "migrateConfirm": "迁移角色",
+  "migrateClearLabel": "迁移后清除旧配置",
+  "migrateDone": "迁移完成。",
+  "migrateSkipped": "跳过 {count} 个 id 已存在的角色。",
+  "migrateFailedCount": "{count} 个角色迁移失败。",
+  "cardCount": "{count} 张角色卡",
+  "noAllowedModelsShort": "没有已授权的模型路由",
+  "readonlyCardStorage": "当前部署的配置写入为只读；角色卡存储独立。",
+  "loadCardsError": "无法加载角色卡库。",
+  "retryCards": "重试",
+  "cardDefaultHint": "当委派未指定角色时使用默认卡。",
+  "modelInherited": "继承",
+  "importHintFiles": "每个文件可以是一张卡或一个集合。",
+  "importSummary": "已导入 {count} 张角色卡。",
+  "exportSummary": "已导出 {count} 张角色卡。",
+  "cardPromptLength": "{count} 个字符",
+  "cardGuidanceLength": "{count} / {max}",
+  "cardNotesLength": "{count} / {max}",
+  "selected": "已选中",
+  "deselect": "取消选择",
+  "moreActions": "更多操作",
+  "searchEmpty": "按名称、id、标签或委派指引搜索角色卡。",
+  "clearSearch": "清除搜索",
+  "filterCards": "筛选角色卡",
+  "sortCards": "角色卡排序",
+  "cardEditorHint": "为这张卡打包委派指引、固定提示词、persona 与模型路由。"
 };

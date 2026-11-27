@@ -20,12 +20,15 @@
  * capability, which is validated at mount time (mirrors dsh-tool-subagent).
  */
 import type { Context } from '@deepseek-ai/cordis';
+import type { DomainFacility } from '@deepseek-ai/dsh-storage-domain';
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent';
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
 
 import { createDelegationTool } from './delegation-tool.js';
 import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 import { forgetResident, clearResidentHandles } from './resident-handles.js';
+import { applyCardPromptSection } from './card-prompt.js';
+import { CARD_SERVICE_NAME, CardService } from './card-store.js';
 import { applyGuidance } from './guidance.js';
 import { applyOrchestrate } from './orchestrate.js';
 import { readDirectorSettings, installDirectorSettingsPage, createSettingsWarner, type DirectorSettingsHandles } from './settings.js';
@@ -77,6 +80,70 @@ export {
   type SubagentDirectorSettings,
 } from './settings.js';
 
+export {
+  CardService,
+  CARD_DOMAIN_NAME,
+  CARD_DOMAIN_VERSION,
+  CARD_SERVICE_NAME,
+  CardBindingSchema,
+  cardDomainSpec,
+  type CardLogger,
+  type CardServiceLike,
+  type CardServiceOptions,
+  type ResolvedCard,
+} from './card-store.js';
+export {
+  CardModelSchema,
+  CharacterCardInputSchema,
+  CharacterCardSchema,
+  buildCardBundle,
+  cardToRoleTemplate,
+  emptyImportResult,
+  legacyRoleToCard,
+  parseCardDraft,
+  parseCardImportPayload,
+  parseImportedCard,
+  type CardDraft,
+  type CardDraftInput,
+  type CardImportPayload,
+  type LegacyRole,
+  type StoredCard,
+} from './card-model.js';
+export {
+  CARD_ACCENTS,
+  CARD_BUNDLE_KIND,
+  CARD_FORMAT_VERSION,
+  CARD_ID_PATTERN,
+  CARD_KIND,
+  CARD_LIMITS,
+  cardAccentOf,
+  cardIdFromName,
+  cardInitial,
+  formatTagInput,
+  hasCardPrompt,
+  isCardEnabled,
+  isCardId,
+  parseTagInput,
+  renderCardPrompt,
+  type CardAccent,
+  type CardImportIssue,
+  type CardImportResult,
+  type CardImportStrategy,
+  type CardLibrarySnapshot,
+  type CardMigrationResult,
+  type CardModelBinding,
+  type CardPromptBinding,
+  type CardStorageStatus,
+  type CharacterCard,
+  type CharacterCardBundle,
+  type CharacterCardDraft,
+} from './card-types.js';
+export {
+  applyCardPromptSection,
+  CARD_PROMPT_SECTION_NAME,
+  CARD_PROMPT_SECTION_ORDER,
+} from './card-prompt.js';
+
 export const name = 'subagent-director';
 
 export const inject = ['tools', 'subagents', 'llm', 'settings'];
@@ -102,15 +169,43 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   // 0.1.7 write path admits — are logged here, deduped by warning-set signature
   // (persistent misconfiguration warns once, not on every read).
   const warnSettings = createSettingsWarner((message) => ctx.logger.warn('[' + name + '] ' + message));
-  const getSettings = () => {
+  const getRawSettings = () => {
     const warnings: string[] = [];
     const settings = readDirectorSettings(config, warnings);
     warnSettings(warnings);
     return settings;
   };
 
+  // ---- character cards ---------------------------------------------------
+  // Cards are persisted by their own storage domain; the raw settings getter
+  // remains the migration source for the legacy `roles` field.
+  const cards = new CardService({ ctx, getSettings: getRawSettings, logger: ctx.logger });
+  ctx.provide(CARD_SERVICE_NAME, cards);
+  ctx.effect(
+    () => () => cards.dispose(),
+    'subagent-director: card service',
+  );
+  const storageDomain = (ctx as unknown as { get(name: string): unknown }).get('storageDomain') as
+    | DomainFacility
+    | undefined;
+  if (storageDomain !== undefined) {
+    cards.attachStorage(storageDomain);
+  } else {
+    cards.markUnavailable('the storage-domain service is not mounted in this deployment');
+    ctx.inject(['storageDomain'], (child) => {
+      const facility = (child as unknown as { get(name: string): unknown }).get('storageDomain') as
+        | DomainFacility
+        | undefined;
+      if (facility !== undefined) cards.attachStorage(facility);
+    });
+  }
+  // The active child prompt is keyed by the child session id reserved before
+  // startActivation, so it applies to exactly that child and survives edits.
+  applyCardPromptSection(ctx, (sessionId) => cards.bindingText(sessionId));
+  const getSettings = () => cards.settingsWithCards(getRawSettings());
+
   // ---- role guidance ----------------------------------------------------
-  applyGuidance(ctx, getSettings, toolName);
+  applyGuidance(ctx, getSettings, toolName, cards);
 
   // ---- orchestrate command + projection + prompt section ----------------
   applyOrchestrate(ctx, getSettings, toolName);
@@ -119,12 +214,13 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   // Registers at mount time like the control tools. It releases only the
   // activation receipts this plugin retains for its own continuable children;
   // a target started elsewhere or before a host restart is rejected.
-  ctx.effect(() => ctx.tools.register(createCloseSubagentTool({ ctx })), 'subagent-director: close_subagent tool');
+  ctx.effect(() => ctx.tools.register(createCloseSubagentTool({ ctx, cards })), 'subagent-director: close_subagent tool');
 
   // A disposed child may have been released by its parent/teardown instead of
   // close_subagent; drop the stale receipt so the registry does not retain it.
   ctx.on('agent/disposed', ({ agent }) => {
     forgetResident(String(agent.id));
+    void cards.endBinding(String(agent.id), { onlyEphemeral: true }).catch(() => {});
   });
   ctx.effect(() => () => clearResidentHandles(), 'subagent-director: resident receipts');
 
@@ -142,7 +238,7 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
     ctx.logger.info(
       '[' + name + '] registering ' + toolName + ' on subagent transport ' + '"' + providerName + '"' + ' with backgroundMode ' + '"' + backgroundMode + '"',
     );
-    disposeTool = ctx.tools.register(createDelegationTool({ ctx, config, provider, getSettings }));
+    disposeTool = ctx.tools.register(createDelegationTool({ ctx, config, provider, getSettings, cards }));
   };
 
   ctx.on('subagent/provider-added', (provider: SubagentProvider) => {

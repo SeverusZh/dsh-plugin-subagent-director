@@ -37,10 +37,11 @@ export interface DirectorConfig {
    *
    * Not the same tool as DSH's built-in `subagent` / `subagent_fork`: those are
    * registered by the base bundle and coexist with this one in the same request
-   * tool catalog. Only calls that go through this name apply role persona and
-   * role `toolFilter`; a model that picks the built-in `subagent` instead gets
-   * neither (the official dsh-tool-subagent owns model selection for the
-   * built-in tools through its `modelSelectionSettings`).
+   * tool catalog. Only calls that go through this name apply character-card
+   * semantics (fixed prompt, persona, model binding, and optional Agent Preset);
+   * a model that picks the built-in `subagent` instead gets none of them (the
+   * official dsh-tool-subagent owns model selection for the built-in tools
+   * through its `modelSelectionSettings`).
    */
   toolName?: string;
 

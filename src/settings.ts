@@ -90,9 +90,15 @@ export const SettingsFields = {
   defaultProvider: z.string().volatile(),
   defaultModel: z.string().volatile(),
   defaultReasoningEffort: z.string().volatile(),
-  defaultRole: z.string().volatile(),
+  defaultRole: z
+    .string()
+    .volatile()
+    .description('Legacy default role id; only read when no default character card exists.'),
   fallbackOnInvalid: z.boolean().default(true).volatile(),
-  roles: z.dict(RoleTemplateSchema, z.string().pattern(KEBAB_CASE)).volatile(),
+  roles: z
+    .dict(RoleTemplateSchema, z.string().pattern(KEBAB_CASE))
+    .volatile()
+    .description('Legacy role templates kept only as a migration source; new cards live in the card storage domain.'),
 };
 
 /**
