@@ -161,7 +161,8 @@ tool. Select "Director Mode" as the session preset to enter it.
 
 - The main agent keeps only orchestration tools: `subagent_role`, `subagent_card_create`,
   `close_subagent`, `list_agents` / `send_message` / `wait_agent`, `ask_user_question`,
-  and the Agent Teams task board. A host-side allowlist narrows the tool catalog and rejects every other tool at execution,
+  and the Agent Teams task board; `session_send_message` is limited to cross-session
+  orchestration. A host-side allowlist narrows the tool catalog and rejects every other tool at execution,
   including dynamically mounted MCP tools, so the main agent cannot use bash, file
   read/write/search, skill, workflow, or built-in subagent tools.
 - Every subagent must be started through a character card: the agent-scope
@@ -171,7 +172,8 @@ tool. Select "Director Mode" as the session preset to enter it.
 - The built-in `director` card appears only in Director session guidance and role
   resolution; it is not shown in the settings page, not exported, and cannot be
   overridden by a same-id card. It coordinates decomposition-heavy work and binds the
-  `standard` worker preset by default.
+  `director` preset by default, forming another delegation layer; ordinary cards that
+  bind no preset fall back to `standard`.
 - New Director root sessions enable Agent Teams by default; multi-worker work uses the
   shared task board, write scopes, and owners.
 - The main agent must not take over a failed subagent's task. It retries with a corrected
@@ -219,7 +221,7 @@ Since DSH 0.2.1 the compatibility gate prefers `engines.dsh`. This plugin declar
 | DSH version | Status |
 | --- | --- |
 | 0.2.2-rc.5 | ✅ compatibility claim (0.8.0 baseline; not re-verified on this runtime) |
-| 0.2.3-alpha.2 | ✅ typecheck / 336 tests / build / existing Cordis probes |
+| 0.2.3-alpha.2 | ✅ typecheck / 337 tests / build / existing Cordis probes |
 
 > Only versions that were **actually run** are listed; untested versions are omitted.
 
@@ -229,7 +231,7 @@ v0.7.0 targets DSH **0.2.2-rc.2+** and fixes the delegation crash caused by the 
 
 ```bash
 npm install
-npm test          # vitest (336 tests)
+npm test          # vitest (337 tests)
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```

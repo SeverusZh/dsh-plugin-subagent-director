@@ -261,9 +261,10 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   let activeProvider: SubagentProvider | undefined;
   const shadows = new Map<string, () => void>();
   const restrictions = new Map<string, () => void>();
-  const autoTeam = new Map<string, number>();
   let refreshDirectorShadows: () => void = () => {};
   let refreshDirectorRestrictions: () => void = () => {};
+  let refreshingRestrictions = false;
+  let restrictionRefreshScheduled = false;
 
   const mount = (provider: SubagentProvider) => {
     if (typeof config.maxDepth === 'number' && !provider.capabilities.depthLimit) {
@@ -317,7 +318,6 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
     if (teams === undefined) return;
     try {
       await teams.setEnabled(agent, true);
-      autoTeam.set(String(agent.id), teamEventCount(agent));
     } catch (error) {
       ctx.logger.warn(
         '[' + name + '] could not enable Agent Teams for the Director session: ' +
@@ -325,24 +325,6 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
       );
     }
   };
-  const disableAutoTeam = async (agent: Agent): Promise<void> => {
-    const id = String(agent.id);
-    const expected = autoTeam.get(id);
-    if (expected === undefined) return;
-    autoTeam.delete(id);
-    if (teamEventCount(agent) !== expected) return;
-    const teams = ctx.get('agentTeams') as { setEnabled(agent: Agent, enabled: boolean): Promise<void> } | undefined;
-    if (teams === undefined) return;
-    try {
-      await teams.setEnabled(agent, false);
-    } catch (error) {
-      ctx.logger.warn(
-        '[' + name + '] could not restore Agent Teams after leaving Director Mode: ' +
-          (error instanceof Error ? error.message : String(error)),
-      );
-    }
-  };
-
   const disposeShadow = (id: string): void => {
     const dispose = shadows.get(id);
     shadows.delete(id);
@@ -364,6 +346,13 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
       try {
         const dispose = restrictDirectorWorkTools(agent, toolName);
         if (dispose !== undefined) restrictions.set(id, dispose);
+        else {
+          ctx.logger.warn(
+            '[' +
+              name +
+              '] no orchestration tool is visible yet for a Director session; the tool catalog will be narrowed on the next tools/change',
+          );
+        }
       } catch (error) {
         ctx.logger.warn(
           '[' + name + '] could not restrict work tools for the Director session: ' +
@@ -405,14 +394,32 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
     }
   };
   refreshDirectorRestrictions = (): void => {
+    if (refreshingRestrictions) return;
     const agents = ctx.get('agents') as { list?: () => Agent[] } | undefined;
     if (agents?.list === undefined) return;
-    for (const live of agents.list()) {
-      if (!isDirectorAgent(ctx, live)) continue;
-      liftRestriction(String(live.id));
-      syncDirectorAgent(live, true);
+    refreshingRestrictions = true;
+    try {
+      for (const live of agents.list()) {
+        if (!isDirectorAgent(ctx, live)) continue;
+        liftRestriction(String(live.id));
+        syncDirectorAgent(live, true);
+      }
+    } finally {
+      // Own lift/restrict calls emit tools/change synchronously; ignore them
+      // until the next macrotask so the observer cannot loop on itself.
+      setTimeout(() => {
+        refreshingRestrictions = false;
+      }, 0);
     }
   };
+  (ctx as unknown as { on(event: 'tools/change', listener: () => void): () => void }).on('tools/change', () => {
+    if (refreshingRestrictions || restrictionRefreshScheduled) return;
+    restrictionRefreshScheduled = true;
+    setTimeout(() => {
+      restrictionRefreshScheduled = false;
+      refreshDirectorRestrictions();
+    }, 0);
+  });
   refreshDirectorShadows();
   refreshDirectorRestrictions();
 
@@ -425,13 +432,11 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
     const id = String(agent.id);
     disposeShadow(id);
     liftRestriction(id);
-    autoTeam.delete(id);
   });
   ctx.effect(
     () => () => {
       for (const id of [...shadows.keys()]) disposeShadow(id);
       for (const id of [...restrictions.keys()]) liftRestriction(id);
-      autoTeam.clear();
     },
     'subagent-director: director lifecycle',
   );
@@ -450,9 +455,6 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
     syncDirectorAgent(agent, director);
     // The selection event is emitted inside the session append that records it;
     // Team changes append to the same log and must wait for that publication.
-    queueMicrotask(() => {
-      if (director) void ensureDirectorTeam(agent);
-      else void disableAutoTeam(agent);
-    });
+    if (director) queueMicrotask(() => void ensureDirectorTeam(agent));
   });
 }

@@ -14,7 +14,6 @@ export const DIRECTOR_ALLOWED_TOOLS = [
   'list_agents',
   'wait_agent',
   'send_message',
-  'interrupt_agent',
   'ask_user_question',
   'session_send_message',
   'team_task_create',

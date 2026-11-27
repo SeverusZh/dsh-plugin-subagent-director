@@ -360,6 +360,27 @@ describe('character-card delegation', () => {
     expect(h.calls[0]?.agentPreset).toBe('standard');
   });
 
+  it('uses the Director transport for background delegation too', async () => {
+    const h = harness({
+      providerName: 'fork',
+      continuable: true,
+      directorGuard: true,
+      defaultWorkerPreset: 'standard',
+      includeBuiltInCards: true,
+    });
+    await h.cards.ready();
+    await h.cards.put(
+      { id: 'worker', name: 'Worker', delegationGuidance: 'Work.', systemPrompt: 'Do the work.' },
+      { create: true },
+    );
+    const result = await (h.tool as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute(
+      { description: 'work', prompt: 'Do the work', role: 'worker' },
+      h.exec,
+    );
+    expect(result).toMatchObject({ kind: 'continuable' });
+    expect(h.calls[0]?.provider).toBe('spawn');
+  });
+
   it('resolves the built-in Director card only in Director mode', async () => {
     const h = harness({
       requireRole: true,

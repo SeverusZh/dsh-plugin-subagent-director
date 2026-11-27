@@ -78,20 +78,20 @@ describe('Director work-tool restriction', () => {
     expect(disposed).toBe(1);
   });
 
-  it('does not restrict when no allowlisted tool is visible', () => {
-    let calls = 0;
+  it('denies visible work tools when no allowlisted tool is visible', () => {
+    const filters: Array<{ allow?: string[]; deny?: string[] }> = [];
     const agent = {
       ctx: {
         tools: {
           definitions: () => [{ name: 'bash' }],
-          restrict: () => {
-            calls += 1;
+          restrict: (filter: { allow?: string[]; deny?: string[] }) => {
+            filters.push(filter);
             return () => {};
           },
         },
       },
     } as never;
-    expect(restrictDirectorWorkTools(agent, 'subagent_role')).toBeUndefined();
-    expect(calls).toBe(0);
+    expect(typeof restrictDirectorWorkTools(agent, 'subagent_role')).toBe('function');
+    expect(filters).toEqual([{ deny: ['bash'] }]);
   });
 });

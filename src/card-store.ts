@@ -211,10 +211,30 @@ export class CardService {
         this.cards.set(id, card);
       }
       if (this.cards.has(DIRECTOR_CARD_ID)) {
+        const legacy = this.cards.get(DIRECTOR_CARD_ID)!;
+        const nextId = cardIdFromName(
+          (legacy.name || DIRECTOR_CARD_ID) + ' legacy',
+          new Set([...this.cards.keys(), DIRECTOR_CARD_ID]),
+        );
+        const renamed: CharacterCard = {
+          ...legacy,
+          id: nextId,
+          updatedAt: new Date().toISOString(),
+        };
+        this.cards.delete(DIRECTOR_CARD_ID);
+        this.cards.set(nextId, renamed);
+        await domain.table('cards').delete(DIRECTOR_CARD_ID);
+        await domain.table('cards').put(nextId, renamed);
+        if (this.defaultCardId === DIRECTOR_CARD_ID) {
+          this.defaultCardId = nextId;
+          await domain.global.set({ ...global, defaultCardId: nextId });
+        }
         this.logger.warn(
           '[subagent-director] the stored card "' +
             DIRECTOR_CARD_ID +
-            '" is reserved; Director Mode uses the built-in card instead',
+            '" is reserved; renamed it to "' +
+            nextId +
+            '" so Director Mode can use the built-in card',
         );
       }
       for (const [sessionId, raw] of domain.table('bindings').entries()) {

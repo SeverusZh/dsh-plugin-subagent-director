@@ -166,14 +166,15 @@ Director Mode 是 0.8.5 引入的 **Agent Preset**，不再是命令或工具。
 
 - 主代理只保留编排面工具：`subagent_role`、`subagent_card_create`、`close_subagent`、
   `list_agents` / `send_message` / `wait_agent`、`ask_user_question` 与 Agent Teams
-  任务板；宿主侧按白名单收窄工具目录并在执行层拦截其他工具，包括动态挂载的 MCP 工具，因此主代理
+  任务板；`session_send_message` 仅用于跨会话编排。宿主侧按白名单收窄工具目录并在执行层拦截其他工具，包括动态挂载的 MCP 工具，因此主代理
   不能调用 bash、文件读写/搜索、技能、workflow 或内置 subagent。
 - 每个子代理必须由角色卡唤起：Director 会话中的 `subagent_role` 使用 agent scope
   覆盖为 `role` 必填；没有匹配的卡片时，主代理必须先调用 `subagent_card_create`
   建卡，再用返回的 id 委派。旧 `roles` 在 Director 下不参与委派，需先迁移为角色卡。
 - 内置导演卡 `director` 只出现在 Director 会话的指引与 role 解析中；设置面板不展示、
-  导出不包含，也不能被同 id 卡片覆盖。它用于需要拆解和协调的任务，并默认绑定
-  `standard` 工作预设。
+  导出不包含，也不能被同 id 卡片覆盖。它用于需要拆解和协调的任务，默认绑定
+  `director` 预设，作为可继续向下委派的导演层；普通卡片未绑定预设时才回退
+  `standard`。
 - 新 Director 根会话默认开启 Agent Teams；多子代理任务使用共享任务板、write scope 与
   owner。
 - 子代理失败时主代理不得接手其任务：重写卡片或提示词重试、通过团队重新分派，或带证据
@@ -215,7 +216,7 @@ DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines
 | DSH 版本 | 状态 |
 | --- | --- |
 | 0.2.2-rc.5 | ✅ 兼容声明（0.8.0 基线；本轮未在该运行时复验） |
-| 0.2.3-alpha.2 | ✅ typecheck / 336 测试 / 构建 / 既有 Cordis 探针 |
+| 0.2.3-alpha.2 | ✅ typecheck / 337 测试 / 构建 / 既有 Cordis 探针 |
 
 > 只列出**实际跑过**的版本；未实测的不列。
 
@@ -225,7 +226,7 @@ v0.7.0 支持 DSH **0.2.2-rc.2+**，修复 0.2.2 扁平 activation spec 导致�
 
 ```bash
 npm install
-npm test          # vitest（336 用例）
+npm test          # vitest（337 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```

@@ -7,7 +7,7 @@
 
 - 存储设施：DSH `storageDomain`，域名为 `subagent_director`，布局为 `per-record`；
 - 卡片文件：`<storage-root>/subagent_director/cards/<id>.json`；
-- 文件内容为存储域包装：`{ "version": 1, "record": <角色卡> }`；
+- 文件内容为存储域包装：`{ "version": 1, "record": <角色卡> }`；该 version 是存储域记录版本，与导出格式 version 2 独立；
 - 默认卡 id：同一域的 global 槽位，不写入插件公共配置；
 - 旧版 `roles` / `defaultRole`：仅作为迁移来源保留；迁移后可从配置中清除。Director Mode 的委派只接受角色卡，旧 `roles` 需先迁移。
 
@@ -54,8 +54,8 @@ Director Mode 内置一张 id 为 `director` 的角色卡：
 
 - 只在该预设的会话中进入 guidance 与 `subagent_role` 解析；
 - 不写入存储，不出现在设置面板或导出结果中；
-- id 与 `source: builtin` 为保留值，导入或编辑同 id 卡片会被拒绝；
-- 默认绑定 `standard` 工作预设，用于需要拆解、协调与多角色分派的任务；
+- id 与 `source: builtin` 为保留值，导入或编辑同 id 卡片会被拒绝；0.8.0 遗留的同 id 存储卡在启动时自动重命名并保留；
+- 默认绑定 `director` 预设，作为可继续向下委派的导演层；普通卡片未绑定预设时才回退 `standard`；
 - 卡片的推荐/不推荐指引同时参与主代理提示词。
 
 ## 运行语义

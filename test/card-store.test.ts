@@ -265,8 +265,11 @@ describe('built-in director card precedence', () => {
     });
     memory.tables.set('cards', cards);
     await scoped.ready();
-    expect(scoped.get('director')?.name).toBe('Old Custom Director');
+    const renamed = scoped.list().find((card) => card.name === 'Old Custom Director');
+    expect(renamed?.id).not.toBe('director');
+    expect(scoped.get('director')).toBeUndefined();
     expect(scoped.get('director', { includeBuiltIn: true })?.name).toBe('Director');
+    expect(memory.tables.get('cards')?.has('director')).toBe(false);
     const visible = scoped.list({ includeBuiltIn: true });
     expect(visible.filter((card) => card.id === 'director')).toHaveLength(1);
     expect(visible.find((card) => card.id === 'director')?.source).toBe('builtin');

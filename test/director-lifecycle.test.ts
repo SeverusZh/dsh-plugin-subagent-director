@@ -95,6 +95,6 @@ describe('Director preset lifecycle', () => {
     await settle();
     expect(shadowDisposed).toBe(1);
     expect(restrictionDisposed).toBe(1);
-    expect(teamEnabled).toBe(false);
+    expect(teamEnabled).toBe(true);
   });
 });

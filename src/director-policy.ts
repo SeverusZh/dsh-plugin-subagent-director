@@ -7,7 +7,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import { scopeOf } from '@deepseek-ai/dsh-scope';
+import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope';
 
 import { directorAllowedNames } from './director-guard.js';
 
@@ -31,12 +31,36 @@ export function restrictDirectorWorkTools(
 ): (() => void) | undefined {
   const tools = agent.ctx.tools as unknown as {
     definitions(scope?: unknown): readonly { name: string }[];
-    restrict(filter: { allow?: string[] }): () => void;
+    restrict(filter: { allow?: string[]; deny?: string[] }): () => void;
   };
-  const scope = scopeOf(agent.ctx);
-  const known = new Set(tools.definitions(scope).map((definition) => definition.name));
-  const allow = directorAllowedNames(delegationTool).filter((name) => known.has(name));
-  if (allow.length === 0) return undefined;
+  let scope: ReturnType<typeof scopeOf> = undefined;
+  try {
+    scope = scopeOf(agent.ctx);
+  } catch {
+    scope = undefined;
+  }
+  let chain: readonly unknown[] = [];
+  if (scope !== undefined) {
+    try {
+      chain = scopeChainOf(scope);
+    } catch {
+      chain = [];
+    }
+  }
+  const inherited = new Set<string>();
+  for (const key of [undefined, ...chain]) {
+    if (scope !== undefined && key === scope) continue;
+    for (const definition of tools.definitions(key as never)) inherited.add(definition.name);
+  }
+  const visible = new Set(tools.definitions(scope).map((definition) => definition.name));
+  const allow = directorAllowedNames(delegationTool).filter(
+    (name) => visible.has(name) && inherited.has(name),
+  );
+  if (allow.length === 0) {
+    const allowed = new Set(directorAllowedNames(delegationTool));
+    const deny = [...visible].filter((name) => inherited.has(name) && !allowed.has(name));
+    return deny.length === 0 ? undefined : tools.restrict({ deny });
+  }
   return tools.restrict({ allow });
 }
 

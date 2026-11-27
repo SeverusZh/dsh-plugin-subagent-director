@@ -725,7 +725,7 @@ export function createDelegationTool(options: {
       let started = false;
       try {
         const activation = await ctx.subagents.startActivation({
-          provider: providerName,
+          provider: transportName,
           label: args.description,
           ...request,
           ...(childId !== undefined ? { childId } : {}),
