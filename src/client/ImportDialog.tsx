@@ -198,7 +198,7 @@ export function ImportDialog({ open, t, onClose, onImport }: ImportDialogProps):
               id="sd-import-paste"
               className="sd-textarea sd-textarea-code"
               value={paste}
-              placeholder='{ "kind": "subagent-director/character-card-collection", "version": 1, "cards": [] }'
+              placeholder='{ "kind": "subagent-director/character-card-collection", "version": 2, "cards": [] }'
               onChange={(event) => {
                 setPaste(event.target.value);
                 setResult(undefined);

@@ -1,16 +1,18 @@
 /**
  * Main-agent guidance for character cards.
  *
- * Registers a system-prompt section listing the cards (and any still-unmigrated
- * legacy role templates) so the main agent knows which role-bound subagents it
- * can delegate to, what each is for, and which model route each binds. Card
- * system prompts and personas stay child-only; this section never exposes them.
+ * Registers a system-prompt section listing the cards so the main agent knows
+ * which role-bound subagents it can delegate to, when each is recommended, and
+ * when it is not. Card system prompts and personas stay child-only; this
+ * section never exposes them. In Director Mode the code-defined director card
+ * is included and the header states the card-first rule.
  *
  * The section order (117) sits after the deployment persona prefix and before
  * plan/tool policy, so the card list is available early without replacing the
  * harness identity or tool guidance.
  */
 import type { Context } from '@deepseek-ai/cordis';
+import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { CharacterCard } from './card-types.js';
 import { isCardEnabled } from './card-types.js';
 import { danglingDefaultRoleWarning, type SubagentDirectorSettings } from './settings.js';
@@ -23,8 +25,15 @@ export const GUIDANCE_SECTION_NAME = 'subagent-director:cards';
 
 /** The card list face guidance needs (kept structural to avoid a host import cycle). */
 export interface GuidanceCardSource {
-  list(): CharacterCard[];
+  list(options?: { includeBuiltIn?: boolean }): CharacterCard[];
 }
+
+/** Director-only rendering switches. */
+export interface GuidanceOptions {
+  director?: boolean;
+}
+
+export type GuidanceSettingsSource = (agent?: Agent) => SubagentDirectorSettings;
 
 function modelLabel(card: CharacterCard): string {
   const provider = card.model?.provider;
@@ -36,12 +45,20 @@ function modelLabel(card: CharacterCard): string {
 
 function cardLine(card: CharacterCard, toolName: string): string[] {
   const tags = (card.tags ?? []).filter((tag) => tag.length > 0);
-  const meta = [modelLabel(card), tags.length > 0 ? `tags: ${tags.join(', ')}` : ''].filter((part) => part.length > 0);
+  const meta = [
+    modelLabel(card),
+    card.source === 'builtin' ? 'built-in' : '',
+    tags.length > 0 ? `tags: ${tags.join(', ')}` : '',
+  ].filter((part) => part.length > 0);
   const suffix = meta.length > 0 ? ` (${meta.join('; ')})` : '';
-  return [
-    `- ${card.name} [${card.id}]${suffix}: ${card.delegationGuidance}`,
-    `    Delegate with: ${toolName}({ role: "${card.id}", prompt: "..." })`,
+  const lines = [
+    `- ${card.name} [${card.id}]${suffix}:`,
+    `    Use when: ${card.delegationGuidance}`,
   ];
+  const avoid = card.avoidGuidance?.trim();
+  if (avoid !== undefined && avoid.length > 0) lines.push(`    Do not use when: ${avoid}`);
+  lines.push(`    Delegate with: ${toolName}({ role: "${card.id}", prompt: "..." })`);
+  return lines;
 }
 
 /**
@@ -53,18 +70,25 @@ export function renderRolesGuidance(
   settings: SubagentDirectorSettings,
   toolName: string,
   cards?: GuidanceCardSource,
+  options: GuidanceOptions = {},
 ): string {
-  const cardList = (cards?.list() ?? []).filter((card) => isCardEnabled(card));
+  const director = options.director === true;
+  const cardList = (cards?.list({ includeBuiltIn: director }) ?? []).filter((card) => isCardEnabled(card));
   const cardIds = new Set(cardList.map((card) => card.id));
-  const legacy = Object.entries(settings.roles ?? {}).filter(
-    ([id, role]) => role !== undefined && !cardIds.has(id),
-  );
+  const legacy = director
+    ? []
+    : Object.entries(settings.roles ?? {}).filter(([id, role]) => role !== undefined && !cardIds.has(id));
   if (cardList.length === 0 && legacy.length === 0) return '';
 
-  const lines: string[] = [
-    'Subagent Director character cards — delegate one of these role-bound subagents when the task matches its delegation guidance. A card may bind a model route and carry a fixed role prompt for the child.',
-    'Reference cards by their bracketed id, never by display name; when the user names a card by its display name, map it to that id.',
-  ];
+  const lines: string[] = director
+    ? [
+        'Director Mode card policy — every subagent must be started through one of these character cards. Respect each card\'s recommended and not-recommended conditions. When no card matches the task, create one with subagent_card_create first, then delegate to its id.',
+        'Reference cards by their bracketed id, never by display name; when the user names a card by its display name, map it to that id.',
+      ]
+    : [
+        'Subagent Director character cards — delegate one of these role-bound subagents when the task matches its delegation guidance. A card may bind a model route and carry a fixed role prompt for the child.',
+        'Reference cards by their bracketed id, never by display name; when the user names a card by its display name, map it to that id.',
+      ];
   for (const card of cardList) lines.push(...cardLine(card, toolName));
 
   if (legacy.length > 0) {
@@ -76,9 +100,14 @@ export function renderRolesGuidance(
             ? ` (model: ${role.provider}/${role.model})`
             : ` (provider: ${role.provider})`
           : '';
-      lines.push(`- ${role.displayName || id}${bound}: ${role.description}`);
+      lines.push(`- ${role.displayName || id}${bound}:`);
+      lines.push(`    Use when: ${role.description}`);
       lines.push(`    Delegate with: ${toolName}({ role: "${id}", prompt: "..." })`);
     }
+  }
+
+  if (director && cardList.length === 1 && cardList[0]?.source === 'builtin') {
+    lines.push('', 'Only the built-in Director card exists so far. Create a specialist card with subagent_card_create before delegating work that needs a specific role.');
   }
 
   const warning = danglingDefaultRoleWarning(settings);
@@ -92,29 +121,51 @@ export function renderRolesGuidance(
  */
 export function applyGuidance(
   ctx: Context,
-  getSettings: () => SubagentDirectorSettings,
+  getSettings: GuidanceSettingsSource,
   toolName: string,
   cards?: GuidanceCardSource,
+  isDirector?: (agent?: Agent) => boolean,
 ): (() => void) | undefined {
-  const render = () => renderRolesGuidance(getSettings(), toolName, cards);
   const register = (systemPrompt: {
-    section(section: { name: string; order: number; text: () => string; interpolate?: boolean }): () => void;
+    section(section: {
+      name: string;
+      order: number;
+      text: (context: { agent?: Agent } | undefined) => string;
+      interpolate?: boolean;
+    }): () => void;
   }) =>
     systemPrompt.section({
       name: GUIDANCE_SECTION_NAME,
       order: GUIDANCE_SECTION_ORDER,
       // Card guidance is literal model-facing prose, not a prompt template.
       interpolate: false,
-      text: render,
+      text: (context) =>
+        renderRolesGuidance(getSettings(context?.agent), toolName, cards, {
+          director: isDirector?.(context?.agent) === true,
+        }),
     });
 
   const systemPrompt = ctx.get('systemPrompt') as
-    | { section(section: { name: string; order: number; text: () => string; interpolate?: boolean }): () => void }
+    | {
+        section(section: {
+          name: string;
+          order: number;
+          text: (context: { agent?: Agent } | undefined) => string;
+          interpolate?: boolean;
+        }): () => void;
+      }
     | undefined;
   if (systemPrompt !== undefined) return register(systemPrompt);
   ctx.inject(['systemPrompt'], (child) => {
     const late = child.get('systemPrompt') as
-      | { section(section: { name: string; order: number; text: () => string; interpolate?: boolean }): () => void }
+      | {
+          section(section: {
+            name: string;
+            order: number;
+            text: (context: { agent?: Agent } | undefined) => string;
+            interpolate?: boolean;
+          }): () => void;
+        }
       | undefined;
     if (late !== undefined) register(late);
   });

@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-subagent-director",
-  "version": "0.8.0",
-  "description": "Subagent Director: character cards for role-bound subagents, each packaging delegation guidance, a fixed system prompt, persona, and an optional model route, with independent file storage, import/export, and a modern settings UI.",
+  "version": "0.8.5",
+  "description": "Subagent Director: character cards for role-bound subagents plus Director Mode, an orchestration-only Agent Preset whose main agent delegates every task through a card and uses Agent Teams by default.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -18,10 +18,12 @@
     "CHANGELOG.md",
     "cordis.patch.yml",
     "docs/assets/screenshots",
-    "docs/character-cards.md"
+    "docs/character-cards.md",
+    "docs/director-mode.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
+    "build": "npm run clean && tsc -p tsconfig.json && node scripts/build-client.mjs",
+    "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
     "build:client": "node scripts/build-client.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -75,7 +77,9 @@
     "role-template",
     "character-card",
     "character-cards",
-    "role-card"
+    "role-card",
+    "director-mode",
+    "agent-preset"
   ],
   "dependencies": {
     "zod": "4.6.6"
@@ -97,8 +101,8 @@
     "@deepseek-ai/dsh-client-ui-settings": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-llm": ">=0.2.2-rc.2",
+    "@deepseek-ai/dsh-scope": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-session": ">=0.2.2-rc.2",
-    "@deepseek-ai/dsh-session-projection": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-settings": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-storage-domain": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-subagent": ">=0.2.2-rc.2",
@@ -132,7 +136,6 @@
     "@deepseek-ai/dsh-sandbox-policy": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-scope": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-session": "0.2.3-alpha.2",
-    "@deepseek-ai/dsh-session-projection": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-settings": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-storage": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-storage-domain": "0.2.3-alpha.2",

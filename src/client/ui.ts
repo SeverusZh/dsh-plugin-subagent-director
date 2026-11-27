@@ -69,6 +69,7 @@ export const uiCss = `
 .sd-badge{display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 6px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);line-height:1;white-space:nowrap;}
 .sd-badge-accent{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent);background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary);}
 .sd-star-btn.is-on{color:var(--dsw-alias-state-business-primary);}
+.sd-card-tile-avoid{margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xs-13);line-height:19px;white-space:pre-wrap;overflow-wrap:anywhere;}
 .sd-card-tile-guidance{margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xs-13);line-height:19px;white-space:pre-wrap;overflow-wrap:anywhere;}
 .sd-card-tile-tags{display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-height:18px;}
 .sd-card-tile-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}

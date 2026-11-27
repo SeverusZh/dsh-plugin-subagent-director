@@ -141,7 +141,11 @@ export type SubagentDirectorKey =
   | 'cardPersona'
   | 'cardPersonaHint'
   | 'cardGuidance'
+  | 'cardGuidanceRecommended'
   | 'cardGuidanceHint'
+  | 'cardAvoidGuidance'
+  | 'cardAvoidGuidanceHint'
+  | 'cardAvoidPrefix'
   | 'cardNotes'
   | 'cardNotesHint'
   | 'cardEnabled'
@@ -373,7 +377,11 @@ export const en: Record<SubagentDirectorKey, string> = {
   "cardPersona": "Persona",
   "cardPersonaHint": "Additional identity and style text appended to the fixed system prompt.",
   "cardGuidance": "Delegation guidance",
-  "cardGuidanceHint": "Shown to the main agent. Explain when to delegate and what the child should do.",
+  "cardGuidanceRecommended": "Recommended when",
+  "cardGuidanceHint": "Shown to the main agent. Explain when delegating to this card is the right choice.",
+  "cardAvoidGuidance": "Not recommended when",
+  "cardAvoidGuidanceHint": "Shown to the main agent. Explain when this card is the wrong choice and another card or the user should handle it.",
+  "cardAvoidPrefix": "Not recommended: ",
   "cardNotes": "Notes",
   "cardNotesHint": "Human-only notes. Never sent to a model.",
   "cardEnabled": "Enabled",
@@ -606,7 +614,11 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "cardPersona": "Persona",
   "cardPersonaHint": "附加的身份与风格文本，追加在固定系统提示词之后。",
   "cardGuidance": "委派指引",
-  "cardGuidanceHint": "展示给主代理：何时委派、子代理应完成什么。",
+  "cardGuidanceRecommended": "推荐委派",
+  "cardGuidanceHint": "展示给主代理：什么情况下应委派给这张角色卡。",
+  "cardAvoidGuidance": "不推荐委派",
+  "cardAvoidGuidanceHint": "展示给主代理：什么情况下不应委派给这张角色卡，应改用其他卡或直接询问用户。",
+  "cardAvoidPrefix": "不推荐：",
   "cardNotes": "备注",
   "cardNotesHint": "仅供人阅读，不会发送给模型。",
   "cardEnabled": "启用",

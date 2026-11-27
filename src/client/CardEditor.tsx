@@ -45,6 +45,7 @@ interface Draft {
   systemPrompt: string;
   persona: string;
   guidance: string;
+  avoidGuidance: string;
   notes: string;
   enabled: boolean;
 }
@@ -63,6 +64,7 @@ function blankDraft(): Draft {
     systemPrompt: '',
     persona: '',
     guidance: '',
+    avoidGuidance: '',
     notes: '',
     enabled: true,
   };
@@ -83,6 +85,7 @@ function draftOf(card: CharacterCard | undefined): Draft {
     systemPrompt: card.systemPrompt ?? '',
     persona: card.persona ?? '',
     guidance: card.delegationGuidance,
+    avoidGuidance: card.avoidGuidance ?? '',
     notes: card.notes ?? '',
     enabled: card.enabled !== false,
   };
@@ -185,6 +188,7 @@ export function CardEditor(props: CardEditorProps): JSX.Element | null {
       id,
       name,
       delegationGuidance: guidance,
+      ...(draft.avoidGuidance.trim().length > 0 ? { avoidGuidance: draft.avoidGuidance.trim() } : {}),
       ...(draft.systemPrompt.trim().length > 0 ? { systemPrompt: draft.systemPrompt.trim() } : {}),
       ...(draft.persona.trim().length > 0 ? { persona: draft.persona.trim() } : {}),
       ...(draft.provider.trim().length > 0 && draft.model.trim().length > 0
@@ -378,16 +382,33 @@ export function CardEditor(props: CardEditorProps): JSX.Element | null {
           <section className="sd-form-section">
             <h3>{t('cardGuidance')}</h3>
             <div className="sd-field">
+              <label className="sd-label" htmlFor="sd-card-guidance">{t('cardGuidanceRecommended')}</label>
               <textarea
+                id="sd-card-guidance"
                 className="sd-textarea"
                 value={draft.guidance}
                 maxLength={CARD_LIMITS.guidanceLength}
-                aria-label={t('cardGuidance')}
+                aria-label={t('cardGuidanceRecommended')}
                 onChange={(event) => set('guidance', event.target.value)}
               />
               <span className="sd-note">{t('cardGuidanceHint')}</span>
               <span className="sd-counter">
                 {withReplacement(t('cardGuidanceLength'), { count: draft.guidance.length, max: CARD_LIMITS.guidanceLength })}
+              </span>
+            </div>
+            <div className="sd-field">
+              <label className="sd-label" htmlFor="sd-card-avoid">{t('cardAvoidGuidance')}</label>
+              <textarea
+                id="sd-card-avoid"
+                className="sd-textarea"
+                value={draft.avoidGuidance}
+                maxLength={CARD_LIMITS.guidanceLength}
+                aria-label={t('cardAvoidGuidance')}
+                onChange={(event) => set('avoidGuidance', event.target.value)}
+              />
+              <span className="sd-note">{t('cardAvoidGuidanceHint')}</span>
+              <span className="sd-counter">
+                {withReplacement(t('cardGuidanceLength'), { count: draft.avoidGuidance.length, max: CARD_LIMITS.guidanceLength })}
               </span>
             </div>
           </section>

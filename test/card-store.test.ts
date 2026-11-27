@@ -226,3 +226,61 @@ describe('active prompt bindings', () => {
     expect(restarted.bindingText('child-1')).toContain('Persona:\nP');
   });
 });
+
+describe('built-in director card', () => {
+  it('stays hidden unless the caller asks for Director visibility', async () => {
+    expect(service.list().map((entry) => entry.id)).toEqual([]);
+    expect(service.get('director')).toBeUndefined();
+    expect(service.resolveCard('director')).toBeUndefined();
+
+    const visible = service.list({ includeBuiltIn: true });
+    expect(visible.map((entry) => entry.id)).toContain('director');
+    expect(visible.find((entry) => entry.id === 'director')?.source).toBe('builtin');
+    expect(service.get('director', { includeBuiltIn: true })?.name).toBe('Director');
+    expect(service.resolveCard('director', { includeBuiltIn: true })?.card.id).toBe('director');
+    expect(service.settingsWithCards({}, { includeBuiltIn: true }).roles?.['director']?.displayName).toBe('Director');
+  });
+
+  it('never enters the settings snapshot, export, or stored library', async () => {
+    expect(service.librarySnapshot().cards).toEqual([]);
+    expect(service.exportCards().cards).toEqual([]);
+    await expect(service.put(card('director'), { create: true })).rejects.toThrow(/reserved/);
+    const imported = await service.importCards([{ ...card('director'), id: 'director' }], 'skip');
+    expect(imported.imported).toBe(0);
+    expect(imported.issues[0]?.message).toContain('reserved');
+    expect(service.list().map((entry) => entry.id)).toEqual([]);
+  });
+});
+
+describe('built-in director card precedence', () => {
+  it('wins over a stored card with the reserved id when Director visibility is requested', async () => {
+    const { service: scoped, memory } = createCardService();
+    const cards = new Map<string, unknown>();
+    cards.set('director', {
+      id: 'director',
+      name: 'Old Custom Director',
+      delegationGuidance: 'Old guidance.',
+      enabled: true,
+      source: 'local',
+    });
+    memory.tables.set('cards', cards);
+    await scoped.ready();
+    expect(scoped.get('director')?.name).toBe('Old Custom Director');
+    expect(scoped.get('director', { includeBuiltIn: true })?.name).toBe('Director');
+    const visible = scoped.list({ includeBuiltIn: true });
+    expect(visible.filter((card) => card.id === 'director')).toHaveLength(1);
+    expect(visible.find((card) => card.id === 'director')?.source).toBe('builtin');
+  });
+
+  it('renames a reserved legacy role instead of colliding with the built-in card', async () => {
+    const created = createCardService(() => ({
+      roles: { director: { displayName: 'Legacy Director', description: 'Old role.' } },
+    }));
+    await created.service.ready();
+    const result = await created.service.migrateLegacy();
+    expect(result.failed).toEqual([]);
+    expect(result.migrated).not.toContain('director');
+    expect(result.migrated[0]).not.toBe('director');
+    expect(created.service.list().map((card) => card.id)).not.toContain('director');
+  });
+});

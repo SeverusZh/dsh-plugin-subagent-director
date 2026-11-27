@@ -45,3 +45,45 @@ describe('renderRolesGuidance', () => {
     expect(renderRolesGuidance({ roles: {}, defaultRole: 'ghost' }, 'subagent_role')).toBe('');
   });
 });
+
+import { BUILTIN_DIRECTOR_CARD } from '../src/director-card.js';
+import type { CharacterCard } from '../src/card-types.js';
+
+const reviewer: CharacterCard = {
+  id: 'reviewer',
+  name: 'Reviewer',
+  delegationGuidance: 'Use when a diff needs correctness review.',
+  avoidGuidance: 'Do not use when the task is to write a new feature.',
+  enabled: true,
+};
+
+const cardSource = {
+  list: (options?: { includeBuiltIn?: boolean }) =>
+    options?.includeBuiltIn === true ? [reviewer, BUILTIN_DIRECTOR_CARD] : [reviewer],
+};
+
+describe('renderRolesGuidance guidance split', () => {
+  it('renders both recommended and not-recommended sections', () => {
+    const text = renderRolesGuidance({}, 'subagent_role', cardSource);
+    expect(text).toContain('Use when: Use when a diff needs correctness review.');
+    expect(text).toContain('Do not use when: Do not use when the task is to write a new feature.');
+    expect(text).not.toContain('Director Mode card policy');
+    expect(text).not.toContain('director');
+  });
+
+  it('includes the built-in director card and card-first policy only in Director mode', () => {
+    const text = renderRolesGuidance({}, 'subagent_role', cardSource, { director: true });
+    expect(text).toContain('Director Mode card policy');
+    expect(text).toContain('subagent_card_create');
+    expect(text).toContain('Director [director]');
+    expect(text).toContain('built-in');
+  });
+
+  it('hides legacy roles in Director mode', () => {
+    const legacy = {
+      roles: { legacy: { displayName: 'Legacy', description: 'Old guidance.' } },
+    };
+    expect(renderRolesGuidance(legacy, 'subagent_role', cardSource)).toContain('Legacy role templates');
+    expect(renderRolesGuidance(legacy, 'subagent_role', cardSource, { director: true })).not.toContain('Legacy role templates');
+  });
+});

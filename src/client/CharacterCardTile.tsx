@@ -128,6 +128,9 @@ export function CharacterCardTile(props: CharacterCardTileProps): JSX.Element {
       </header>
 
       <p className="sd-card-tile-guidance">{card.delegationGuidance}</p>
+      {card.avoidGuidance !== undefined && card.avoidGuidance.trim().length > 0 ? (
+        <p className="sd-card-tile-avoid">{t('cardAvoidPrefix')}{card.avoidGuidance}</p>
+      ) : null}
 
       <div className="sd-card-tile-tags">
         {shownTags.map((tag) => <span key={tag} className="sd-chip">{tag}</span>)}

@@ -66,6 +66,19 @@ export interface DirectorConfig {
    * provider's `depthLimit` capability. 'provider-managed' sends no cap.
    */
   maxDepth?: number | 'provider-managed';
+
+  /**
+   * Transport provider used by Director Mode (default 'spawn'). It must support
+   * independent Agent Preset composition so worker cards can run on a work
+   * preset; fork inherits the parent composition and cannot.
+   */
+  directorProvider?: string;
+
+  /** Worker Agent Preset for cards that bind none (default 'standard'). */
+  directorWorkerPreset?: string;
+
+  /** Enable Agent Teams by default for new Director root sessions (default true). */
+  directorTeamDefault?: boolean;
 }
 
 /** The composition-layer field map (restart-managed; not part of the settings form). */
@@ -76,6 +89,9 @@ const CompositionFields = {
   backgroundMode: z.union(['one-shot', 'continuable']).default('one-shot'),
   maxDepth: z
     .union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed')]),
+  directorProvider: z.string().default('spawn'),
+  directorWorkerPreset: z.string().default('standard'),
+  directorTeamDefault: z.boolean().default(true),
 };
 
 /**
