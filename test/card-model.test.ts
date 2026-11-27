@@ -76,6 +76,21 @@ describe('portable card envelope', () => {
     expect(parsed.issue).toContain('name');
   });
 
+  it('parses, compacts, and exports the not-recommended guidance', () => {
+    const parsed = parseImportedCard(
+      { ...baseCard, id: 'code-reviewer', avoidGuidance: '  Do not review design docs.  ' },
+      new Set(),
+    );
+    expect(parsed.card?.avoidGuidance).toBe('Do not review design docs.');
+    expect(buildCardBundle([parsed.card!]).cards[0]?.avoidGuidance).toBe('Do not review design docs.');
+    expect(parseImportedCard({ ...baseCard, id: 'blank', avoidGuidance: '   ' }, new Set()).card?.avoidGuidance).toBeUndefined();
+  });
+
+  it('reserves the built-in card id and source for code-defined cards', () => {
+    expect(parseImportedCard({ ...baseCard, id: 'director' }, new Set()).issue).toContain('reserved');
+    expect(parseImportedCard({ ...baseCard, id: 'other', source: 'builtin' }, new Set()).issue).toContain('reserved');
+  });
+
   it('accepts a settings draft with a tag string and a description alias', () => {
     const parsed = parseCardDraft(
       {
@@ -128,7 +143,7 @@ describe('card projection and migration', () => {
     const parsed = parseImportedCard({ ...baseCard, id: 'code-reviewer' }, new Set());
     const bundle = buildCardBundle([parsed.card!], '2026-01-01T00:00:00.000Z');
     expect(bundle.kind).toBe(CARD_BUNDLE_KIND);
-    expect(bundle.version).toBe(1);
+    expect(bundle.version).toBe(2);
     expect(bundle.exportedAt).toBe('2026-01-01T00:00:00.000Z');
     expect(bundle.cards).toHaveLength(1);
   });

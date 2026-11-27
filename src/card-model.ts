@@ -23,6 +23,7 @@ import {
   type CharacterCardDraft,
 } from './card-types.js';
 import type { RoleTemplate } from './route-resolver.js';
+import { DIRECTOR_CARD_ID } from './director.js';
 
 /** Non-blank string helper (zod v4 `.trim()` runs before the check). */
 const nonBlank = (max: number) => z.string().trim().min(1).max(max);
@@ -42,6 +43,7 @@ export const CharacterCardSchema = z.object({
   id: z.string().trim().max(CARD_LIMITS.idLength).regex(CARD_ID_PATTERN),
   name: nonBlank(CARD_LIMITS.nameLength),
   delegationGuidance: nonBlank(CARD_LIMITS.guidanceLength),
+  avoidGuidance: optionalText(CARD_LIMITS.guidanceLength),
   systemPrompt: optionalText(CARD_LIMITS.promptLength),
   persona: optionalText(CARD_LIMITS.promptLength),
   model: CardModelSchema.optional(),
@@ -51,7 +53,7 @@ export const CharacterCardSchema = z.object({
   accent: z.enum(CARD_ACCENTS).optional(),
   notes: optionalText(CARD_LIMITS.notesLength),
   enabled: z.boolean().optional(),
-  source: z.enum(['local', 'import', 'legacy']).optional(),
+  source: z.enum(['local', 'import', 'legacy', 'builtin']).optional(),
   createdAt: z.string().trim().max(80).optional(),
   updatedAt: z.string().trim().max(80).optional(),
 });
@@ -146,6 +148,7 @@ function compactCard(card: CharacterCard): CharacterCard {
     return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
   };
   const systemPrompt = clean(card.systemPrompt);
+  const avoidGuidance = clean(card.avoidGuidance);
   const persona = clean(card.persona);
   const agentPreset = clean(card.agentPreset);
   const emoji = clean(card.emoji);
@@ -167,6 +170,7 @@ function compactCard(card: CharacterCard): CharacterCard {
   // blank strings that the schema accepted before trimming.
   const {
     systemPrompt: _systemPrompt,
+    avoidGuidance: _avoidGuidance,
     persona: _persona,
     agentPreset: _agentPreset,
     emoji: _emoji,
@@ -178,6 +182,7 @@ function compactCard(card: CharacterCard): CharacterCard {
   return {
     ...rest,
     ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+    ...(avoidGuidance !== undefined ? { avoidGuidance } : {}),
     ...(persona !== undefined ? { persona } : {}),
     ...(agentPreset !== undefined ? { agentPreset } : {}),
     ...(emoji !== undefined ? { emoji } : {}),
@@ -202,7 +207,13 @@ export function parseImportedCard(
     return { issue: parsed.error.issues.map((issue) => issue.path.join('.') + ': ' + issue.message).join('; ') };
   }
   const input = parsed.data;
+  if (input.source === 'builtin') {
+    return { issue: 'The `builtin` source is reserved for code-defined cards.' };
+  }
   const id = input.id ?? cardIdFromName(input.name, existingIds);
+  if (id === DIRECTOR_CARD_ID) {
+    return { issue: 'Card id "' + DIRECTOR_CARD_ID + '" is reserved for the built-in Director card.' };
+  }
   const card = compactCard({ ...input, id, source: input.source ?? 'import' });
   if (!isCardId(card.id)) return { issue: 'Invalid card id "' + card.id + '".' };
   return { card };
@@ -261,7 +272,10 @@ export interface LegacyRole {
 export function legacyRoleToCard(roleId: string, role: LegacyRole, existingIds: ReadonlySet<string>): CharacterCard {
   const name = (role.displayName ?? '').trim() || roleId;
   const guidance = (role.description ?? '').trim() || 'Delegated role ' + name + '.';
-  const id = isCardId(roleId) ? roleId : cardIdFromName(name, existingIds);
+  const reserved = roleId === DIRECTOR_CARD_ID;
+  const id = isCardId(roleId) && !reserved
+    ? roleId
+    : cardIdFromName(name, new Set([...existingIds, DIRECTOR_CARD_ID]));
   const filter = role.toolFilter;
   const filterNote =
     filter !== undefined && ((filter.allow?.length ?? 0) > 0 || (filter.deny?.length ?? 0) > 0)

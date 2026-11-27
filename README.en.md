@@ -17,7 +17,7 @@
 
 **Subagent Director** is an out-of-tree DeepSeek Harness plugin that lets you choose an LLM provider and model for subagents, and package fixed system prompts, personas, and delegation intent as character cards.
 
-> **Latest release 0.8.0**: [npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.0) · [GitHub Release](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases/tag/v0.8.0)
+> **Latest release 0.8.5**: [npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.5) · [GitHub Releases](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 
 ---
 
@@ -26,7 +26,7 @@
 - **Provider/model selection** — a configurable default LLM provider (route) and model for subagents; each delegation can also specify `provider` / `model` explicitly from the model side;
 - **Controlled model selection** — provider/model are chosen only from the official `subagent-model-selection` allowlist (`allowedModels`): an explicitly passed unauthorized route is a hard error, while unauthorized routes at the plugin-default / card-binding layer are dropped and fall back to inheritance (no double-writing of model routes with the official dsh-tool-subagent);
 - **Hot configuration reload** — changes in settings.yaml / the plugin config page take effect immediately, no restart needed;
-- **Character cards** — each card packages a name, model binding, fixed system prompt, persona, delegation guidance, tags, and an optional Agent Preset; one JSON file per card, independent of the plugin's public configuration;
+- **Character cards** — each card packages a name, model binding, fixed system prompt, persona, recommended/not-recommended delegation guidance, tags, and an optional Agent Preset; one JSON file per card, independent of the plugin's public configuration;
 - **Fixed role prompt** — the child session receives the card's fixed system prompt and persona; a running child keeps the snapshot it started with, so editing a card never rewrites it;
 - **Import, export, batch** — single or batch JSON import/export with skip/overwrite/keep-both conflict policies, plus batch enable, disable, delete, and export;
 - **Legacy role migration** — one action converts the old `roles` into cards while preserving the default role, persona, and model binding; legacy tool-set data is kept as a note;
@@ -133,13 +133,14 @@ Example collection:
 ```json
 {
   "kind": "subagent-director/character-card-collection",
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-11-27T00:00:00.000Z",
   "cards": [
     {
       "id": "code-reviewer",
       "name": "Code Reviewer",
       "delegationGuidance": "Review diffs for correctness and regressions.",
+      "avoidGuidance": "Do not use for writing new features or for questions that need no review.",
       "systemPrompt": "You are a rigorous code reviewer.",
       "model": { "provider": "ollama-pro", "model": "deepseek-v4.1-flash:1017" },
       "tags": ["code", "review"]
@@ -153,32 +154,40 @@ already exists you can skip, overwrite, or keep both. The old `roles` can be mig
 the same page; clearing the legacy settings fields is recommended after migration. See
 [docs/character-cards.md](docs/character-cards.md) for fields and storage details.
 
-## 🎼 纯编排模式 / Orchestrate Mode
+## 🎬 Director Mode
 
-```text
-/orchestrate 分析上周A股走势   # 本轮开启并直接编排该任务（推荐用法）
-/orchestrate                  # 本轮开启（按轮生效，无需 on/off）
-/orchestrate on               # 持久开启（直到 /orchestrate off）
-/orchestrate off              # 退出持久模式
-```
+Director Mode is an **Agent Preset** introduced in 0.8.5; it is no longer a command or a
+tool. Select 「导演模式」 as the session preset to enter it. DSH does not translate
+third-party preset metadata at runtime, so the declared Chinese label is shown in every
+locale.
 
-Declare `/orchestrate` at the start of a message (optionally followed by the task text, e.g.
-`/orchestrate 分析上周A股走势`), or write "use orchestrate mode" in natural language (including
-variants such as "请使用 orchestrate 模式" and "use orchestrate mode"), and that turn
-automatically enters pure-orchestration mode — a per-turn declarative usage similar to
-`/using aegis`, with no need to remember a toggle state; without the declaration, normal mode
-is kept. `/orchestrate <task>` queues the task text into the next turn and wakes the model,
-which handles the task in pure-orchestration mode. Once enabled, a "pure orchestrator" system
-prompt is injected: the main agent may only hand out work through delegation tools, and the
-card list is rendered dynamically from the current card library while remaining compatible
-with unmigrated `roles` (no hard-coded role ids). **When no cards are configured**, the binding
-pure-orchestration framework is not injected; instead a short prompt tells the model to state
-that a card must be created first and to continue handling the request in normal mode
-(avoiding "no output in the conversation").
-This mode depends on the host's `commands` and `sessionProjections` services: standard profiles
-(dsh-base) provide both; when `sessionProjections` is missing the command returns an explicit
-error instead of pretending to succeed, and when `commands` is missing the command is simply
-not registered and the rest of the plugin is unaffected.
+- The main agent keeps only orchestration tools: `subagent_role`, `subagent_card_create`,
+  `close_subagent`, `list_agents` / `send_message` / `wait_agent`, `ask_user_question`,
+  and the Agent Teams task board; `session_send_message` is limited to cross-session
+  orchestration. A host-side allowlist narrows the tool catalog and rejects every other tool at execution,
+  including dynamically mounted MCP tools, so the main agent cannot use bash, file
+  read/write/search, skill, workflow, or built-in subagent tools.
+- Every subagent must be started through a character card: the agent-scope
+  `subagent_role` override makes `role` required in Director sessions. When no card
+  matches, the main agent must first call `subagent_card_create`, then delegate to the
+  returned id. Legacy `roles` are not accepted in Director Mode; migrate them to cards.
+- The built-in `director` card appears only in Director session guidance and role
+  resolution; it is not shown in the settings page, not exported, and cannot be
+  overridden by a same-id card. It coordinates decomposition-heavy work and binds the
+  `director` preset by default, forming another delegation layer; ordinary cards that
+  bind no preset fall back to `standard`.
+- New Director root sessions enable Agent Teams by default; multi-worker work uses the
+  shared task board, write scopes, and owners.
+- The main agent must not take over a failed subagent's task. It retries with a corrected
+  card or prompt, reassigns through the team, or reports the blocker with evidence.
+- Children run on the `standard` preset by default; a card may set `agentPreset` to
+  another worker preset. Director Mode uses the `spawn` transport by default (it supports
+  independent Agent Presets); override it with `directorProvider`. `fork` inherits the
+  parent composition and cannot run Director worker cards.
+
+> Director Mode requires the host's `agentPresets` service. Without it, every other
+> plugin feature keeps working and only the Director preset is unavailable. See
+> [docs/director-mode.md](docs/director-mode.md) for configuration details.
 
 ## 🧭 与官方子代理选择器的适配 / Official Subagent Selector Adaptation
 
@@ -213,8 +222,8 @@ Since DSH 0.2.1 the compatibility gate prefers `engines.dsh`. This plugin declar
 
 | DSH version | Status |
 | --- | --- |
-| 0.2.2-rc.5 | ✅ typecheck / 357 tests / build (runtime not re-verified here) |
-| 0.2.3-alpha.2 | ✅ typecheck / 357 tests / build / real Cordis probes |
+| 0.2.2-rc.5 | ✅ compatibility claim (0.8.0 baseline; not re-verified on this runtime) |
+| 0.2.3-alpha.2 | ✅ typecheck / 340 tests / build / existing Cordis probes |
 
 > Only versions that were **actually run** are listed; untested versions are omitted.
 
@@ -224,7 +233,7 @@ v0.7.0 targets DSH **0.2.2-rc.2+** and fixes the delegation crash caused by the 
 
 ```bash
 npm install
-npm test          # vitest (357 tests)
+npm test          # vitest (340 tests)
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
@@ -237,8 +246,10 @@ DSH's Web API only opens read/write to a whitelisted set of settings namespaces.
 **What happens when no character cards are configured?**
 With no cards and no default model configured it behaves exactly as if the plugin were not installed (zero intrusion). With `defaultProvider`/`defaultModel` configured: if the official `subagent-model-selection` is enabled and has an `allowedModels` allowlist, the default route takes effect only within that list (otherwise it is dropped and falls back to inheritance); if no allowlist is configured, the plugin's default behavior is kept and a warning is shown.
 
-**Can a session that used `/orchestrate` still be opened after uninstalling the plugin?**
-No. `/orchestrate` writes an `orchestrate/change` event into the session log, and the host's persistence-load validation rejects loading the entire log when it meets an event type that is "unknown and not marked ignorable" (to avoid misreading the log's semantics). The plugin registers that event type dynamically when mounted, so normal use is unaffected; but in an environment where this plugin is not mounted (after uninstall, or another profile) these sessions cannot be opened. Upstream does not yet provide an official registration API or an `ignorable` write API for third-party event types — a known trade-off, see [issue #6](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/6).
+**Can I still use `/orchestrate` after upgrading?**
+No. 0.8.5 removes the pure-orchestration command, projection, and prompt; select Director
+Mode as the session preset instead. 0.8.5 no longer writes or reads the
+`orchestrate/change` event; it does not prevent old session logs from loading.
 
 **Do new providers/APIs appear automatically?**
 Yes. The config page subscribes to provider and settings change events; after you add a provider/API key on the Models page, the dropdown refreshes automatically, with no restart.

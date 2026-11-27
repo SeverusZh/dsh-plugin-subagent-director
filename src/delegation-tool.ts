@@ -44,7 +44,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { DirectorConfig } from './config.js';
 import type { CardService } from './card-store.js';
-import { renderCardPrompt } from './card-types.js';
+import { isCardEnabled, renderCardPrompt } from './card-types.js';
 import { readNamespaceValue, SUBAGENT_MODEL_SELECTION_NAMESPACE } from './settings.js';
 import { resolveRoute, type SubagentDirectorSettings } from './route-resolver.js';
 import { trackResident } from './resident-handles.js';
@@ -95,8 +95,10 @@ export interface DelegationToolArgs {
  */
 export function createDelegationParameters(
   config: Pick<DirectorConfig, 'enableRunInBackground' | 'backgroundMode'>,
+  options: { requireRole?: boolean } = {},
 ): ParameterSchemaSpec {
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable';
+  const requireRole = options.requireRole === true;
   const parameters: ParameterSchemaSpec = {
     description: {
       type: 'string',
@@ -110,7 +112,10 @@ export function createDelegationParameters(
     },
     role: {
       type: 'string',
-      description: 'Character-card id (optional). Falls back to the configured default card when unset.',
+      ...(requireRole ? { required: true } : {}),
+      description: requireRole
+        ? 'Character-card id (required in Director Mode). If no existing card matches the task, create one with subagent_card_create first.'
+        : 'Character-card id (optional). Falls back to the configured default card when unset.',
     },
     provider: {
       type: 'string',
@@ -400,11 +405,22 @@ export function createDelegationTool(options: {
   ctx: Context;
   config: DirectorConfig;
   provider: SubagentProvider;
-  getSettings: () => SubagentDirectorSettings;
+  getSettings: (agent?: Agent) => SubagentDirectorSettings;
   /** Card repository; when absent, card prompt injection and lookup are skipped. */
   cards?: CardService;
+  /** Director-plane instances require a card id and reject the default-role fallback. */
+  requireRole?: boolean;
+  /** Director-plane instances resolve the code-defined built-in card. */
+  includeBuiltInCards?: boolean;
+  /** Worker preset used when a card binds none (Director Mode defaults to standard). */
+  defaultWorkerPreset?: string;
+  /** Host-plane instances still enforce card rules when the caller runs Director. */
+  directorGuard?: (agent: Agent) => boolean;
+  /** Transport used by Director sessions; independent preset composition requires a spawn-like provider. */
+  directorProvider?: string;
 }) {
   const { ctx, config, provider, getSettings, cards } = options;
+  const requireRole = options.requireRole === true;
   const backgroundEnabled = config.enableRunInBackground !== false;
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable';
   const toolName = config.toolName ?? 'subagent_role';
@@ -433,7 +449,10 @@ export function createDelegationTool(options: {
       },
       role: {
         type: 'string',
-        description: 'Character-card id (optional). Falls back to the configured default card when unset.',
+        ...(requireRole ? { required: true } : {}),
+        description: requireRole
+          ? 'Character-card id (required in Director Mode). If no existing card matches the task, create one with subagent_card_create first.'
+          : 'Character-card id (optional). Falls back to the configured default card when unset.',
       },
       provider: {
         type: 'string',
@@ -489,9 +508,33 @@ export function createDelegationTool(options: {
       const parent = exec.agent;
       if (!parent) throw new Error(`${ERROR_PREFIX} tool requires a calling agent (exec.agent was undefined)`);
 
+      const director = requireRole || options.directorGuard?.(parent) === true;
+      const includeBuiltIn = director || options.includeBuiltInCards === true;
+      const transportName = director ? (options.directorProvider ?? 'spawn') : providerName;
+      const transportProvider =
+        transportName === providerName ? provider : (ctx.subagents.getProvider(transportName) as SubagentProvider | undefined);
+      if (transportProvider === undefined) {
+        throw new Error(
+          `${ERROR_PREFIX} Director transport provider "${transportName}" is not registered; ` +
+            'configure a registered spawn-like provider as directorProvider',
+        );
+      }
+      const requestedRole = typeof args.role === 'string' ? args.role.trim() : '';
+      if (director && requestedRole.length === 0) {
+        throw new Error(
+          `${ERROR_PREFIX} Director Mode requires a character card for every subagent. ` +
+            'Call subagent_card_create first when no existing card matches the task, then pass its id as role.',
+        );
+      }
       if (cards !== undefined) await cards.ready();
       const cardStorageState = cards?.status().state;
-      const settings = getSettings();
+      if (director && (cards === undefined || cardStorageState !== 'ready')) {
+        throw new Error(
+          `${ERROR_PREFIX} Director Mode requires character-card storage to be ready; refusing to delegate without a card. ` +
+            'Retry after card storage is available.',
+        );
+      }
+      const settings = getSettings(parent);
       if (cardStorageState !== undefined && cardStorageState !== 'ready' && !isEmpty(args.role)) {
         // A legacy settings role may still be usable without card storage. Only
         // reject when the requested id/name is not a legacy role either; a card
@@ -526,6 +569,21 @@ export function createDelegationTool(options: {
           `${ERROR_PREFIX} no authorized model list is configured (subagent-model-selection section absent); plugin defaults/roles apply unconstrained`,
         );
       }
+      if (requestedRole.length > 0 && cards !== undefined && cardStorageState === 'ready') {
+        const storedCard = cards.get(requestedRole, { includeBuiltIn });
+        if (director && storedCard !== undefined && !isCardEnabled(storedCard)) {
+          throw new Error(
+            `${ERROR_PREFIX} character card "${requestedRole}" is disabled. Enable it or create a different card with subagent_card_create before delegating.`,
+          );
+        }
+        const knownCard = cards.resolveCard(requestedRole, { includeBuiltIn });
+        if (director && knownCard === undefined) {
+          throw new Error(
+            `${ERROR_PREFIX} character card "${requestedRole}" does not exist. ` +
+              'Director Mode only delegates to character cards; migrate any legacy role first, or create a card with subagent_card_create and use its id.',
+          );
+        }
+      }
       const route = resolveRoute({
         args,
         settings,
@@ -533,11 +591,12 @@ export function createDelegationTool(options: {
         allowedRoutes: selection.allowedRoutes,
       });
       warnings.push(...route.warnings);
-      const resolvedCard = cards !== undefined && route.roleId !== undefined ? cards.resolveCard(route.roleId) : undefined;
+      const resolvedCard =
+        cards !== undefined && route.roleId !== undefined ? cards.resolveCard(route.roleId, { includeBuiltIn }) : undefined;
       const card = resolvedCard?.card;
       const cardPrompt = card !== undefined ? renderCardPrompt(card) : '';
       const localTransport =
-        provider.prepareContinuable !== undefined || providerName === 'spawn' || providerName === 'fork';
+        transportProvider.prepareContinuable !== undefined || transportName === 'spawn' || transportName === 'fork';
       // FR-8.1: an explicitly supplied provider must be routable — never silently swapped.
       const explicitProvider = isEmpty(args.provider) ? undefined : args.provider;
       if (explicitProvider !== undefined && !isProviderRoutable(ctx, explicitProvider)) {
@@ -566,16 +625,18 @@ export function createDelegationTool(options: {
       // An independent Agent Preset requires the transport provider's
       // agentPreset capability and a non-inheriting (spawn-like) provider.
       const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined;
+      const effectivePreset =
+        route.agentPreset ?? (director && options.defaultWorkerPreset !== undefined ? options.defaultWorkerPreset : undefined);
       if (route.persona !== undefined || route.toolFilter !== undefined) {
         warnings.push(
           `${ERROR_PREFIX} role legacy persona/toolFilter are not applied on DSH 0.2.1; move them into an Agent Preset and set the role agentPreset`,
         );
       }
       assertDelegationCapabilities({
-        providerName,
-        agentPreset: route.agentPreset,
-        capabilities: provider.capabilities,
-        inheritsParentContext: provider.inheritsParentContext,
+        providerName: transportName,
+        agentPreset: effectivePreset,
+        capabilities: transportProvider.capabilities,
+        inheritsParentContext: transportProvider.inheritsParentContext,
         maxDepth,
       });
 
@@ -594,7 +655,7 @@ export function createDelegationTool(options: {
               ...(card.systemPrompt !== undefined ? { systemPrompt: card.systemPrompt } : {}),
               ...(card.persona !== undefined ? { persona: card.persona } : {}),
               parentSessionId: String(parent.id),
-              continuable: provider.prepareContinuable !== undefined,
+              continuable: transportProvider.prepareContinuable !== undefined,
             });
             cardBindingStarted = true;
           } catch (error) {
@@ -607,7 +668,7 @@ export function createDelegationTool(options: {
           }
         } else {
           warnings.push(
-            `${ERROR_PREFIX} transport "${providerName}" cannot reserve a child session id; character card "${card.id}" prompt is appended to the task instead of the system prompt`,
+            `${ERROR_PREFIX} transport "${transportName}" cannot reserve a child session id; character card "${card.id}" prompt is appended to the task instead of the system prompt`,
           );
         }
       }
@@ -622,7 +683,7 @@ export function createDelegationTool(options: {
         }
       };
       ctx.logger.info(
-        `[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} mode=${continuable ? 'continuable' : 'one-shot'} transport=${providerName} route=${JSON.stringify(route.agentOptions ?? null)} card=${card?.id ?? '(none)'} prompt=${cardPrompt.length > 0 ? (localTransport ? 'system' : 'task') : 'none'} warnings=${JSON.stringify(warnings)}`,
+        `[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} mode=${continuable ? 'continuable' : 'one-shot'} transport=${transportName} route=${JSON.stringify(route.agentOptions ?? null)} card=${card?.id ?? '(none)'} prompt=${cardPrompt.length > 0 ? (localTransport ? 'system' : 'task') : 'none'} warnings=${JSON.stringify(warnings)}`,
       );
 
       const taskText =
@@ -632,7 +693,7 @@ export function createDelegationTool(options: {
         prompt: [{ type: 'text' as const, text: taskText }],
         parent,
         agentOptions,
-        agentPreset: route.agentPreset,
+        agentPreset: effectivePreset,
         maxDepth,
       });
 
@@ -643,7 +704,7 @@ export function createDelegationTool(options: {
       if (!decision.runInBackground) {
         try {
           const activation = await ctx.subagents.startActivation({
-            provider: providerName,
+            provider: transportName,
             label: args.description,
             ...request,
             ...(childId !== undefined ? { childId } : {}),
@@ -664,7 +725,7 @@ export function createDelegationTool(options: {
       let started = false;
       try {
         const activation = await ctx.subagents.startActivation({
-          provider: providerName,
+          provider: transportName,
           label: args.description,
           ...request,
           ...(childId !== undefined ? { childId } : {}),
@@ -672,7 +733,7 @@ export function createDelegationTool(options: {
           delivery: 'parent',
         });
         started = true;
-        if (provider.prepareContinuable !== undefined) {
+        if (transportProvider.prepareContinuable !== undefined) {
           trackResident(String(parent.id), activation);
           return { kind: 'continuable' as const, subagentId: activation.childId };
         }

@@ -16,8 +16,8 @@ export const CARD_KIND = 'subagent-director/character-card' as const;
 /** Portable multi-card envelope kind. */
 export const CARD_BUNDLE_KIND = 'subagent-director/character-card-collection' as const;
 
-/** Current portable format version. */
-export const CARD_FORMAT_VERSION = 1;
+/** Current portable format version; version 1 remains importable. */
+export const CARD_FORMAT_VERSION = 2;
 
 /** Card ids are kebab-case so they are safe as storage record keys and role ids. */
 export const CARD_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -55,8 +55,10 @@ export interface CharacterCard {
   id: string;
   /** Display name shown to the user and (in guidance) to the main agent. */
   name: string;
-  /** Delegation guidance shown to the main agent: when and how to use this card. */
+  /** Delegation guidance shown to the main agent: when to use this card. */
   delegationGuidance: string;
+  /** Delegation guidance shown to the main agent: when not to use this card. */
+  avoidGuidance?: string;
   /** Fixed system prompt injected into the child session. */
   systemPrompt?: string;
   /** Persona text injected into the child session after the system prompt. */
@@ -75,8 +77,8 @@ export interface CharacterCard {
   notes?: string;
   /** Disabled cards stay stored but are not offered for delegation. Default true. */
   enabled?: boolean;
-  /** Provenance of this card. */
-  source?: 'local' | 'import' | 'legacy';
+  /** Provenance of this card; `builtin` is reserved for code-defined cards. */
+  source?: 'local' | 'import' | 'legacy' | 'builtin';
   /** ISO-8601 creation time, managed by the Host. */
   createdAt?: string;
   /** ISO-8601 last-write time, managed by the Host. */

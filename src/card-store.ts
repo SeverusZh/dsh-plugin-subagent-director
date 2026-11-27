@@ -43,6 +43,8 @@ import {
   type CharacterCardBundle,
 } from './card-types.js';
 import type { RoleTemplate, SubagentDirectorSettings } from './route-resolver.js';
+import { BUILTIN_DIRECTOR_CARD } from './director-card.js';
+import { DIRECTOR_CARD_ID } from './director.js';
 
 /** Domain name shared by the storage record files and the open handle. */
 export const CARD_DOMAIN_NAME = 'subagent_director';
@@ -111,6 +113,14 @@ export interface ResolvedCard {
   card: CharacterCard;
   id: string;
   byDisplayName: boolean;
+}
+
+/** Visibility switch used by Director sessions. */
+export interface CardVisibilityOptions {
+  /** Include the code-defined built-in director card. */
+  includeBuiltIn?: boolean;
+  /** Merge legacy settings roles into the resolver view. Default true. */
+  includeLegacyRoles?: boolean;
 }
 
 type CardDomain = Domain<typeof cardDomainSpec>;
@@ -200,6 +210,50 @@ export class CardService {
       for (const [id, card] of domain.table('cards').entries()) {
         this.cards.set(id, card);
       }
+      if (this.cards.has(DIRECTOR_CARD_ID)) {
+        const legacy = this.cards.get(DIRECTOR_CARD_ID)!;
+        const nextId = cardIdFromName(
+          (legacy.name || DIRECTOR_CARD_ID) + ' legacy',
+          new Set([...this.cards.keys(), DIRECTOR_CARD_ID]),
+        );
+        const renamed: CharacterCard = {
+          ...legacy,
+          id: nextId,
+          updatedAt: new Date().toISOString(),
+        };
+        const table = domain.table('cards');
+        // Persist the replacement first: a failed write or a crash must never
+        // remove the user's original card before its renamed copy is durable.
+        await table.put(nextId, renamed);
+        try {
+          await table.delete(DIRECTOR_CARD_ID);
+        } catch (error) {
+          this.logger.warn(
+            '[subagent-director] renamed reserved card but could not delete the old record: ' +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        }
+        this.cards.delete(DIRECTOR_CARD_ID);
+        this.cards.set(nextId, renamed);
+        if (this.defaultCardId === DIRECTOR_CARD_ID) {
+          this.defaultCardId = nextId;
+          try {
+            await domain.global.set({ ...global, defaultCardId: nextId });
+          } catch (error) {
+            this.logger.warn(
+              '[subagent-director] renamed the reserved default card but could not update the default record: ' +
+                (error instanceof Error ? error.message : String(error)),
+            );
+          }
+        }
+        this.logger.warn(
+          '[subagent-director] the stored card "' +
+            DIRECTOR_CARD_ID +
+            '" is reserved; renamed it to "' +
+            nextId +
+            '" so Director Mode can use the built-in card',
+        );
+      }
       for (const [sessionId, raw] of domain.table('bindings').entries()) {
         const parsed = CardBindingSchema.safeParse(raw);
         if (parsed.success) this.bindings.set(sessionId, parsed.data);
@@ -255,18 +309,27 @@ export class CardService {
     if (domain !== undefined) await domain.close();
   }
 
-  /** Every stored card, stable display order. */
-  list(): CharacterCard[] {
-    return [...this.cards.values()].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  /** Stored cards, plus the built-in Director card on request, in display order. */
+  list(options: CardVisibilityOptions = {}): CharacterCard[] {
+    const cards = [...this.cards.values()];
+    if (options.includeBuiltIn === true) {
+      const stored = cards.findIndex((card) => card.id === DIRECTOR_CARD_ID);
+      if (stored >= 0) cards.splice(stored, 1);
+      if (isCardEnabled(BUILTIN_DIRECTOR_CARD)) cards.push(BUILTIN_DIRECTOR_CARD);
+    }
+    return cards.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   }
 
   /** Enabled cards only, in display order. */
-  listEnabled(): CharacterCard[] {
-    return this.list().filter((card) => isCardEnabled(card));
+  listEnabled(options: CardVisibilityOptions = {}): CharacterCard[] {
+    return this.list(options).filter((card) => isCardEnabled(card));
   }
 
   /** One card by id. */
-  get(id: string): CharacterCard | undefined {
+  get(id: string, options: CardVisibilityOptions = {}): CharacterCard | undefined {
+    if (options.includeBuiltIn === true && id === DIRECTOR_CARD_ID && isCardEnabled(BUILTIN_DIRECTOR_CARD)) {
+      return BUILTIN_DIRECTOR_CARD;
+    }
     return this.cards.get(id);
   }
 
@@ -300,8 +363,11 @@ export class CardService {
    * disabled cards are not offered. The default binding prefers the stored
    * default card, then the legacy `defaultRole`.
    */
-  settingsWithCards(settings: SubagentDirectorSettings = this.getSettings()): SubagentDirectorSettings {
-    const cards = this.list();
+  settingsWithCards(
+    settings: SubagentDirectorSettings = this.getSettings(),
+    options: CardVisibilityOptions = {},
+  ): SubagentDirectorSettings {
+    const cards = this.list(options);
     const cardIds = new Set(cards.map((card) => card.id));
     const roles: Record<string, RoleTemplate> = {};
     // Cards come first so a display-name lookup prefers a card over a stale
@@ -309,9 +375,11 @@ export class CardService {
     for (const card of cards) {
       if (isCardEnabled(card)) roles[card.id] = cardToRoleTemplate(card);
     }
-    for (const [id, role] of Object.entries(settings.roles ?? {})) {
-      if (role === undefined || cardIds.has(id)) continue;
-      roles[id] = role;
+    if (options.includeLegacyRoles !== false) {
+      for (const [id, role] of Object.entries(settings.roles ?? {})) {
+        if (role === undefined || cardIds.has(id)) continue;
+        roles[id] = role;
+      }
     }
     const defaultCard = this.defaultId();
     return {
@@ -322,13 +390,13 @@ export class CardService {
   }
 
   /** Resolve a delegation role id (or display name) to an enabled card. */
-  resolveCard(roleIdOrName: string | undefined): ResolvedCard | undefined {
+  resolveCard(roleIdOrName: string | undefined, options: CardVisibilityOptions = {}): ResolvedCard | undefined {
     if (roleIdOrName === undefined || roleIdOrName === '') return undefined;
-    const direct = this.cards.get(roleIdOrName);
+    const direct = this.get(roleIdOrName, options);
     if (direct !== undefined && isCardEnabled(direct)) {
       return { card: direct, id: direct.id, byDisplayName: false };
     }
-    for (const card of this.list()) {
+    for (const card of this.list(options)) {
       if (isCardEnabled(card) && card.name === roleIdOrName) {
         return { card, id: card.id, byDisplayName: true };
       }

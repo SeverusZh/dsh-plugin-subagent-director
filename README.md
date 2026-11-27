@@ -17,7 +17,7 @@
 
 **Subagent Director** 是一个 out-of-tree 的 DeepSeek Harness 插件，用于为 subagent 指定 LLM 供应商与模型，并通过「角色卡」打包固定系统提示词、persona 与委派分工。
 
-> **最新发布 0.8.0**：[npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.0) · [GitHub Release](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases/tag/v0.8.0)
+> **最新发布 0.8.5**：[npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.5) · [GitHub Releases](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 
 ---
 
@@ -28,12 +28,13 @@
   （`allowedModels`）中选择：显式传入未授权路由为硬错误，角色/默认层未授权路由被
   丢弃并回退继承（不与官方 dsh-tool-subagent 双重写模型路由）；
 - **配置热更新** —— settings.yaml / 插件配置页的改动即时生效，无需重启；
-- **角色卡** —— 每张卡打包名称、模型绑定、固定系统提示词、persona、委派指引、标签与可选 Agent Preset；一张卡一个 JSON 文件，独立于插件公共配置；
+- **角色卡** —— 每张卡打包名称、模型绑定、固定系统提示词、persona、推荐/不推荐委派指引、标签与可选 Agent Preset；一张卡一个 JSON 文件，独立于插件公共配置；
 - **固定角色提示词** —— 委派时为该子会话注入固定系统提示词与 persona；运行中的子代理保持启动时的提示词快照，编辑卡片不会改写它；
 - **导入导出与批量操作** —— 单卡或批量 JSON 导入导出、跳过/覆盖/保留两者冲突策略，批量启用、停用、删除与导出；
 - **旧角色迁移** —— 一键把旧版 `roles` 转为角色卡，保留默认角色、persona 与模型绑定，旧工具集信息转为备注；
 - **四级回退链** —— 单次调用参数 > 角色卡绑定 > 插件默认 > 继承主代理（未配置时零侵入）；
-- **主代理指引** —— 系统提示自动注入角色卡清单，主代理知道何时委派给谁；
+- **主代理指引** —— 系统提示自动注入角色卡清单，分别说明每张卡的推荐委派与不推荐委派场景；
+- **Director 模式** —— 0.8.5 新增的编排专用 Agent Preset：主代理不做实际工作，每个子代理都必须经角色卡唤起，默认开启 Agent Teams；
 - **配置界面** —— 插件详情页内现代卡片库（插件列表 → dsh-plugin-subagent-director）：搜索、筛选、批量、卡片编辑器、导入导出与迁移；亮暗主题通用，设置面板不再承载本插件配置；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
 - **释放可持续子代理** —— 模型可见工具 `close_subagent(subagent_id)` 与子代理会话
@@ -107,6 +108,9 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
     enableRunInBackground: true
     backgroundMode: one-shot     # one-shot 或 continuable
     maxDepth: 3
+    directorProvider: spawn      # Director 模式的传输；需支持独立 Agent Preset
+    directorWorkerPreset: standard # 卡片未绑定工作预设时的默认值
+    directorTeamDefault: true    # 新 Director 会话默认开启 Agent Teams
 ```
 
 > 注意：不要再用 `- insert:` 添加这两个条目，否则启动会报
@@ -125,7 +129,8 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
 - `model`：可选的 `{ provider, model, reasoningEffort }` 路由，留空继承插件默认或父代理；
 - `systemPrompt`：注入子代理会话的固定系统提示词；
 - `persona`：追加在系统提示词之后的身份与风格文本；
-- `delegationGuidance`：给主代理看的委派指引；
+- `delegationGuidance`：给主代理看的推荐委派场景；
+- `avoidGuidance`：给主代理看的不推荐委派场景；
 - `agentPreset`：可选的 DSH Agent Preset，用于工具组合；
 - `enabled` / `notes` / `createdAt` / `updatedAt`：状态与人读信息。
 
@@ -134,13 +139,14 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
 ```json
 {
   "kind": "subagent-director/character-card-collection",
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-11-27T00:00:00.000Z",
   "cards": [
     {
       "id": "code-reviewer",
       "name": "Code Reviewer",
       "delegationGuidance": "Review diffs for correctness and regressions.",
+      "avoidGuidance": "Do not use for writing new features or for questions that need no review.",
       "systemPrompt": "You are a rigorous code reviewer.",
       "model": { "provider": "ollama-pro", "model": "deepseek-v4.1-flash:1017" },
       "tags": ["code", "review"]
@@ -153,27 +159,33 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
 `roles` 可从同一页面一键迁移，迁移后建议勾选清除旧配置字段。字段与存储格式见
 [docs/character-cards.md](docs/character-cards.md)。
 
-## 🎼 纯编排模式 / Orchestrate Mode
+## 🎬 Director 模式 / Director Mode
 
-```text
-/orchestrate 分析上周A股走势   # 本轮开启并直接编排该任务（推荐用法）
-/orchestrate                  # 本轮开启（按轮生效，无需 on/off）
-/orchestrate on               # 持久开启（直到 /orchestrate off）
-/orchestrate off              # 退出持久模式
-```
+Director Mode 是 0.8.5 引入的 **Agent Preset**，不再是命令或工具。在会话预设中选择
+「导演模式」即可进入。DSH 不会对第三方预设的 `name` / `description` 做运行时翻译，
+因此菜单统一显示插件声明的中文名称。
 
-在消息开头声明 `/orchestrate`（可后接任务文本，如 `/orchestrate 分析上周A股走势`），
-或用自然语言写「使用orchestrate模式」（含「请使用 orchestrate 模式」「use
-orchestrate mode」等变体），该轮会话即自动进入纯编排模式——类似 `/using aegis`
-的按轮声明式用法，无需记忆开关状态；未声明时保持普通模式。`/orchestrate <任务>`
-会把任务文本排入下一轮并唤醒模型，该轮以纯编排模式处理任务。开启后注入一段
-「纯编排者」系统提示：主代理只允许通过委派工具派活，角色卡清单从当前
-卡片库动态渲染，并兼容尚未迁移的旧 `roles`（无硬编码 role id）。**未配置任何
-角色卡时**不会注入束缚性的纯编排框架，而是注入一段简短提示，让模型明确告知需要
-先创建角色卡并继续以普通模式处理请求（避免「对话无输出」）。该模式依赖宿主的 `commands` 与
-`sessionProjections` 服务：标准 profile（dsh-base）都会提供二者；
-`sessionProjections` 缺失时命令返回明确错误而不是假装成功，`commands` 缺失时
-命令不注册，插件其余功能不受影响。
+- 主代理只保留编排面工具：`subagent_role`、`subagent_card_create`、`close_subagent`、
+  `list_agents` / `send_message` / `wait_agent`、`ask_user_question` 与 Agent Teams
+  任务板；`session_send_message` 仅用于跨会话编排。宿主侧按白名单收窄工具目录并在执行层拦截其他工具，包括动态挂载的 MCP 工具，因此主代理
+  不能调用 bash、文件读写/搜索、技能、workflow 或内置 subagent。
+- 每个子代理必须由角色卡唤起：Director 会话中的 `subagent_role` 使用 agent scope
+  覆盖为 `role` 必填；没有匹配的卡片时，主代理必须先调用 `subagent_card_create`
+  建卡，再用返回的 id 委派。旧 `roles` 在 Director 下不参与委派，需先迁移为角色卡。
+- 内置导演卡 `director` 只出现在 Director 会话的指引与 role 解析中；设置面板不展示、
+  导出不包含，也不能被同 id 卡片覆盖。它用于需要拆解和协调的任务，默认绑定
+  `director` 预设，作为可继续向下委派的导演层；普通卡片未绑定预设时才回退
+  `standard`。
+- 新 Director 根会话默认开启 Agent Teams；多子代理任务使用共享任务板、write scope 与
+  owner。
+- 子代理失败时主代理不得接手其任务：重写卡片或提示词重试、通过团队重新分派，或带证据
+  向用户报告阻塞。
+- 子代理默认在 `standard` 预设上运行；卡片可以用 `agentPreset` 指定其他工作预设。
+  Director 传输默认使用 `spawn`（支持独立 Agent Preset），可用 `directorProvider`
+  覆盖；`fork` 会继承父上下文，不能用于 Director 的工作子代理。
+
+> Director Mode 需要宿主提供 `agentPresets` 服务；缺失时插件其余功能照常，只是没有
+> Director 预设。配置细节见 [docs/director-mode.md](docs/director-mode.md)。
 
 ## 🧭 与官方子代理选择器的适配 / Official Subagent Selector Adaptation
 
@@ -204,8 +216,8 @@ DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines
 
 | DSH 版本 | 状态 |
 | --- | --- |
-| 0.2.2-rc.5 | ✅ typecheck / 357 测试 / 构建（运行时未在本机复验） |
-| 0.2.3-alpha.2 | ✅ typecheck / 357 测试 / 构建 / 真实 Cordis 探针 |
+| 0.2.2-rc.5 | ✅ 兼容声明（0.8.0 基线；本轮未在该运行时复验） |
+| 0.2.3-alpha.2 | ✅ typecheck / 340 测试 / 构建 / 既有 Cordis 探针 |
 
 > 只列出**实际跑过**的版本；未实测的不列。
 
@@ -215,7 +227,7 @@ v0.7.0 支持 DSH **0.2.2-rc.2+**，修复 0.2.2 扁平 activation spec 导致�
 
 ```bash
 npm install
-npm test          # vitest（357 用例）
+npm test          # vitest（340 用例）
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
@@ -252,13 +264,10 @@ DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS=dsh.example.com
 `allowedModels` 授权列表，默认路由仅在该列表内才生效（否则被丢弃并回退继承）；若
 未配置授权列表，则保留插件默认行为并给出警告提示。
 
-**用过 `/orchestrate` 的会话，卸载插件后还能打开吗？**
-不能。`/orchestrate` 会在会话日志写入 `orchestrate/change` 事件，而宿主的持久化
-加载校验遇到「未知且未标记 ignorable」的事件类型时会拒绝加载整个日志（避免误解
-日志语义）。插件挂载时会动态注册该事件类型，正常使用不受影响；但在未挂载本插件
-的环境（卸载后、其他 profile）中，这些会话将无法打开。上游暂未提供第三方事件
-类型的官方注册或 `ignorable` 写入 API，此为已知取舍，详见
-[issue #6](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/6)。
+**升级后 `/orchestrate` 还能用吗？**
+不能。0.8.5 移除了纯编排模式的命令、投影与提示词，请在会话预设中选择 Director
+Mode。0.8.5 不再写入或读取 `orchestrate/change` 事件；旧会话日志中的该事件不会
+阻止会话加载。
 
 **新供应商/API 会自动出现吗？**
 会。配置页订阅了供应商与设置变更事件，在 Models 页新增供应商/API key 后，下拉列表自动刷新，无需重启。

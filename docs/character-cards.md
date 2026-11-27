@@ -7,9 +7,9 @@
 
 - 存储设施：DSH `storageDomain`，域名为 `subagent_director`，布局为 `per-record`；
 - 卡片文件：`<storage-root>/subagent_director/cards/<id>.json`；
-- 文件内容为存储域包装：`{ "version": 1, "record": <角色卡> }`；
+- 文件内容为存储域包装：`{ "version": 1, "record": <角色卡> }`；该 version 是存储域记录版本，与导出格式 version 2 独立；
 - 默认卡 id：同一域的 global 槽位，不写入插件公共配置；
-- 旧版 `roles` / `defaultRole`：仅作为迁移来源保留；迁移后可从配置中清除。
+- 旧版 `roles` / `defaultRole`：仅作为迁移来源保留；迁移后可从配置中清除。Director Mode 的委派只接受角色卡，旧 `roles` 需先迁移。
 
 ## 字段
 
@@ -17,7 +17,8 @@
 | --- | --- | --- |
 | `id` | 是 | kebab-case，作为委派 `role` 与存储键 |
 | `name` | 是 | 展示名称，也用于旧版显示名匹配 |
-| `delegationGuidance` | 是 | 给主代理看的委派指引 |
+| `delegationGuidance` | 是 | 给主代理看的推荐委派场景 |
+| `avoidGuidance` | 否 | 给主代理看的不推荐委派场景 |
 | `systemPrompt` | 否 | 注入子代理会话的固定系统提示词 |
 | `persona` | 否 | 追加在系统提示词之后的身份与风格文本 |
 | `model` | 否 | `{ provider, model, reasoningEffort }`；留空继承 |
@@ -26,7 +27,7 @@
 | `emoji` / `accent` | 否 | 卡片展示 |
 | `notes` | 否 | 仅供人阅读，不发送给模型 |
 | `enabled` | 否 | 默认 true；停用卡不参与委派 |
-| `source` | 否 | `local` / `import` / `legacy` |
+| `source` | 否 | `local` / `import` / `legacy`；`builtin` 仅供代码内置卡 |
 | `createdAt` / `updatedAt` | 否 | ISO-8601，由 Host 维护 |
 
 ## 导入导出
@@ -36,14 +37,26 @@
 ```json
 {
   "kind": "subagent-director/character-card-collection",
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-11-27T00:00:00.000Z",
   "cards": []
 }
 ```
 
+版本 1 的集合与单卡仍可导入；新导出使用版本 2。
+
 导入接受集合信封、单卡信封 `{ "kind": "subagent-director/character-card", "card": ... }`、
 裸卡片对象或上述任意形式的数组。id 冲突策略为 `skip`、`overwrite`、`duplicate`。
+
+## 内置导演卡
+
+Director Mode 内置一张 id 为 `director` 的角色卡：
+
+- 只在该预设的会话中进入 guidance 与 `subagent_role` 解析；
+- 不写入存储，不出现在设置面板或导出结果中；
+- id 与 `source: builtin` 为保留值，导入或编辑同 id 卡片会被拒绝；0.8.0 遗留的同 id 存储卡在启动时自动重命名并保留；
+- 默认绑定 `director` 预设，作为可继续向下委派的导演层；普通卡片未绑定预设时才回退 `standard`；
+- 卡片的推荐/不推荐指引同时参与主代理提示词。
 
 ## 运行语义
 

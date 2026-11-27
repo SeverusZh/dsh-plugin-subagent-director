@@ -152,6 +152,7 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
           card.name,
           card.id,
           card.delegationGuidance,
+          card.avoidGuidance ?? '',
           card.persona ?? '',
           card.notes ?? '',
           ...(card.tags ?? []),

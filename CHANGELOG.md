@@ -2,6 +2,56 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.8.5 - 2026-11-27
+
+### 新增
+
+- **Director Mode Agent Preset** — 纯编排模式重做为会话预设 `director`。主代理只保留
+  `subagent_role`、`subagent_card_create`、`close_subagent`、`list_agents` /
+  `send_message` / `wait_agent`、`ask_user_question`、Agent Teams 任务板与压缩能力，
+  不挂载 bash、文件读写/搜索、技能、workflow 或内置 subagent；预设由宿主
+  `agentPresets` 注册，缺失时插件其余功能照常。
+- **内置导演角色卡** — 代码内置 id `director` 的角色卡，只在 Director 会话的 guidance
+  与 role 解析中出现；不写入存储、不进设置面板、不参与导出，保留 id 不可被同 id 卡片
+  覆盖。
+- **角色卡创建工具** — Director 会话新增 `subagent_card_create`：没有匹配卡片时先建卡，
+  再以返回的 id 委派；未绑定工作预设的卡片默认回退 `standard`。
+- **Agent Teams 默认开启** — 新的 Director 根会话在首步前自动开启 Agent Teams；已有
+  显式选择则保留，离开 Director 后保留当前 Team 选择，用户可自行关闭。
+- **预设切换同步** — 空白会话切入/切出 Director 时同步挂载/卸载 `role` 必填的
+  `subagent_role` 覆盖与工作工具限制；离开后不残留限制。
+- **工具白名单** — 宿主侧按当前会话预设收窄工具目录，并在执行层拦截非编排工具，
+  包括动态 MCP 工具。
+- **委派指引拆分** — 角色卡新增 `avoidGuidance`，设置面板拆为「推荐委派 / 不推荐委派」
+  两个输入区，guidance 同时渲染两段。
+- **本地化完善** — 预设菜单显示「导演模式」及中文描述；插件清单新增
+  `locale/{en,zh}.json` 以本地化插件标题与介绍；设置页残余的 advisory 占位文案接入
+  中英词典。
+
+### 变更
+
+- **纯编排模式退役** — 删除 `/orchestrate` 命令、`orchestrate` 投影、编排提示词与相关
+  测试；不提供兼容命令。
+- **卡片格式 version 2** — 新增可选 `avoidGuidance` 与 `builtin` source；版本 1 的
+  导入仍被接受。
+- **委派工具** — Director 会话中 `role` 必填；角色卡不存在或卡存储不可用时 fail
+  closed；旧 `roles` 不再参与 Director 委派；卡片未绑定 `agentPreset` 时使用
+  `directorWorkerPreset`。
+- **内置卡优先级** — 内置 `director` 优先于存量同 id 卡片；存量同 id 卡在启动时自动重命名（保留数据），旧角色迁移不会占用保留 id。
+- **配置字段** — 新增 `directorProvider`、`directorWorkerPreset`、`directorTeamDefault`。
+- **包描述与文档** — 新增 `docs/director-mode.md`，包描述同步 Director Mode。
+
+### 修复
+
+- **Director 委派上下文** — agent scope 的 card-required `subagent_role` 使用 host entry
+  的注入上下文执行，避免真实 DSH 中 `cannot get property "subagents" without inject`；
+  真实宿主探针已覆盖建卡与前台委派。
+
+### 兼容
+
+- 旧会话日志中的 `orchestrate/change` 事件不会阻止会话加载；0.8.5 不再写入或读取该事件。
+- `agentPresets` / `agentTeams` 缺失时相关能力降级，插件不因此阻塞加载。
+
 ## 0.8.0 - 2026-11-27
 
 ### 新增
