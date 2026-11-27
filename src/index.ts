@@ -364,7 +364,9 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
       try {
         const dispose = agent.ctx.tools.register(
           createDelegationTool({
-            ctx: agent.ctx,
+            // Execution needs the host entry's injected services; registration
+            // through agent.ctx still makes the tool agent-scoped.
+            ctx,
             config,
             provider: activeProvider,
             getSettings,

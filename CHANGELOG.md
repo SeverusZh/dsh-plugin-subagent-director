@@ -38,6 +38,12 @@
 - **配置字段** — 新增 `directorProvider`、`directorWorkerPreset`、`directorTeamDefault`。
 - **包描述与文档** — 新增 `docs/director-mode.md`，包描述同步 Director Mode。
 
+### 修复
+
+- **Director 委派上下文** — agent scope 的 card-required `subagent_role` 使用 host entry
+  的注入上下文执行，避免真实 DSH 中 `cannot get property "subagents" without inject`；
+  真实宿主探针已覆盖建卡与前台委派。
+
 ### 兼容
 
 - 旧会话日志中的 `orchestrate/change` 事件不会阻止会话加载；0.8.5 不再写入或读取该事件。
