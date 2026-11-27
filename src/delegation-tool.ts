@@ -2,42 +2,52 @@
  * Delegation tool subagent_role (design section 7).
  *
  * A model-facing tool that lets the calling agent delegate to a subagent while
- * selecting an LLM route and/or a named role template. It resolves the four-layer
+ * selecting an LLM route and/or a named character card. It resolves the four-layer
  * fallback chain via the pure resolveRoute (design section 6), validates the
  * resolution against live runtime facts, and assembles a SubagentStartRequest
- * on ctx.subagents.start(...) exactly like dsh-workflow-worker-thread's
- * startChild and dsh-tool-subagent's one-shot path.
+ * on ctx.subagents.startActivation(...) exactly like dsh-workflow-worker-thread's
+ * startChild and dsh-tool-subagent's activation path.
  *
  * Two provider namespaces coexist and MUST NOT be confused (design section 14, R2):
  *   - config.subagentProvider is the subagent TRANSPORT provider name handed
- *     to ctx.subagents.start(name, ...) (e.g. spawn).
+ *     as the spec's `provider` field to ctx.subagents.startActivation(spec) (e.g. spawn).
  *   - the resolved agentOptions.provider is an LLM route served by an adapter
  *     (e.g. deepseek-official).
  *
- * Execution contract (schema/execute mirror dsh-tool-subagent):
- *   - foreground is the core path: await run.result, throw a stop-reason
- *     error for a non-completed child, dispose idempotently, return
- *     { kind: foreground, runId, output }.
- *   - one-shot background mirrors the official Task registration on
- *     ctx.jobs.start({ kind: subagent, ... }) returning { kind: background, jobId }.
- *   - continuable runs the child through ctx.subagents.startContinuable() and
- *     returns { kind: continuable, subagentId } (the durable child id), which the
- *     parent later follows up on with send_message (M3a / FR-5.3).
+ * Execution contract (schema/execute mirror dsh-tool-subagent on the 0.2.x
+ * startActivation seam):
+ *   - foreground is the core path: startActivation with delivery 'caller',
+ *     await activation.result, throw a stop-reason error for a non-completed
+ *     child, dispose idempotently, return { kind: foreground, runId, output }.
+ *   - background runs the child through startActivation with delivery 'parent'
+ *     (the runtime owns result delivery and notifies the parent model) and
+ *     returns the durable child id immediately: { kind: continuable, subagentId }
+ *     when the provider is continuable (the parent later follows up with
+ *     send_message), else { kind: background, jobId } for a one-shot child.
  *
- * reasoningEffort: the DSH AgentOptions and SubagentStartRequest shapes do
- * not carry reasoning effort (dsh-agent runtime-types.d.ts, dsh-subagent
- * types.d.ts), so it is surfaced and logged only, never injected (route-resolver
- * already returns it separately for auditability).
+ * reasoningEffort: alpha.4 `AgentOptions` carries `reasoningEffort?:
+ * ReasoningEffortId` (dsh-agent runtime-types), so the resolver injects it
+ * into agentOptions alongside a resolved route (and allows an explicit
+ * effort alone). Provider/model selection is CONSTRAINED to the official
+ * `subagent-model-selection` allowedModels list: the resolver throws for an
+ * unlisted explicit pair and drops unlisted role/default routes, so this
+ * plugin never double-writes a model route the official tool also owns.
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent';
-import { defineTool, type JsonValue, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
-import { settleRun } from '@deepseek-ai/dsh-subagent';
+import { defineTool, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
+import type { JsonValue } from '@deepseek-ai/dsh-util-values';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
-import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent';
+import { SessionId } from '@deepseek-ai/dsh-session';
+import type { SubagentActivation, SubagentCapabilities, SubagentProvider, SubagentResult } from '@deepseek-ai/dsh-subagent';
+import { randomUUID } from 'node:crypto';
 
 import type { DirectorConfig } from './config.js';
-import { resolveRoute, type RouteToolFilter, type SubagentDirectorSettings } from './route-resolver.js';
+import type { CardService } from './card-store.js';
+import { renderCardPrompt } from './card-types.js';
+import { readNamespaceValue, SUBAGENT_MODEL_SELECTION_NAMESPACE } from './settings.js';
+import { resolveRoute, type SubagentDirectorSettings } from './route-resolver.js';
+import { trackResident } from './resident-handles.js';
 
 /** Stable log namespace prefix for delegation/tool diagnostics (design section 10). */
 export const DELEGATION_TOOL_PREFIX = 'subagent-director';
@@ -46,23 +56,26 @@ export const DELEGATION_TOOL_PREFIX = 'subagent-director';
 const ERROR_PREFIX = 'subagent-director:';
 
 /**
- * Delegate a task to a role-bound subagent with an optional LLM route override.
- * Resolves role/model/provider through the configure -> role -> default ->
- * inherit chain; role persona and tool filtering are applied when the chosen
- * subagent transport supports them.
+ * Delegate a task to a character-card-bound subagent with an optional LLM route
+ * override. Resolves card/model/provider through the call -> card -> default ->
+ * inherit chain; the card's fixed prompt and persona are injected for the child.
  */
 export interface DelegationToolArgs {
   /** A short (3-5 word) description of the delegated task, for display. */
   description: string;
   /** The complete, self-contained task for the subagent. */
   prompt: string;
-  /** Role template id (optional). Falls back to the configured default role. */
+  /** Character-card id (optional). Falls back to the configured default card. */
   role?: string;
   /** LLM provider route override (optional). Wins over any role binding. */
   provider?: string;
   /** Model id override (optional). Wins over any role binding. */
   model?: string;
-  /** Reasoning-effort override (optional; advisory — logged, not injected). */
+  /**
+   * Reasoning-effort override (optional). With alpha.4 AgentOptions this is
+   * injected onto the resolved route; may also be supplied alone (provider and
+   * model stay inherited or card-bound).
+   */
   reasoningEffort?: string;
   /**
    * Whether to run in the background. Defaults to false in one-shot mode; in
@@ -97,7 +110,7 @@ export function createDelegationParameters(
     },
     role: {
       type: 'string',
-      description: 'Role template id (optional). Falls back to the configured default role when unset.',
+      description: 'Character-card id (optional). Falls back to the configured default card when unset.',
     },
     provider: {
       type: 'string',
@@ -182,18 +195,20 @@ function withPartialText(error: string, output: readonly ContentBlock[]): string
 }
 
 /**
- * Collect and release one foreground run without letting disposal replace an
- * independent result failure (mirrors dsh-tool-subagent settleForegroundRun).
+ * Collect and release one foreground activation without letting disposal
+ * replace an independent result failure (mirrors dsh-tool-subagent's
+ * settleForegroundRun). The activation's `result` resolves with the child's
+ * terminal SubagentResult; `dispose()` releases the execution handle.
  */
-async function settleForegroundRun(run: SubagentRun): Promise<{ kind: 'foreground'; runId: string; output: JsonValue[] }> {
+async function settleForegroundActivation(activation: SubagentActivation): Promise<{ kind: 'foreground'; runId: string; output: JsonValue[] }> {
   const [execution] = await Promise.allSettled([
-    run.result.then((result) => {
+    activation.result.then((result) => {
       const error = stopReasonError(result);
       if (error !== undefined) throw new Error(withPartialText(error, result.output));
-      return { kind: 'foreground' as const, runId: String(run.id), output: result.output as unknown as JsonValue[] };
+      return { kind: 'foreground' as const, runId: String(activation.childId), output: result.output as unknown as JsonValue[] };
     }),
   ]);
-  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())]);
+  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => activation.dispose())]);
   if (execution.status === 'rejected') {
     if (disposal.status === 'rejected') {
       throw new AggregateError(
@@ -207,20 +222,54 @@ async function settleForegroundRun(run: SubagentRun): Promise<{ kind: 'foregroun
   return execution.value;
 }
 
-/** Settle a background child without rejecting the Task producer contract. */
-async function settleBackgroundRun(start: Promise<SubagentRun>, signal: AbortSignal) {
-  try {
-    return await settleRun(await start);
-  } catch (error) {
-    return signal.aborted ? { status: 'killed' as const } : { status: 'failed' as const, detail: String(error) };
-  }
-}
-
 /** Check whether an LLM route has a registered adapter (routable = listed). */
 function isProviderRoutable(ctx: Context, provider: string): boolean {
   const llm = ctx.get('llm');
   if (llm === undefined) return true; // cannot validate without llm; assume routable
   return llm.listProviders().some((entry) => entry.id === provider);
+}
+
+/** The outcome of one execute-time read of the official model selection. */
+export interface ModelSelectionRead {
+  /** Whether a readable `subagent-model-selection` section exists on the seam. */
+  sectionPresent: boolean;
+  /**
+   * The authorized exact routes when the official selection is enabled with a
+   * non-empty allowlist; undefined otherwise (no constraint).
+   */
+  allowedRoutes: Array<{ provider: string; model: string }> | undefined;
+}
+
+/**
+ * Read the official model-selection settings section through the settings seam
+ * at execute time (the official dsh-tool-subagent owns this namespace). On
+ * 0.1.7 there is no `settings.get(ns)`; the live value is read from
+ * `describe()`'s descriptor for the entry id `subagent-model-selection-settings`
+ * (see readNamespaceValue). An inactive/unreadable section simply means no
+ * authorized list.
+ */
+export function readModelSelection(ctx: Context): ModelSelectionRead {
+  const settings = ctx.get('settings') as
+    | { describe(options?: { redactSecrets?: boolean }): readonly { ns: string; value?: unknown }[] }
+    | undefined;
+  const selection = readNamespaceValue(settings, SUBAGENT_MODEL_SELECTION_NAMESPACE);
+  if (selection === null || typeof selection !== 'object') {
+    return { sectionPresent: false, allowedRoutes: undefined };
+  }
+  const record = selection as { enabled?: unknown; allowedModels?: unknown };
+  const models = Array.isArray(record.allowedModels)
+    ? record.allowedModels.filter(
+        (entry): entry is { provider: string; model: string } =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          typeof (entry as { provider?: unknown }).provider === 'string' &&
+          typeof (entry as { model?: unknown }).model === 'string',
+      )
+    : [];
+  return {
+    sectionPresent: true,
+    allowedRoutes: record.enabled === true && models.length > 0 ? models : undefined,
+  };
 }
 
 /** Format the structured FR-8.1 error with the available route list. */
@@ -287,25 +336,21 @@ export function renderDelegationResult(value: DelegationResult | { kind: 'foregr
 /**
  * Pure capability gate (extracted from execute for unit testing, behavioral
  * no-op): a resolved delegation feature demands a transport-provider capability,
- * and its absence is a hard error (FR-8.1 / design 7.3). persona, toolFilter,
- * and a numeric maxDepth each require the matching capability flag.
+ * and its absence is a hard error (FR-8.1 / design 7.3). An independent Agent
+ * Preset requires `agentPreset` support and a provider that does not inherit
+ * the parent conversation; a numeric maxDepth requires `depthLimit`.
  */
 export function assertDelegationCapabilities(options: {
   providerName: string;
-  persona?: string;
-  toolFilter?: RouteToolFilter;
-  capabilities: { persona: boolean; toolFilter: boolean; depthLimit: boolean };
+  agentPreset?: string;
+  capabilities: SubagentCapabilities;
+  inheritsParentContext?: boolean;
   maxDepth?: number | 'provider-managed';
 }): void {
-  const { providerName, persona, toolFilter, capabilities, maxDepth } = options;
-  if (persona !== undefined && !capabilities.persona) {
+  const { providerName, agentPreset, capabilities, inheritsParentContext = false, maxDepth } = options;
+  if (agentPreset !== undefined && (!capabilities.agentPreset || inheritsParentContext)) {
     throw new Error(
-      `${ERROR_PREFIX} role binds a persona but transport provider "${providerName}" does not support the persona capability — switch the subagent provider or drop the role persona`,
-    );
-  }
-  if (toolFilter !== undefined && !capabilities.toolFilter) {
-    throw new Error(
-      `${ERROR_PREFIX} role binds a tool filter but transport provider "${providerName}" does not support the toolFilter capability — switch the subagent provider or drop the role filter`,
+      `${ERROR_PREFIX} card binds Agent Preset "${agentPreset}" but transport provider "${providerName}" does not support independent preset selection — switch to a non-inheriting provider (e.g. spawn) or drop the card agentPreset`,
     );
   }
   if (typeof maxDepth === 'number' && !capabilities.depthLimit) {
@@ -320,25 +365,28 @@ export interface SubagentRequestParts {
   description: string;
   prompt: ContentBlock[];
   parent: Agent;
-  agentOptions?: Pick<AgentOptions, 'provider' | 'model'>;
-  persona?: string;
-  toolFilter?: RouteToolFilter;
+  agentOptions?: Pick<AgentOptions, 'provider' | 'model' | 'reasoningEffort'>;
+  agentPreset?: string;
   maxDepth?: number;
 }
 
 /**
  * Pure request-body assembly (extracted from execute for unit testing,
- * behavioral no-op): persona and toolFilter propagate into the request only
- * when the role resolved them, so a bare delegation stays zero-intrusion.
+ * behavioral no-op): an Agent Preset propagates into the request only when the
+ * role resolved one, so a bare delegation stays zero-intrusion. DSH 0.2.1
+ * removed per-request persona/toolFilter; card prompt and persona are injected
+ * through the card prompt section; tool composition lives in the selected Agent Preset.
+ *
+ * On the 0.2.x startActivation seam the `label` and `signal` are hoisted to
+ * the activation spec, so the inner request omits them (the spec carries
+ * `label: parts.description` and `signal: exec.signal`).
  */
 export function buildSubagentRequest<Parts extends SubagentRequestParts>(parts: Parts) {
   return {
-    label: parts.description,
     prompt: parts.prompt,
     parent: parts.parent,
     ...(parts.agentOptions !== undefined ? { agentOptions: parts.agentOptions } : {}),
-    ...(parts.persona !== undefined ? { persona: parts.persona } : {}),
-    ...(parts.toolFilter !== undefined ? { toolFilter: parts.toolFilter } : {}),
+    ...(parts.agentPreset !== undefined ? { agentPreset: parts.agentPreset } : {}),
     ...(parts.maxDepth !== undefined ? { maxDepth: parts.maxDepth } : {}),
   };
 }
@@ -353,8 +401,10 @@ export function createDelegationTool(options: {
   config: DirectorConfig;
   provider: SubagentProvider;
   getSettings: () => SubagentDirectorSettings;
+  /** Card repository; when absent, card prompt injection and lookup are skipped. */
+  cards?: CardService;
 }) {
-  const { ctx, config, provider, getSettings } = options;
+  const { ctx, config, provider, getSettings, cards } = options;
   const backgroundEnabled = config.enableRunInBackground !== false;
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable';
   const toolName = config.toolName ?? 'subagent_role';
@@ -363,8 +413,8 @@ export function createDelegationTool(options: {
   return defineTool({
     name: toolName,
     description:
-      'Delegate a self-contained task to a role-bound subagent with an optional LLM route (provider/model) override. ' +
-      'Resolves the model through configure -> role -> default -> inherit; role persona and tool filtering are applied when supported. ' +
+      'Delegate a self-contained task to a character-card-bound subagent with an optional LLM route (provider/model) override. ' +
+      'Resolves the model through call -> card -> default -> inherit; the card\'s fixed system prompt and persona are injected into that child session. ' +
       (backgroundEnabled
         ? continuable
           ? ' This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.'
@@ -383,7 +433,7 @@ export function createDelegationTool(options: {
       },
       role: {
         type: 'string',
-        description: 'Role template id (optional). Falls back to the configured default role when unset.',
+        description: 'Character-card id (optional). Falls back to the configured default card when unset.',
       },
       provider: {
         type: 'string',
@@ -439,13 +489,55 @@ export function createDelegationTool(options: {
       const parent = exec.agent;
       if (!parent) throw new Error(`${ERROR_PREFIX} tool requires a calling agent (exec.agent was undefined)`);
 
+      if (cards !== undefined) await cards.ready();
+      const cardStorageState = cards?.status().state;
       const settings = getSettings();
-      const route = resolveRoute({ args, settings, parent: parent.options });
-      const warnings = [...route.warnings];
-      ctx.logger.info(
-        `[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} mode=${continuable ? 'continuable' : 'one-shot'} transport=${providerName} route=${JSON.stringify(route.agentOptions ?? null)} persona=${route.persona ? 'yes' : 'no'} warnings=${JSON.stringify(warnings)}`,
-      );
-
+      if (cardStorageState !== undefined && cardStorageState !== 'ready' && !isEmpty(args.role)) {
+        // A legacy settings role may still be usable without card storage. Only
+        // reject when the requested id/name is not a legacy role either; a card
+        // binding would otherwise be silently dropped.
+        const legacyRoles = settings.roles ?? {};
+        const legacyRole =
+          legacyRoles[args.role!] ??
+          Object.values(legacyRoles).find((role) => role !== undefined && role.displayName === args.role);
+        if (legacyRole === undefined) {
+          throw new Error(
+            `${ERROR_PREFIX} character card storage is ${cardStorageState}; cannot resolve role "${args.role}". ` +
+              'Retry after card storage is available, or delegate without a role to use the plugin model defaults.',
+          );
+        }
+      }
+      // Authorized-model constraint: the official dsh-tool-subagent owns
+      // `subagent-model-selection`; this plugin only selects provider/model
+      // from its allowedModels. No section → no constraint, but the plugin is
+      // warned that its own defaults apply unconstrained.
+      const selection = readModelSelection(ctx);
+      const warnings: string[] = [];
+      if (cardStorageState !== undefined && cardStorageState !== 'ready') {
+        warnings.push(
+          `${ERROR_PREFIX} character card storage is ${cardStorageState}; card bindings will not be applied to this delegation`,
+        );
+      }
+      if (
+        !selection.sectionPresent &&
+        (!isEmpty(settings.defaultProvider) || !isEmpty(settings.defaultModel))
+      ) {
+        warnings.push(
+          `${ERROR_PREFIX} no authorized model list is configured (subagent-model-selection section absent); plugin defaults/roles apply unconstrained`,
+        );
+      }
+      const route = resolveRoute({
+        args,
+        settings,
+        parent: parent.options,
+        allowedRoutes: selection.allowedRoutes,
+      });
+      warnings.push(...route.warnings);
+      const resolvedCard = cards !== undefined && route.roleId !== undefined ? cards.resolveCard(route.roleId) : undefined;
+      const card = resolvedCard?.card;
+      const cardPrompt = card !== undefined ? renderCardPrompt(card) : '';
+      const localTransport =
+        provider.prepareContinuable !== undefined || providerName === 'spawn' || providerName === 'fork';
       // FR-8.1: an explicitly supplied provider must be routable — never silently swapped.
       const explicitProvider = isEmpty(args.provider) ? undefined : args.provider;
       if (explicitProvider !== undefined && !isProviderRoutable(ctx, explicitProvider)) {
@@ -471,73 +563,123 @@ export function createDelegationTool(options: {
         }
       }
 
-      // persona/toolFilter require the transport provider's capabilities.
+      // An independent Agent Preset requires the transport provider's
+      // agentPreset capability and a non-inheriting (spawn-like) provider.
       const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined;
+      if (route.persona !== undefined || route.toolFilter !== undefined) {
+        warnings.push(
+          `${ERROR_PREFIX} role legacy persona/toolFilter are not applied on DSH 0.2.1; move them into an Agent Preset and set the role agentPreset`,
+        );
+      }
       assertDelegationCapabilities({
         providerName,
-        persona: route.persona,
-        toolFilter: route.toolFilter,
+        agentPreset: route.agentPreset,
         capabilities: provider.capabilities,
-        maxDepth,
-      });
-
-      // reasoningEffort is advisory and not part of AgentOptions/SubagentStartRequest.
-      if (route.reasoningEffort !== undefined) {
-        ctx.logger.info(`[${DELEGATION_TOOL_PREFIX}] reasoningEffort=${route.reasoningEffort} is advisory and logged only (not injectable via AgentOptions)`);
-      }
-
-      const request = buildSubagentRequest({
-        description: args.description,
-        prompt: [{ type: 'text' as const, text: args.prompt }],
-        parent,
-        agentOptions,
-        persona: route.persona,
-        toolFilter: route.toolFilter,
+        inheritsParentContext: provider.inheritsParentContext,
         maxDepth,
       });
 
       const decision = resolveDelegationMode(args, { backgroundEnabled, continuable });
 
-      // Continuable background runs the child through startContinuable and returns
-      // the durable child id for later send_message follow-up (FR-5.3 / F11).
-      if (decision.route === 'continuable') {
-        if (provider.prepareContinuable === undefined) {
-          throw new Error(
-            `${ERROR_PREFIX} transport provider "${providerName}" does not support backgroundMode: continuable — switch the subagent provider or use backgroundMode: 'one-shot'`,
+      let childId: SessionId | undefined;
+      let cardBindingStarted = false;
+      if (card !== undefined && cardPrompt.length > 0) {
+        if (localTransport) {
+          childId = SessionId(randomUUID());
+          try {
+            await cards!.beginBinding({
+              sessionId: String(childId),
+              cardId: card.id,
+              cardName: card.name,
+              ...(card.systemPrompt !== undefined ? { systemPrompt: card.systemPrompt } : {}),
+              ...(card.persona !== undefined ? { persona: card.persona } : {}),
+              parentSessionId: String(parent.id),
+              continuable: provider.prepareContinuable !== undefined,
+            });
+            cardBindingStarted = true;
+          } catch (error) {
+            try {
+              await cards!.endBinding(String(childId));
+            } catch {
+              /* best-effort cleanup of a half-written binding */
+            }
+            throw error;
+          }
+        } else {
+          warnings.push(
+            `${ERROR_PREFIX} transport "${providerName}" cannot reserve a child session id; character card "${card.id}" prompt is appended to the task instead of the system prompt`,
           );
         }
-        const start = await ctx.subagents.startContinuable({
+      }
+      const releaseCardBinding = async (): Promise<void> => {
+        if (!cardBindingStarted || childId === undefined) return;
+        try {
+          await cards!.endBinding(String(childId));
+        } catch (error) {
+          ctx.logger.warn(
+            `[${DELEGATION_TOOL_PREFIX}] failed to release card prompt binding for ${String(childId)}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      };
+      ctx.logger.info(
+        `[${DELEGATION_TOOL_PREFIX}] delegate layer=${route.layer} mode=${continuable ? 'continuable' : 'one-shot'} transport=${providerName} route=${JSON.stringify(route.agentOptions ?? null)} card=${card?.id ?? '(none)'} prompt=${cardPrompt.length > 0 ? (localTransport ? 'system' : 'task') : 'none'} warnings=${JSON.stringify(warnings)}`,
+      );
+
+      const taskText =
+        cardPrompt.length > 0 && !localTransport ? args.prompt + '\n\n---\n' + cardPrompt : args.prompt;
+      const request = buildSubagentRequest({
+        description: args.description,
+        prompt: [{ type: 'text' as const, text: taskText }],
+        parent,
+        agentOptions,
+        agentPreset: route.agentPreset,
+        maxDepth,
+      });
+
+      // Foreground: the caller owns the result (delivery 'caller'), so await the
+      // activation's result, map a non-completed stop reason to an error, and
+      // dispose idempotently. The card prompt binding is released only after the
+      // run settles, so the child's whole turn sees its fixed prompt.
+      if (!decision.runInBackground) {
+        try {
+          const activation = await ctx.subagents.startActivation({
+            provider: providerName,
+            label: args.description,
+            ...request,
+            ...(childId !== undefined ? { childId } : {}),
+            signal: exec.signal,
+            delivery: 'caller',
+          });
+          return await settleForegroundActivation(activation);
+        } finally {
+          await releaseCardBinding();
+        }
+      }
+
+      // Background: the runtime owns result delivery (delivery 'parent') and
+      // notifies the parent model when the child settles; return the durable
+      // child id immediately. A provider with prepareContinuable yields a local
+      // child the parent can later steer with send_message (continuable);
+      // otherwise the child is a one-shot external execution (background).
+      let started = false;
+      try {
+        const activation = await ctx.subagents.startActivation({
           provider: providerName,
           label: args.description,
-          request,
+          ...request,
+          ...(childId !== undefined ? { childId } : {}),
           signal: exec.signal,
+          delivery: 'parent',
         });
-        return { kind: 'continuable' as const, subagentId: start.childId };
-      }
-
-      if (decision.route === 'one-shot') {
-        const jobs = ctx.get('jobs');
-        if (jobs === undefined) {
-          throw new Error(`${ERROR_PREFIX} background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs`);
+        started = true;
+        if (provider.prepareContinuable !== undefined) {
+          trackResident(String(parent.id), activation);
+          return { kind: 'continuable' as const, subagentId: activation.childId };
         }
-        return {
-          kind: 'background' as const,
-          jobId: jobs.start({
-            kind: 'subagent',
-            label: args.description,
-            owner: parent,
-            run: () => {
-              const controller = new AbortController();
-              return {
-                cancel: (reason?: string) => controller.abort(reason ?? 'background subagent task killed'),
-                done: settleBackgroundRun(ctx.subagents.start(providerName, { ...request, signal: controller.signal }), controller.signal),
-              };
-            },
-          }),
-        };
+        return { kind: 'background' as const, jobId: activation.childId };
+      } finally {
+        if (!started) await releaseCardBinding();
       }
-
-      return settleForegroundRun(await ctx.subagents.start(providerName, { ...request, signal: exec.signal }));
     },
   });
 }

@@ -24,9 +24,24 @@ describe('renderRolesGuidance', () => {
 
   it('includes the id-reference instruction and the delegate line', () => {
     const text = renderRolesGuidance(settings, 'subagent_role');
-    expect(text).toContain('Reference roles by their id');
+    expect(text).toContain('Reference cards by their bracketed id');
     expect(text).toContain('never by display name');
     expect(text).toContain('subagent_role({ role: "role", prompt: "..." })');
     expect(text).toContain('基础开发工程师');
+  });
+
+  it('appends a dangling defaultRole warning so it reaches the agent', () => {
+    const text = renderRolesGuidance({ ...settings, defaultRole: 'ghost' }, 'subagent_role');
+    expect(text).toContain('defaultRole "ghost"');
+    expect(text).toContain('does not reference a defined role');
+  });
+
+  it('adds no warning for a sound or unset defaultRole', () => {
+    expect(renderRolesGuidance({ ...settings, defaultRole: 'role' }, 'subagent_role')).not.toContain('does not reference');
+    expect(renderRolesGuidance(settings, 'subagent_role')).not.toContain('does not reference');
+  });
+
+  it('keeps a dangling defaultRole from resurrecting an empty role section', () => {
+    expect(renderRolesGuidance({ roles: {}, defaultRole: 'ghost' }, 'subagent_role')).toBe('');
   });
 });

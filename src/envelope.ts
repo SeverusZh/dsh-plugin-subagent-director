@@ -15,10 +15,36 @@
  * Referenced semantics: dsh-client-connection/lib/index.js:275-300
  * (rpcFetchHandler) and 322-328 (fullResponse).
  */
-import type {
-  RpcError,
-  RpcResult,
-} from '@deepseek-ai/dsh-host-apiproxy/api';
+/**
+ * Closed set of failure codes this bridge emits. The generic Connection RPC
+ * carrier (dsh-client-connection) types `code` as a plain string; the bridge
+ * keeps its own closed union so a mistyped code stays a compile error.
+ */
+export type BridgeRpcErrorCode =
+  | 'bad-request'
+  | 'settings-conflict'
+  | 'settings-rejected'
+  | 'session-not-found'
+  | 'subagent-not-tracked'
+  | 'subagent-close-rejected'
+  | 'subagent-close-failed'
+  | 'internal';
+
+/**
+ * Failure branch of one bridge result. Structurally the generic Connection RPC
+ * failure (`ConnectionRpcFailure` in dsh-client-connection): a business error
+ * rides the result slot rather than being thrown.
+ */
+export interface RpcError {
+  readonly code: BridgeRpcErrorCode;
+  readonly message: string;
+  readonly details: object;
+}
+
+/** Business success/failure result carried in the response result slot. */
+export type RpcResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: RpcError };
 
 /** The rpcId the host uses for envelopes that fail top-level validation. */
 export const INVALID_REQUEST_RPC_ID = 'invalid-request';
@@ -143,19 +169,65 @@ export function isLoopbackHostname(hostname: string): boolean {
  * bare hostname.
  */
 export function isLoopbackHost(rawHost: string): boolean {
-  let host = rawHost.trim();
-  if (host.length === 0) return false;
+  return isLoopbackHostname(authorityHostname(rawHost));
+}
+
+/**
+ * Normalize a raw authority (a "Host" header or one allowlist entry) to its
+ * bare hostname: trims, keeps IPv6 brackets, drops any port suffix. Returns ""
+ * when the value cannot name a host (empty, or a truncated IPv6 literal).
+ */
+function authorityHostname(rawHost: string): string {
+  const host = rawHost.trim();
+  if (host.length === 0) return '';
   // IPv6 bracket literal may carry a trailing port: [::1]:3090
   if (host.startsWith('[')) {
     const close = host.indexOf(']');
-    if (close === -1) return false;
-    host = host.slice(0, close + 1);
-  } else {
-    // Split off the first colon that separates host:port (plain hostnames/IPv4).
-    const colon = host.indexOf(':');
-    if (colon !== -1) host = host.slice(0, colon);
+    return close === -1 ? '' : host.slice(0, close + 1);
   }
-  return isLoopbackHostname(host);
+  // Split off the first colon that separates host:port (plain hostnames/IPv4).
+  const colon = host.indexOf(':');
+  return colon === -1 ? host : host.slice(0, colon);
+}
+
+/**
+ * Environment variable holding the comma-separated Host allowlist that exempts
+ * a reverse-proxied deployment from the loopback fence.
+ */
+export const TRUSTED_HOSTS_ENV = 'DSH_SUBAGENT_DIRECTOR_TRUSTED_HOSTS';
+
+/**
+ * Parse an allowlist value into comparable hostnames. Entries are matched
+ * case-insensitively on the hostname only, so "dsh.example.com",
+ * "dsh.example.com:6443" and "DSH.example.com" all match the same request.
+ * Blank entries are dropped and duplicates collapse.
+ */
+export function parseTrustedHosts(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  const hosts: string[] = [];
+  for (const piece of raw.split(',')) {
+    const host = authorityHostname(piece).toLowerCase();
+    if (host.length > 0 && !hosts.includes(host)) hosts.push(host);
+  }
+  return hosts;
+}
+
+/** Read the allowlist from the environment (an explicit map keeps it testable). */
+export function trustedHostsFromEnv(env: Record<string, string | undefined> = process.env): string[] {
+  return parseTrustedHosts(env[TRUSTED_HOSTS_ENV]);
+}
+
+/**
+ * Whether a raw "Host" header may reach the bridge. Loopback always may; an
+ * off-box authority may only when it is listed in the allowlist, so a
+ * deployment that configures nothing keeps refusing every proxied Host exactly
+ * as before.
+ */
+export function isTrustedHost(rawHost: string, trustedHosts: readonly string[] = []): boolean {
+  if (isLoopbackHost(rawHost)) return true;
+  const host = authorityHostname(rawHost).toLowerCase();
+  if (host.length === 0) return false;
+  return trustedHosts.includes(host);
 }
 
 /**

@@ -1,13 +1,19 @@
 /**
  * Unit tests for the M3b observability pure logic (src/client/subagent-model.ts).
  *
- * Covers the two pure surfaces that drive the composer.dock readout:
- *   - latestSubagentModel(snapshot): walks the opened transcript's node list
+ * Covers the two pure surfaces that drive the composer.dock readout on the
+ * DSH alpha.4/alpha.5 host line:
+ *   - latestSubagentModel(nodes): walks the opened transcript's node list
  *     from the tail and returns the last assistant message that proves a
  *     provider/model identity (provenance first, then requestConfig), or
- *     { found: false } when no assistant message records one;
+ *     { found: false } when no assistant message records one. The node list
+ *     is the alpha.4 chat view's `legacy.nodes` slice
+ *     (ChatSnapshot.legacy.nodes, a readonly ConversationNode[]);
  *   - formatModelRef(ref): the compact provider/model label rendered by the
- *     dock / readout; plus the provenance-preference rules inside provenanceOf.
+ *     dock / readout; plus the provenance-preference rules inside provenanceOf;
+ *   - isAddressedSubagent / isContinuableChild: session-surface guards over
+ *     the alpha.4 SessionSnapshot.subagent address
+ *     ({ address: SubagentAddress } | null).
  *
  * The "有模型 / 无模型 的降级文案" behaviour is exercised through the pure
  * guards the dock relies on: a found ref feeds the formatted label, while a
@@ -16,12 +22,16 @@
  * render.
  */
 import { describe, it, expect } from 'vitest';
+import type { ConversationNode } from '@deepseek-ai/dsh-client-ui-conversation/client';
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client';
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client';
 import {
   formatModelRef,
   isAddressedSubagent,
+  isContinuableChild,
   latestSubagentModel,
+  mergeModelLookup,
   provenanceOf,
-  type ConversationNode,
 } from '../src/client/subagent-model.js';
 
 /** A minimal assistant node that records provenance. */
@@ -37,16 +47,32 @@ function sourceNode(): ConversationNode {
   return { kind: 'user' } as unknown as ConversationNode;
 }
 
-function snapshot(nodes: ConversationNode[]): { nodes: ConversationNode[] } {
+/** The alpha.4 chat-view legacy slice shape the dock feeds the walker. */
+function chatLegacy(nodes: ConversationNode[]): { nodes: readonly ConversationNode[] } {
   return { nodes };
+}
+
+/** Alpha.4 continuable subagent address (SessionSnapshot.subagent.address). */
+function continuableAddress(overrides: Partial<SubagentAddress> = {}): SubagentAddress {
+  return {
+    parentSessionId: 'parent-1',
+    childSessionId: 'child-1',
+    mode: 'continuable',
+    ...overrides,
+  } as SubagentAddress;
+}
+
+/** Alpha.4 SessionSnapshot carrying a subagent address (or none). */
+function sessionSnapshot(subagent: SessionSnapshot['subagent']): Pick<SessionSnapshot, 'subagent'> {
+  return { subagent };
 }
 
 describe('latestSubagentModel', () => {
   it('returns the reported provenance of the latest assistant message', () => {
     const result = latestSubagentModel(
-      snapshot([
-        assistant({ provenance: { provider: 'deepseek', model: 'older-v1' } }),
-        assistant({ provenance: { provider: 'opencode-go', model: 'deepseek-v4-flash' } }),
+      chatLegacy([
+        assistant({ providerMetadata: { provider: 'deepseek', model: 'older-v1' } }),
+        assistant({ providerMetadata: { provider: 'opencode-go', model: 'deepseek-v4-flash' } }),
       ]),
     );
     expect(result).toEqual({ found: true, provider: 'opencode-go', model: 'deepseek-v4-flash' });
@@ -54,17 +80,17 @@ describe('latestSubagentModel', () => {
 
   it('returns not-found when no assistant message records a provenance or config', () => {
     const result = latestSubagentModel(
-      snapshot([assistant(), assistant({ provenance: null, requestConfig: null })]),
+      chatLegacy([assistant(), assistant({ providerMetadata: null, requestConfig: null })]),
     );
     expect(result).toEqual({ found: false });
   });
 
   it('prefers the latest of several recorded assistant messages (tail wins)', () => {
     const result = latestSubagentModel(
-      snapshot([
-        assistant({ provenance: { provider: 'a', model: 'm1' } }),
+      chatLegacy([
+        assistant({ providerMetadata: { provider: 'a', model: 'm1' } }),
         sourceNode(),
-        assistant({ provenance: { provider: 'b', model: 'm2' } }),
+        assistant({ providerMetadata: { provider: 'b', model: 'm2' } }),
       ]),
     );
     expect(result).toEqual({ found: true, provider: 'b', model: 'm2' });
@@ -72,9 +98,9 @@ describe('latestSubagentModel', () => {
 
   it('prefers provenance over requestConfig on the same assistant message', () => {
     const result = latestSubagentModel(
-      snapshot([
+      chatLegacy([
         assistant({
-          provenance: { provider: 'reported-p', model: 'reported-m' },
+          providerMetadata: { provider: 'reported-p', model: 'reported-m' },
           requestConfig: { provider: 'requested-p', model: 'requested-m' },
         }),
       ]),
@@ -84,7 +110,7 @@ describe('latestSubagentModel', () => {
 
   it('falls back to requestConfig when provenance is absent', () => {
     const result = latestSubagentModel(
-      snapshot([
+      chatLegacy([
         assistant({
           requestConfig: { provider: 'opencode-go', model: 'deepseek-v4-flash' },
         }),
@@ -94,7 +120,7 @@ describe('latestSubagentModel', () => {
   });
 
   it('returns not-found for an empty nodes array', () => {
-    expect(latestSubagentModel(snapshot([]))).toEqual({ found: false });
+    expect(latestSubagentModel(chatLegacy([]))).toEqual({ found: false });
   });
 
   it('returns not-found for a malformed or non-object snapshot', () => {
@@ -105,8 +131,8 @@ describe('latestSubagentModel', () => {
 
   it('skips non-assistant and guard-invalid nodes while walking to the tail', () => {
     const result = latestSubagentModel(
-      snapshot([
-        assistant({ provenance: { provider: 'early', model: 'model-x' } }),
+      chatLegacy([
+        assistant({ providerMetadata: { provider: 'early', model: 'model-x' } }),
         sourceNode(),
         { kind: 'unknown' } as unknown as ConversationNode,
         assistant({}),
@@ -119,14 +145,14 @@ describe('latestSubagentModel', () => {
 
 describe('provenanceOf', () => {
   it('accepts a provenance with provider and model', () => {
-    const ref = provenanceOf(assistant({ provenance: { provider: 'p', model: 'm' } }));
+    const ref = provenanceOf(assistant({ providerMetadata: { provider: 'p', model: 'm' } }));
     expect(ref).toEqual({ found: true, provider: 'p', model: 'm' });
   });
 
   it('rejects a provenance with empty provider or model and falls to requestConfig', () => {
     const fromRequest = provenanceOf(
       assistant({
-        provenance: { provider: '', model: 'm' },
+        providerMetadata: { provider: '', model: 'm' },
         requestConfig: { provider: 'rp', model: 'rm' },
       }),
     );
@@ -135,7 +161,7 @@ describe('provenanceOf', () => {
 
   it('returns null when neither provenance nor requestConfig records a model', () => {
     expect(provenanceOf(assistant({}))).toBeNull();
-    expect(provenanceOf(assistant({ provenance: null, requestConfig: null }))).toBeNull();
+    expect(provenanceOf(assistant({ providerMetadata: null, requestConfig: null }))).toBeNull();
   });
 });
 
@@ -154,25 +180,60 @@ describe('formatModelRef (有模型 的格式化读out)', () => {
 });
 
 describe('isAddressedSubagent (哪个表面才渲染读数)', () => {
-  it('is true for a snapshot carrying a subagent address', () => {
-    expect(isAddressedSubagent({ subagent: { id: 'child-1' } } as never)).toBe(true);
+  it('is true for an alpha.4 session snapshot carrying a subagent address', () => {
+    expect(isAddressedSubagent(sessionSnapshot({ address: continuableAddress() }))).toBe(true);
+    expect(
+      isAddressedSubagent(
+        sessionSnapshot({ address: continuableAddress({ mode: 'one-shot' }) }),
+      ),
+    ).toBe(true);
   });
 
   it('is false for an ordinary session (no subagent address)', () => {
-    expect(isAddressedSubagent({ subagent: null } as never)).toBe(false);
-    expect(isAddressedSubagent({} as never)).toBe(false);
+    expect(isAddressedSubagent(sessionSnapshot(null))).toBe(false);
+    expect(isAddressedSubagent({} as Pick<SessionSnapshot, 'subagent'>)).toBe(false);
     expect(isAddressedSubagent(null)).toBe(false);
     expect(isAddressedSubagent(undefined)).toBe(false);
   });
 
   it('drives the degradation decision: not-addressed surfaces no readout', () => {
     // Ordinary sessions must not render even when nodes carry provenance.
-    const ordinary = { subagent: undefined, nodes: [assistant({ provenance: { provider: 'p', model: 'm' } })] };
+    const ordinary = { subagent: null, nodes: [assistant({ providerMetadata: { provider: 'p', model: 'm' } })] };
     expect(isAddressedSubagent(ordinary as never)).toBe(false);
     // An addressed subagent whose transcript proves no model yields not-found,
     // which is exactly the "尚无模型" degradation path in the dock.
-    const addressedEmpty = { subagent: { id: 'child-2' }, nodes: [assistant({})] };
+    const addressedEmpty = { subagent: { address: continuableAddress() }, nodes: [assistant({})] };
     expect(isAddressedSubagent(addressedEmpty as never)).toBe(true);
     expect(latestSubagentModel(addressedEmpty as never)).toEqual({ found: false });
+  });
+});
+
+describe('isContinuableChild (release-sustained-state 按钮的守卫)', () => {
+  it('is true only for a continuable subagent address', () => {
+    expect(isContinuableChild(sessionSnapshot({ address: continuableAddress() }))).toBe(true);
+    expect(
+      isContinuableChild(sessionSnapshot({ address: continuableAddress({ mode: 'one-shot' }) })),
+    ).toBe(false);
+  });
+
+  it('is false for ordinary sessions and absent snapshots', () => {
+    expect(isContinuableChild(sessionSnapshot(null))).toBe(false);
+    expect(isContinuableChild({} as Pick<SessionSnapshot, 'subagent'>)).toBe(false);
+    expect(isContinuableChild(null)).toBe(false);
+    expect(isContinuableChild(undefined)).toBe(false);
+  });
+});
+
+describe('mergeModelLookup (本地优先的合并规则)', () => {
+  it('prefers the local lookup when it found a model', () => {
+    const local = { found: true as const, provider: 'p', model: 'm' };
+    const remote = { found: true as const, provider: 'r', model: 'x' };
+    expect(mergeModelLookup(local, remote)).toEqual(local);
+  });
+
+  it('falls back to the remote lookup when the local lookup found nothing', () => {
+    const local = { found: false as const };
+    const remote = { found: true as const, provider: 'r', model: 'x' };
+    expect(mergeModelLookup(local, remote)).toEqual(remote);
   });
 });

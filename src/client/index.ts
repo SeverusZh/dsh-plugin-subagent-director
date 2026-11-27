@@ -1,22 +1,44 @@
 /**
  * Subagent Director — browser half (DSH client plugin).
  *
- * Registers the `settings.section` page that lets a user pick the default LLM
- * provider/model for subagents and manage role templates (each binds a persona
- * and optional provider/model to a delegation). Data flows through the
+ * Registers the bundle configuration entry (`plugins.bundle.config`, keyed by
+ * the npm package name) that lets a user pick the default LLM provider/model
+ * for subagents and manage role templates (each binds a persona and optional
+ * provider/model to a delegation). It renders on this plugin's own page in the
+ * DSH plugin manager (插件列表 → dsh-plugin-subagent-director) — the DSH
+ * settings panel is no longer used for configuration. Data flows through the
  * connection's wire API into a snapshot store; writes travel as path ops
  * through settings.mutate with an optimistic-revision lock.
+ *
+ * On the DSH alpha.4/alpha.5 host line the client context is the plain cordis
+ * Context (the client service merges come from the imported client packages),
+ * the store runtime is `@deepseek-ai/dsh-client-store`, and the composer-dock
+ * readout reads the current session's chat-view snapshot through the
+ * uiConversation binding (see SubagentModelDock).
  */
+import { useSyncExternalStore } from 'react';
+import type { Context as ClientContext } from '@deepseek-ai/cordis';
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client';
-import type { ClientContext, ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client';
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store';
+import type { SessionId } from '@deepseek-ai/dsh-session/types';
+import type { ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client';
+// Type-only: pulls the ui-conversation SlotMap + Context merges (the dock and
+// header-action seats, and the uiConversation service) into this compilation.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type {} from '@deepseek-ai/dsh-client-locale/client';
+// Type-only: pulls the ui-renderer Context merge (ctx.slots) and the
+// api-remotes Context merge (ctx.remote) into this compilation.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
+import type {} from '@deepseek-ai/dsh-api-remotes/client';
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 import { bindSnapshotSelector } from './bind.js';
 import { en, zh, type SubagentDirectorKey } from './locales.js';
 import { SubagentOptionsStore, type SubagentOptionsState } from './store.js';
 import type { SubagentOptionsSectionInjected } from './SubagentOptionsSection.js';
 import { SubagentOptionsSection } from './SubagentOptionsSection.js';
-import { SubagentModelDock } from './SubagentModelDock.js';
+import { SubagentModelDock, type SubagentModelDockInjected } from './SubagentModelDock.js';
+import { SubagentCloseAction, type SubagentCloseActionInjected } from './SubagentCloseAction.js';
+import { ensureUiStyles } from './ui.js';
 
 /** Dictionary namespace owned by Subagent Director (bilingual, typed). */
 export const NS = 'settings.subagentDirector';
@@ -25,21 +47,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Subagent Director settings-page copy. */
     'settings.subagentDirector': SubagentDirectorKey;
-  }
-}
-/**
- * Compile-time view of `conversation.composer.dock`: declared here only to
- * strongly type our occupant. The runtime seat is owned by
- * dsh-client-ui-conversation's bundle; this augmentation contributes no
- * runtime declaration (it stays in this package's own module scope).
- */
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface SlotMap {
-    'conversation.composer.dock': {
-      kind: 'list';
-      scope: 'session';
-      owner: { readonly session: ConversationSnapshot | undefined; readonly input: unknown };
-    };
   }
 }
 
@@ -54,15 +61,19 @@ export function refreshIfLoaded(controller: SubagentOptionsStore): void {
   void controller.load();
 }
 
-/** Services required by the settings registration (cordis fiber inject). */
+/** Services required by the slot registrations (cordis fiber inject). */
 export const inject = ['slots', 'locale', 'connection', 'remote'];
 
 /**
- * Register the Subagent Director section once the `settings.section`
- * declaration is on the ledger, wire its store to the connection, and keep it
- * fresh on every pushed invalidation (settings or provider topology).
+ * Register the Subagent Director configuration once the
+ * `plugins.bundle.config` declaration is on the ledger, wire its store to the
+ * connection, and keep it fresh on every pushed invalidation (settings or
+ * provider topology).
  */
 export function apply(ctx: ClientContext): void {
+  // Additive design-system stylesheet for every client surface this plugin
+  // contributes (plugin-page section, composer dock, session-header action).
+  ensureUiStyles();
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'subagent-director: copy dictionaries');
 
   // ctx.get('connection') is typed as the host HostConnectionHandle when the
@@ -70,21 +81,51 @@ export function apply(ctx: ClientContext): void {
   // client ConnectionHandle is what the browser transport actually provides.
   const connection = ctx.get('connection') as unknown as ConnectionHandle;
   const t = ctx.locale.bind(NS);
-  // The settings namespace rides the self-published /subagent-director RPC
-  // channel (the Host apiproxy allowlist would answer settings-not-exposed);
-  // llm.providers/llm.models still go through connection.api.llm.
+  // The settings namespace and the Subagent model-selection allowlist ride the
+  // self-published /subagent-director RPC channel (the Host apiproxy allowlist
+  // would answer settings-not-exposed; the alpha.4 client has no llm catalog
+  // RPC anymore), so the page's only wire face is the generic RPC caller.
   const controller = new SubagentOptionsStore({
     rpc: connection.rpc,
-    llm: connection.api.llm,
     t: t as (key: SubagentDirectorKey) => string,
   });
   const useSnapshot = bindSnapshotSelector<SubagentOptionsState>(controller.store);
   const injected = (): SubagentOptionsSectionInjected => ({
     controller,
     useSnapshot,
-    api: connection.api,
     t: t as SubagentOptionsSectionInjected['t'],
   });
+
+  // Per-session chat-view snapshot sources for the composer-dock readout.
+  // The uiConversation service is read lazily (the dock only renders inside
+  // the conversation shell, where the service is live) so the settings page
+  // does not depend on the conversation UI being present.
+  const chatSources = new Map<string, ObservableSnapshot<ChatSnapshot | undefined>>();
+  const chatSource = (sessionId: SessionId): ObservableSnapshot<ChatSnapshot | undefined> => {
+    let source = chatSources.get(sessionId);
+    if (source === undefined) {
+      const uiConversation = ctx.get('uiConversation');
+      if (uiConversation === undefined) {
+        source = { getSnapshot: () => undefined, subscribe: () => () => {} };
+      } else {
+        const target = uiConversation.binding(sessionId).target('chat');
+        source = {
+          getSnapshot: () => target.getSnapshot(),
+          subscribe: (listener) => target.subscribe(listener),
+        };
+      }
+      chatSources.set(sessionId, source);
+    }
+    return source;
+  };
+  const useChatSnapshot = (sessionId: SessionId | undefined): ChatSnapshot | undefined =>
+    useSyncExternalStore(
+      (listener) => (sessionId === undefined ? () => {} : chatSource(sessionId).subscribe(listener)),
+      () => (sessionId === undefined ? undefined : chatSource(sessionId).getSnapshot()),
+    );
+
+  const dockInjected = (): SubagentModelDockInjected => ({ rpc: connection.rpc, useChatSnapshot });
+  const closeInjected = (): SubagentCloseActionInjected => ({ rpc: connection.rpc });
 
   ctx.effect(() => {
     const refresh = (): void => refreshIfLoaded(controller);
@@ -98,13 +139,19 @@ export function apply(ctx: ClientContext): void {
     };
   }, 'subagent-director: pushed invalidations');
 
-  ctx.slots.inject('settings.section', () =>
+  // Configuration lives on THIS plugin's page in the DSH plugin manager
+  // (插件列表 → dsh-plugin-subagent-director), between the package description
+  // and the component rows. `plugins.bundle.config` is keyed by the npm package
+  // name, and the page renders the section only while that exact key is
+  // registered (`configured = ledger.bundles.has(pkg.name)` in
+  // dsh-client-ui-plugin-manager); the slot has no native fallback form. A
+  // bundle page may hold several configuration entries, so the page passes NO
+  // host `form` — the store keeps owning its own bridge and draft lifecycle.
+  ctx.slots.inject('plugins.bundle.config', () =>
     ctx.slots.register(
       {
-        name: 'settings.section',
-        id: 'subagent-director',
-        order: 20,
-        label: (): string => t('nav'),
+        name: 'plugins.bundle.config',
+        key: 'dsh-plugin-subagent-director',
         locale: NS,
         inject: injected,
       },
@@ -119,8 +166,22 @@ export function apply(ctx: ClientContext): void {
         id: 'subagent-director-model',
         order: 90,
         locale: NS,
+        inject: dockInjected,
       },
       SubagentModelDock,
+    ),
+  );
+
+  ctx.slots.inject('conversation.session.header.actions', () =>
+    ctx.slots.register(
+      {
+        name: 'conversation.session.header.actions',
+        id: 'subagent-director-close',
+        order: 20,
+        locale: NS,
+        inject: closeInjected,
+      },
+      SubagentCloseAction,
     ),
   );
 }

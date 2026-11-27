@@ -9,6 +9,10 @@ import {
   parseClientRequestEnvelope,
   isLoopbackHost,
   isLoopbackHostname,
+  isTrustedHost,
+  parseTrustedHosts,
+  trustedHostsFromEnv,
+  TRUSTED_HOSTS_ENV,
   endpointFromPath,
   buildServerResponse,
   buildMethodMismatchResponse,
@@ -23,8 +27,8 @@ import {
 } from '../src/remote.js';
 import {
   SettingsConflictError,
-  settingsNamespace,
   type SettingsDescriptor,
+  type SettingsNamespace,
 } from '@deepseek-ai/dsh-settings';
 import { SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE } from '../src/settings.js';
 
@@ -145,6 +149,52 @@ describe('loopback Host classification', () => {
   });
 });
 
+describe('trusted Host allowlist (reverse-proxied deployments)', () => {
+  it('parses a comma-separated allowlist into comparable hostnames', () => {
+    expect(parseTrustedHosts(undefined)).toEqual([]);
+    expect(parseTrustedHosts('')).toEqual([]);
+    expect(parseTrustedHosts('   ,  ')).toEqual([]);
+    expect(parseTrustedHosts('dsh.example.com')).toEqual(['dsh.example.com']);
+    expect(parseTrustedHosts(' dsh.example.com:6443 ')).toEqual(['dsh.example.com']);
+    expect(parseTrustedHosts('DSH.Example.com,dsh.example.com:6443')).toEqual(['dsh.example.com']);
+    expect(parseTrustedHosts('a.example.com, b.example.com ,[::1]:80')).toEqual([
+      'a.example.com',
+      'b.example.com',
+      '[::1]',
+    ]);
+  });
+
+  it('reads the allowlist from the named environment variable', () => {
+    expect(trustedHostsFromEnv({})).toEqual([]);
+    expect(trustedHostsFromEnv({ [TRUSTED_HOSTS_ENV]: 'dsh.example.com:6443' })).toEqual(['dsh.example.com']);
+    expect(trustedHostsFromEnv({ OTHER: 'ignored.example.com' })).toEqual([]);
+  });
+
+  it('keeps the fence closed by default: an off-box authority is refused with no allowlist', () => {
+    expect(isTrustedHost('127.0.0.1:3090')).toBe(true);
+    expect(isTrustedHost('localhost')).toBe(true);
+    expect(isTrustedHost('[::1]:3090')).toBe(true);
+    expect(isTrustedHost('dsh.example.com:6443')).toBe(false);
+    expect(isTrustedHost('dsh.example.com:6443', [])).toBe(false);
+  });
+
+  it('lets an allowlisted authority through, port and case insensitive', () => {
+    const trusted = parseTrustedHosts('dsh.example.com');
+    expect(isTrustedHost('dsh.example.com', trusted)).toBe(true);
+    expect(isTrustedHost('dsh.example.com:6443', trusted)).toBe(true);
+    expect(isTrustedHost('DSH.example.com:6443', trusted)).toBe(true);
+  });
+
+  it('still refuses hosts that are not in the allowlist, and malformed authorities', () => {
+    const trusted = parseTrustedHosts('dsh.example.com');
+    expect(isTrustedHost('evil.com', trusted)).toBe(false);
+    expect(isTrustedHost('evil.com:6443', trusted)).toBe(false);
+    expect(isTrustedHost('dsh.example.com.evil.com', trusted)).toBe(false);
+    expect(isTrustedHost('', trusted)).toBe(false);
+    expect(isTrustedHost('[::1', ['[::1'])).toBe(false);
+  });
+});
+
 describe('endpointFromPath', () => {
   it('derives a single valid endpoint segment from the channel path', () => {
     expect(endpointFromPath(SUBAGENT_DIRECTOR_ROUTE_PATH, '/subagent-director/settingsView')).toBe('settingsView');
@@ -172,7 +222,8 @@ describe('toDirectorNamespaceView / pickDirectorNamespaceView', () => {
 
   it('picks the registered namespace and returns undefined otherwise', () => {
     const other: SettingsDescriptor = {
-      ns: settingsNamespace('llm-deepseek'),
+      // alpha.4 namespaces are plain kebab-case literals (brand is compile-time)
+      ns: 'llm-deepseek' as SettingsNamespace,
       schema: { type: 'dict' },
       value: {},
       revision: 1,

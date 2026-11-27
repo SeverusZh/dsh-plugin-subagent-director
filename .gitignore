@@ -3,3 +3,7 @@ lib/
 *.log
 .DS_Store
 coverage/
+.npm-cache/
+
+# 开发过程文档（本地保留，不入库）
+docs/superpowers/

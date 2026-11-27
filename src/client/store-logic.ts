@@ -12,26 +12,33 @@
  *                       model?, reasoningEffort?, toolFilter? } }
  *   }
  */
-import type { SettingsPathOpView } from '@deepseek-ai/dsh-host-apiproxy/api';
+import type { SettingsPathOpView } from '@deepseek-ai/dsh-settings/types';
 
 /** One role as the user edits it in a card (empty string = "clear the field"). */
 export interface RoleDraft {
   displayName: string;
   description: string;
+  /** Independent DSH Agent Preset id (0.2.1 owns persona/tool composition there). */
+  agentPreset?: string;
+  /** @deprecated Legacy field, preserved but not edited. */
   persona?: string;
   provider?: string;
   model?: string;
   reasoningEffort?: string;
+  /** @deprecated Legacy field, preserved but not edited. */
+  toolFilter?: { allow?: string[]; deny?: string[] };
 }
 
 /** A persisted role template. */
 export interface StoredRole {
   displayName: string;
   description: string;
+  agentPreset?: string;
   persona?: string;
   provider?: string;
   model?: string;
   reasoningEffort?: string;
+  toolFilter?: { allow?: string[]; deny?: string[] };
 }
 
 /** The persisted user-layer section (fields optional). */
@@ -90,12 +97,14 @@ export function addRoleOps(id: string, role: RoleDraft | StoredRole): SettingsPa
       value: {
         displayName: role.displayName,
         description: role.description,
+        ...optional(role.agentPreset) !== undefined ? { agentPreset: optional(role.agentPreset) } : {},
         ...optional(role.persona) !== undefined ? { persona: optional(role.persona) } : {},
         ...optional(role.provider) !== undefined ? { provider: optional(role.provider) } : {},
         ...optional(role.model) !== undefined ? { model: optional(role.model) } : {},
-        ...optional(role.reasoningEffort) !== undefined ? { reasoningEffort: optional(role.reasoningEffort) } : {}
+        ...optional(role.reasoningEffort) !== undefined ? { reasoningEffort: optional(role.reasoningEffort) } : {},
+        ...(role.toolFilter?.allow?.length ?? 0) > 0 ? { toolFilter: { allow: role.toolFilter!.allow, deny: [] } } : {}
       }
-    }
+    } as SettingsPathOpView
   ];
 }
 
@@ -106,6 +115,35 @@ function fieldEdit(path: string[], stored: unknown, next: string | undefined): S
   if (normalized === store) return undefined;
   if (normalized === undefined) return { op: 'unset', path: [...path] } as SettingsPathOpView;
   return { op: 'set', path: [...path], value: normalized } as SettingsPathOpView;
+}
+
+/**
+ * Diff the tool-set (allow list) between the stored role and the edited draft.
+ * The editor manages only `allow`; an existing `deny` is preserved on set and
+ * the whole filter is removed when the allow list is cleared. An empty allow
+ * list means "inherit the parent's full tool set" (issue #2 semantics).
+ * @param base - the role's field path (e.g. ['roles', id]).
+ */
+export function toolFilterOps(
+  base: readonly string[],
+  before: StoredRole | undefined,
+  draft: RoleDraft,
+): SettingsPathOpView | undefined {
+  const storedAllow = before?.toolFilter?.allow ?? [];
+  const nextAllow = draft.toolFilter?.allow ?? [];
+  const storedDeny = before?.toolFilter?.deny;
+  const same =
+    storedAllow.length === nextAllow.length &&
+    storedAllow.every((name, i) => name === nextAllow[i]);
+  if (same) return undefined;
+  if (nextAllow.length === 0) {
+    return { op: 'unset', path: [...base, 'toolFilter'] } as SettingsPathOpView;
+  }
+  return {
+    op: 'set',
+    path: [...base, 'toolFilter'],
+    value: { allow: [...nextAllow], ...(storedDeny !== undefined ? { deny: storedDeny } : {}) },
+  } as SettingsPathOpView;
 }
 
 /**
@@ -120,10 +158,12 @@ export function updateRoleOps(id: string, before: StoredRole | undefined, draft:
   const base = [ROLES_PATH[0], id];
   push(fieldEdit([...base, 'displayName'], b.displayName, draft.displayName));
   push(fieldEdit([...base, 'description'], b.description, draft.description));
+  push(fieldEdit([...base, 'agentPreset'], b.agentPreset, draft.agentPreset));
   push(fieldEdit([...base, 'persona'], b.persona, draft.persona));
   push(fieldEdit([...base, 'provider'], b.provider, draft.provider));
   push(fieldEdit([...base, 'model'], b.model, draft.model));
   push(fieldEdit([...base, 'reasoningEffort'], b.reasoningEffort, draft.reasoningEffort));
+  push(toolFilterOps(base, before, draft));
   return ops;
 }
 
@@ -158,13 +198,14 @@ export function defaultModelOps(before: StoredSection, edits: DefaultModelEdits)
   return ops;
 }
 
-/** Ops to clear every default-model field and the defaultRole back to composition defaults. */
+/** Ops to clear every default-model field back to composition defaults. */
 export function restoreDefaultsOps(current: StoredSection): SettingsPathOpView[] {
   const ops: SettingsPathOpView[] = [];
   if (current.defaultProvider !== undefined) ops.push({ op: 'unset', path: ['defaultProvider'] } as SettingsPathOpView);
   if (current.defaultModel !== undefined) ops.push({ op: 'unset', path: ['defaultModel'] } as SettingsPathOpView);
   if (current.defaultReasoningEffort !== undefined) ops.push({ op: 'unset', path: ['defaultReasoningEffort'] } as SettingsPathOpView);
-  if (current.defaultRole !== undefined) ops.push({ op: 'unset', path: ['defaultRole'] } as SettingsPathOpView);
+  // `defaultRole` belongs to the legacy role store and is owned by the
+  // migration flow; restoring the default model must not clear it silently.
   return ops;
 }
 
