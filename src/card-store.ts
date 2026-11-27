@@ -221,13 +221,30 @@ export class CardService {
           id: nextId,
           updatedAt: new Date().toISOString(),
         };
+        const table = domain.table('cards');
+        // Persist the replacement first: a failed write or a crash must never
+        // remove the user's original card before its renamed copy is durable.
+        await table.put(nextId, renamed);
+        try {
+          await table.delete(DIRECTOR_CARD_ID);
+        } catch (error) {
+          this.logger.warn(
+            '[subagent-director] renamed reserved card but could not delete the old record: ' +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        }
         this.cards.delete(DIRECTOR_CARD_ID);
         this.cards.set(nextId, renamed);
-        await domain.table('cards').delete(DIRECTOR_CARD_ID);
-        await domain.table('cards').put(nextId, renamed);
         if (this.defaultCardId === DIRECTOR_CARD_ID) {
           this.defaultCardId = nextId;
-          await domain.global.set({ ...global, defaultCardId: nextId });
+          try {
+            await domain.global.set({ ...global, defaultCardId: nextId });
+          } catch (error) {
+            this.logger.warn(
+              '[subagent-director] renamed the reserved default card but could not update the default record: ' +
+                (error instanceof Error ? error.message : String(error)),
+            );
+          }
         }
         this.logger.warn(
           '[subagent-director] the stored card "' +

@@ -221,7 +221,7 @@ Since DSH 0.2.1 the compatibility gate prefers `engines.dsh`. This plugin declar
 | DSH version | Status |
 | --- | --- |
 | 0.2.2-rc.5 | ✅ compatibility claim (0.8.0 baseline; not re-verified on this runtime) |
-| 0.2.3-alpha.2 | ✅ typecheck / 337 tests / build / existing Cordis probes |
+| 0.2.3-alpha.2 | ✅ typecheck / 338 tests / build / existing Cordis probes |
 
 > Only versions that were **actually run** are listed; untested versions are omitted.
 
@@ -231,7 +231,7 @@ v0.7.0 targets DSH **0.2.2-rc.2+** and fixes the delegation crash caused by the 
 
 ```bash
 npm install
-npm test          # vitest (337 tests)
+npm test          # vitest (338 tests)
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```

@@ -287,3 +287,24 @@ describe('built-in director card precedence', () => {
     expect(created.service.list().map((card) => card.id)).not.toContain('director');
   });
 });
+
+describe('reserved card rename durability', () => {
+  it('keeps the original card when persisting the renamed copy fails', async () => {
+    const { service, memory } = createCardService();
+    const cards = new Map<string, unknown>();
+    cards.set('director', {
+      id: 'director',
+      name: 'Old Custom',
+      delegationGuidance: 'Old guidance.',
+      enabled: true,
+      source: 'local',
+    });
+    memory.tables.set('cards', cards);
+    memory.failPuts.add('old-custom-legacy');
+    await service.ready();
+    expect(service.status().state).toBe('error');
+    expect(service.get('director')?.name).toBe('Old Custom');
+    expect(cards.has('director')).toBe(true);
+    expect(cards.has('old-custom-legacy')).toBe(false);
+  });
+});

@@ -34,7 +34,7 @@ import { DIRECTOR_PRESET_ID, isDirectorAgent } from './director.js';
 import { registerDirectorPreset } from './director-preset.js';
 import { applyDirectorPolicy, restrictDirectorWorkTools } from './director-policy.js';
 import { applyDirectorToolGuard } from './director-guard.js';
-import { shouldEnableDirectorTeam, teamEventCount } from './director-team.js';
+import { shouldEnableDirectorTeam } from './director-team.js';
 import { createCardCreateTool } from './card-tool.js';
 import { readDirectorSettings, installDirectorSettingsPage, createSettingsWarner, type DirectorSettingsHandles } from './settings.js';
 
