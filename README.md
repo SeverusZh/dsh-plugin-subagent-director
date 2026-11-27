@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/dsh-plugin-subagent-director?style=flat-square&logo=npm)](https://www.npmjs.com/package/dsh-plugin-subagent-director)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-plugin-subagent-director?style=flat-square&logo=npm)](https://www.npmjs.com/package/dsh-plugin-subagent-director)
 [![license](https://img.shields.io/npm/l/dsh-plugin-subagent-director?style=flat-square)](LICENSE)
-[![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=node.js)](package.json)
+[![node](https://img.shields.io/badge/node-%3E%3D22.19.0-brightgreen?style=flat-square&logo=node.js)](package.json)
 [![GitHub release](https://img.shields.io/github/v/release/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 [![GitHub stars](https://img.shields.io/github/stars/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director)
 [![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5%20%2F%200.2.3--alpha.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
@@ -17,7 +17,7 @@
 
 **Subagent Director** 是一个 out-of-tree 的 DeepSeek Harness 插件，用于为 subagent 指定 LLM 供应商与模型，并通过「角色卡」打包固定系统提示词、persona 与委派分工。
 
-> **当前开发版 0.8.0**：角色卡、独立文件存储、导入导出与设置界面重构。
+> **最新发布 0.8.0**：[npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.0) · [GitHub Release](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases/tag/v0.8.0)
 
 ---
 
