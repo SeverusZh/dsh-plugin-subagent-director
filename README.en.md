@@ -17,7 +17,7 @@
 
 **Subagent Director** is an out-of-tree DeepSeek Harness plugin that lets you choose an LLM provider and model for subagents, and package fixed system prompts, personas, and delegation intent as character cards.
 
-> **Upcoming 0.8.5**: this page describes the Director Mode and character-card changes; npm and GitHub Release links follow the publication.
+> **Latest release 0.8.5**: [npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.5) · [GitHub Releases](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 
 ---
 
