@@ -2,12 +2,12 @@
 
 # 🎬 Subagent Director
 
-**Assign an LLM provider and model to DeepSeek Harness subagents, and plan the main-agent / subagent division of labor with role templates**
+**Assign an LLM provider and model to DeepSeek Harness subagents, and package fixed prompts and delegation intent with character cards**
 
 [![npm version](https://img.shields.io/npm/v/dsh-plugin-subagent-director?style=flat-square&logo=npm)](https://www.npmjs.com/package/dsh-plugin-subagent-director)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-plugin-subagent-director?style=flat-square&logo=npm)](https://www.npmjs.com/package/dsh-plugin-subagent-director)
 [![license](https://img.shields.io/npm/l/dsh-plugin-subagent-director?style=flat-square)](LICENSE)
-[![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=node.js)](package.json)
+[![node](https://img.shields.io/badge/node-%3E%3D22.19.0-brightgreen?style=flat-square&logo=node.js)](package.json)
 [![GitHub release](https://img.shields.io/github/v/release/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 [![GitHub stars](https://img.shields.io/github/stars/SeverusZh/dsh-plugin-subagent-director?style=flat-square&logo=github)](https://github.com/SeverusZh/dsh-plugin-subagent-director)
 [![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5%20%2F%200.2.3--alpha.2-blue?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
@@ -15,22 +15,24 @@
 
 </div>
 
-**Subagent Director** is an out-of-tree DeepSeek Harness plugin that lets you choose an LLM provider and model for subagents, and plan main-agent / subagent responsibilities through role templates.
+**Subagent Director** is an out-of-tree DeepSeek Harness plugin that lets you choose an LLM provider and model for subagents, and package fixed system prompts, personas, and delegation intent as character cards.
 
-> **Latest release 0.7.0**: [npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.7.0) · [GitHub Release](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases/tag/v0.7.0)
+> **Latest release 0.8.0**: [npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.0) · [GitHub Release](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases/tag/v0.8.0)
 
 ---
 
 ## ✨ 功能特性 / Features
 
 - **Provider/model selection** — a configurable default LLM provider (route) and model for subagents; each delegation can also specify `provider` / `model` explicitly from the model side;
-- **Controlled model selection** — provider/model are chosen only from the official `subagent-model-selection` allowlist (`allowedModels`): an explicitly passed unauthorized route is a hard error, while unauthorized routes at the plugin-default / role-binding layer are dropped and fall back to inheritance (no double-writing of model routes with the official dsh-tool-subagent);
+- **Controlled model selection** — provider/model are chosen only from the official `subagent-model-selection` allowlist (`allowedModels`): an explicitly passed unauthorized route is a hard error, while unauthorized routes at the plugin-default / card-binding layer are dropped and fall back to inheritance (no double-writing of model routes with the official dsh-tool-subagent);
 - **Hot configuration reload** — changes in settings.yaml / the plugin config page take effect immediately, no restart needed;
-- **Roles referenced by display name** — when the `role` argument misses an id it is matched exactly by `displayName` (the first of duplicates in definition order is used, with a notice); models can also be matched by display name;
-- **Role templates** — define roles such as "code reviewer" and "translator": a responsibility description (shown to the main agent) + an optional Agent Preset (persona/tool composition) + an optional model binding;
-- **Four-layer fallback chain** — per-call args > role binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
-- **Main-agent guidance** — the system prompt auto-injects the role list, so the main agent knows when to delegate to whom;
-- **Config UI** — visual configuration inside the plugin detail page (plugin list → dsh-plugin-subagent-director; default models + add/edit/remove role templates), styled with the official DSH design language for both light and dark themes; the settings panel no longer hosts this plugin's configuration;
+- **Character cards** — each card packages a name, model binding, fixed system prompt, persona, delegation guidance, tags, and an optional Agent Preset; one JSON file per card, independent of the plugin's public configuration;
+- **Fixed role prompt** — the child session receives the card's fixed system prompt and persona; a running child keeps the snapshot it started with, so editing a card never rewrites it;
+- **Import, export, batch** — single or batch JSON import/export with skip/overwrite/keep-both conflict policies, plus batch enable, disable, delete, and export;
+- **Legacy role migration** — one action converts the old `roles` into cards while preserving the default role, persona, and model binding; legacy tool-set data is kept as a note;
+- **Four-layer fallback chain** — per-call args > card binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
+- **Main-agent guidance** — the system prompt auto-injects the card list, so the main agent knows when to delegate to whom;
+- **Config UI** — a modern card library inside the plugin detail page (plugin list → dsh-plugin-subagent-director): search, filters, selection, card editor, import/export, and migration; light and dark themes, and the settings panel no longer hosts this plugin's configuration;
 - **Continuable background** — returns a durable subagent id for ongoing delegation with send_message;
 - **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "terminate continuable state" button on the subagent session page, releasing continuable subagents started by this plugin whose activation receipt is retained; this covers only the current process and activation, and a later send_message cold resume creates a new untracked activation; since DSH 0.2.2 the host no longer exposes a public per-child close API;
 - **Observability** — when a subagent session is opened, its actual provider/model is shown below the composer (the real route is read from the session's `request/header` records; graceful degradation when unavailable);
@@ -58,31 +60,33 @@ Or, for local development, mount a local checkout with `dsh plugin --profile <na
 
 ## 🚀 快速开始 / Quick Start
 
-Delegating in a conversation (the main agent sees the role-list guidance and picks the tool and role automatically):
+Create a card on the plugin page first (for example `code-reviewer`), then delegate:
 
 ```text
-subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
-subagent_role({ role: "code-reviewer", model: "deepseek-chat", prompt: "..." })  # 临时覆盖模型
+subagent_role({ role: "code-reviewer", prompt: "Review this change" })
+subagent_role({ role: "translator", prompt: "Translate README.md into English" })
 ```
 
-The `role` argument accepts a role id or a display name: when it misses an id it is matched
-exactly by `displayName` (the first of same-named roles in definition order is used, with a
-notice); using ids is recommended, see the Delegate line in the system prompt.
+The `role` argument is the character-card id; when it misses an id it is matched exactly by
+the card name (the first of same-named cards in definition order is used, with a notice).
+Using ids is recommended, see the Delegate line in the system prompt.
 
 > **`subagent_role` and the built-in `subagent` are two different tools.** This plugin
 > registers `subagent_role` (the tool name comes from the `toolName` config, `subagent_role`
 > by default); the DSH base bundle also ships the built-in `subagent` / `subagent_fork`, and
 > both appear **side by side** in the tool list of the same request. Only calls through
-> `subagent_role` applies the role-bound `agentPreset` (persona/tools live inside the preset); switching the model to the built-in
-> `subagent` disables both (model selection is handled by the official dsh-tool-subagent's
-> `modelSelectionSettings`).
+> `subagent_role` applies the card's fixed system prompt, persona, model binding, and optional
+> `agentPreset`; switching to the built-in `subagent` disables all of them (model selection is
+> handled by the official dsh-tool-subagent's `modelSelectionSettings`).
 > So when role semantics are needed, explicitly ask in the prompt to call `subagent_role`.
 
 ## 🖼️ 界面预览 / Screenshots
 
 The screenshot below comes from a throwaway local preview instance; the example data is for demonstration only:
 
-![Settings page](docs/assets/screenshots/settings-page.png)
+![Character-card library](docs/assets/screenshots/character-cards.png)
+
+![Character-card editor](docs/assets/screenshots/character-card-editor.png)
 
 ## ⚙️ 配置 / Configuration
 
@@ -105,43 +109,49 @@ the default configuration, override the main entry by id:
 > Note: do not add these two entries with `- insert:` again, or startup fails with
 > `duplicate loader entry id`.
 
-## 🎭 角色模板 / Role Templates
+Character cards are **not** stored in the configuration above: they live in the DSH storage
+domain `subagent_director`, one JSON document per card (by default under
+`<storage-root>/subagent_director/cards/<id>.json`). `roles` / `defaultRole` remain only as a
+migration source for older data.
 
-Settings namespace `subagent-director`. Roles may leave provider/model unbound (inheriting the
-global default model) or bind them as needed. Recommended default roles (with delegation
-guidance and an optional Agent Preset; DSH 0.2.1 owns persona/tool composition in the preset, and the examples assume presets with these ids exist):
+## 🎭 角色卡 / Character Cards
 
-```yaml
-subagent-director:
-  defaultProvider: opencode-go
-  defaultModel: minimax-m2.7
-  defaultReasoningEffort: low
-  roles:
-    code-reviewer:
-      displayName: 代码审查员
-      description: 审查代码质量、安全、可维护性与测试覆盖，输出结构化评审意见（问题清单 + 严重级别 + 修改建议），适合在提交/合并前独立复核改动
-      agentPreset: code-reviewer
-    architect:
-      displayName: 架构师
-      description: 设计系统架构、模块边界与数据流，评估技术选型与演进路线，把模糊需求拆成可落地的设计方案
-      agentPreset: architect
-    test-engineer:
-      displayName: 测试工程师
-      description: 编写与评审测试用例，识别边界条件与异常路径，设计单元/集成测试策略
-      agentPreset: test-engineer
-    docs-writer:
-      displayName: 文档工程师
-      description: 撰写与润色技术文档、README、API 说明与变更日志，统一术语与结构
-      agentPreset: docs-writer
-    researcher:
-      displayName: 研究分析员
-      description: 检索资料、整理证据、做数据探索与可行性分析，输出带来源与不确定性的结论
-      agentPreset: researcher
-    translator:
-      displayName: 翻译员
-      description: 中英互译技术文档、代码注释与沟通内容，保留术语准确性与语气
-      agentPreset: translator
+A character card is an independent delegation unit: it carries the delegation guidance the
+main agent reads and the fixed role prompt the child session receives. Core fields:
+
+- `id` / `name` / `emoji` / `accent` / `tags`: identity and presentation;
+- `model`: optional `{ provider, model, reasoningEffort }` route; empty inherits the plugin default or the parent model;
+- `systemPrompt`: fixed system prompt injected into the child session;
+- `persona`: identity and style text appended after the system prompt;
+- `delegationGuidance`: guidance shown to the main agent;
+- `agentPreset`: optional DSH Agent Preset for tool composition;
+- `enabled` / `notes` / `createdAt` / `updatedAt`: state and human-only information.
+
+Cards are saved as per-record JSON and can be imported or exported one at a time or in bulk.
+Example collection:
+
+```json
+{
+  "kind": "subagent-director/character-card-collection",
+  "version": 1,
+  "exportedAt": "2026-11-27T00:00:00.000Z",
+  "cards": [
+    {
+      "id": "code-reviewer",
+      "name": "Code Reviewer",
+      "delegationGuidance": "Review diffs for correctness and regressions.",
+      "systemPrompt": "You are a rigorous code reviewer.",
+      "model": { "provider": "ollama-pro", "model": "deepseek-v4.1-flash:1017" },
+      "tags": ["code", "review"]
+    }
+  ]
+}
 ```
+
+Import accepts a single card, a collection, an array, or a bare card object. When an id
+already exists you can skip, overwrite, or keep both. The old `roles` can be migrated from
+the same page; clearing the legacy settings fields is recommended after migration. See
+[docs/character-cards.md](docs/character-cards.md) for fields and storage details.
 
 ## 🎼 纯编排模式 / Orchestrate Mode
 
@@ -160,10 +170,11 @@ automatically enters pure-orchestration mode — a per-turn declarative usage si
 is kept. `/orchestrate <task>` queues the task text into the next turn and wakes the model,
 which handles the task in pure-orchestration mode. Once enabled, a "pure orchestrator" system
 prompt is injected: the main agent may only hand out work through delegation tools, and the
-role list is rendered dynamically from the current `subagent-director.roles` (no hard-coded
-role ids). **When no roles are configured**, the binding pure-orchestration framework is not
-injected; instead a short prompt tells the model to state that roles must be configured first
-and to continue handling the request in normal mode (avoiding "no output in the conversation").
+card list is rendered dynamically from the current card library while remaining compatible
+with unmigrated `roles` (no hard-coded role ids). **When no cards are configured**, the binding
+pure-orchestration framework is not injected; instead a short prompt tells the model to state
+that a card must be created first and to continue handling the request in normal mode
+(avoiding "no output in the conversation").
 This mode depends on the host's `commands` and `sessionProjections` services: standard profiles
 (dsh-base) provide both; when `sessionProjections` is missing the command returns an explicit
 error instead of pretending to succeed, and when `commands` is missing the command is simply
@@ -175,7 +186,7 @@ Since DSH alpha.4, the built-in subagent's model selection converges on the offi
 
 - **Select only from the allowlist** — `route-resolver` constrains provider/model to the
   official `subagent-model-selection.allowedModels`: an explicitly passed unauthorized route is
-  a **hard error**; unauthorized routes at the plugin-default / role-binding layer are
+  a **hard error**; unauthorized routes at the plugin-default / card-binding layer are
   **dropped and fall back to inherit from the main agent**;
 - **No more double-writing of model routes** — the rc-era `applyDefaultRoute` patch seam is
   removed, so the plugin and the official selector never overwrite the same route
@@ -189,10 +200,12 @@ Since DSH alpha.4, the built-in subagent's model selection converges on the offi
 
 ## 📖 术语 / Glossary
 
+- **Character card**: a portable delegation unit, independent of the plugin's public configuration;
 - **subagentProvider (transport)**: `spawn` / `fork` / `acp` — which transport link the subagent runs on;
-- **provider (LLM route)**: `deepseek-official`, pi-ai route — which provider the model request is actually sent to.
+- **provider (LLM route)**: `deepseek-official`, pi-ai route — which provider the model request is actually sent to;
+- **Storage domain**: the DSH `storageDomain` facility; this plugin uses the `subagent_director` domain and stores cards per record.
 
-These are **two separate namespaces**; do not confuse them when configuring.
+The first two are **two separate namespaces**; do not confuse them when configuring.
 
 ## 🧩 兼容性 / Compatibility
 
@@ -200,8 +213,8 @@ Since DSH 0.2.1 the compatibility gate prefers `engines.dsh`. This plugin declar
 
 | DSH version | Status |
 | --- | --- |
-| 0.2.2-rc.5 | ✅ typecheck / 316 tests / build / live host |
-| 0.2.3-alpha.2 | ✅ typecheck / 316 tests / build / live host |
+| 0.2.2-rc.5 | ✅ typecheck / 357 tests / build (runtime not re-verified here) |
+| 0.2.3-alpha.2 | ✅ typecheck / 357 tests / build / real Cordis probes |
 
 > Only versions that were **actually run** are listed; untested versions are omitted.
 
@@ -211,7 +224,7 @@ v0.7.0 targets DSH **0.2.2-rc.2+** and fixes the delegation crash caused by the 
 
 ```bash
 npm install
-npm test          # vitest (297 tests)
+npm test          # vitest (357 tests)
 npm run typecheck
 npm run build     # host(tsc) + client(rolldown bundle)
 ```
@@ -221,8 +234,8 @@ npm run build     # host(tsc) + client(rolldown bundle)
 **Why are two plugin entries needed?**
 DSH's Web API only opens read/write to a whitelisted set of settings namespaces. This plugin bridges its own namespace through a self-registered `/subagent-director` HTTP route, and the webServer service that route depends on can only be obtained via cordis `inject`, so it is split into a separate `subagent-director-bridge` entry (in a headless environment without Web it simply does not activate, and the main entry is unaffected).
 
-**What happens when no roles are configured?**
-With no roles and no default model configured it behaves exactly as if the plugin were not installed (zero intrusion). With `defaultProvider`/`defaultModel` configured: if the official `subagent-model-selection` is enabled and has an `allowedModels` allowlist, the default route takes effect only within that list (otherwise it is dropped and falls back to inheritance); if no allowlist is configured, the plugin's default behavior is kept and a warning is shown.
+**What happens when no character cards are configured?**
+With no cards and no default model configured it behaves exactly as if the plugin were not installed (zero intrusion). With `defaultProvider`/`defaultModel` configured: if the official `subagent-model-selection` is enabled and has an `allowedModels` allowlist, the default route takes effect only within that list (otherwise it is dropped and falls back to inheritance); if no allowlist is configured, the plugin's default behavior is kept and a warning is shown.
 
 **Can a session that used `/orchestrate` still be opened after uninstalling the plugin?**
 No. `/orchestrate` writes an `orchestrate/change` event into the session log, and the host's persistence-load validation rejects loading the entire log when it meets an event type that is "unknown and not marked ignorable" (to avoid misreading the log's semantics). The plugin registers that event type dynamically when mounted, so normal use is unaffected; but in an environment where this plugin is not mounted (after uninstall, or another profile) these sessions cannot be opened. Upstream does not yet provide an official registration API or an `ignorable` write API for third-party event types — a known trade-off, see [issue #6](https://github.com/SeverusZh/dsh-plugin-subagent-director/issues/6).

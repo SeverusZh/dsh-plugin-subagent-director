@@ -24,7 +24,7 @@ describe('renderRolesGuidance', () => {
 
   it('includes the id-reference instruction and the delegate line', () => {
     const text = renderRolesGuidance(settings, 'subagent_role');
-    expect(text).toContain('Reference roles by their id');
+    expect(text).toContain('Reference cards by their bracketed id');
     expect(text).toContain('never by display name');
     expect(text).toContain('subagent_role({ role: "role", prompt: "..." })');
     expect(text).toContain('基础开发工程师');

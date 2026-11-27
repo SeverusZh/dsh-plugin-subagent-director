@@ -11,6 +11,14 @@
  * with the existing RpcResult shape.
  */
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types';
+import type {
+  CardImportResult,
+  CardImportStrategy,
+  CardLibrarySnapshot,
+  CardMigrationResult,
+  CharacterCard,
+  CharacterCardBundle,
+} from './card-types.js';
 
 /** Absolute RPC channel the bridge owns on the Host web server. */
 export const SUBAGENT_DIRECTOR_RPC_CHANNEL = '/subagent-director';
@@ -33,6 +41,23 @@ export const SUBAGENT_DIRECTOR_RPC_TOOLS = 'toolCatalog';
  * provider/model ONLY from this list.
  */
 export const SUBAGENT_DIRECTOR_RPC_CATALOG = 'settingsCatalog';
+
+/** Endpoint that returns the character-card library and storage status. */
+export const SUBAGENT_DIRECTOR_RPC_CARDS = 'cardList';
+/** Endpoint that creates or updates one character card. */
+export const SUBAGENT_DIRECTOR_RPC_CARD_PUT = 'cardPut';
+/** Endpoint that deletes one or more character cards. */
+export const SUBAGENT_DIRECTOR_RPC_CARD_DELETE = 'cardDelete';
+/** Endpoint that sets or clears the default character card. */
+export const SUBAGENT_DIRECTOR_RPC_CARD_DEFAULT = 'cardDefault';
+/** Endpoint that imports one portable payload. */
+export const SUBAGENT_DIRECTOR_RPC_CARD_IMPORT = 'cardImport';
+/** Endpoint that exports the selected cards as a portable bundle. */
+export const SUBAGENT_DIRECTOR_RPC_CARD_EXPORT = 'cardExport';
+/** Endpoint that migrates the legacy settings roles into cards. */
+export const SUBAGENT_DIRECTOR_RPC_CARD_MIGRATE = 'cardMigrate';
+/** Endpoint that enables, disables, or deletes a card selection. */
+export const SUBAGENT_DIRECTOR_RPC_CARD_BATCH = 'cardBatch';
 
 /** One exact route authorized in the Subagent model-selection list. */
 export interface DirectorAllowedRoute {
@@ -102,4 +127,87 @@ export interface DirectorToolsRequest {
    * Omitted → the global registry view.
    */
   sessionId?: string;
+}
+
+/** Request payload for the cardPut bridge endpoint. */
+export interface DirectorCardPutRequest {
+  card: unknown;
+  /** True for a new card; false/omitted updates an existing id. */
+  create?: boolean;
+  /** Optional id override when the editor keeps the id out of the form body. */
+  id?: string;
+}
+
+/** Successful cardPut bridge response. */
+export interface DirectorCardPutSuccess {
+  card: CharacterCard;
+  library: CardLibrarySnapshot;
+}
+
+/** Request payload for the cardDelete bridge endpoint. */
+export interface DirectorCardDeleteRequest {
+  ids: string[];
+}
+
+/** Request payload for the cardDefault bridge endpoint. */
+export interface DirectorCardDefaultRequest {
+  /** Omit or send undefined to clear the default card. */
+  id?: string;
+}
+
+/** Request payload for the cardImport bridge endpoint. */
+export interface DirectorCardImportRequest {
+  payload: unknown;
+  strategy: CardImportStrategy;
+}
+
+/** Successful cardImport bridge response. */
+export interface DirectorCardImportSuccess {
+  result: CardImportResult;
+  library: CardLibrarySnapshot;
+}
+
+/** Request payload for the cardExport bridge endpoint. */
+export interface DirectorCardExportRequest {
+  /** Omit to export every card. */
+  ids?: string[];
+}
+
+/** Successful cardExport bridge response. */
+export interface DirectorCardExportSuccess {
+  bundle: CharacterCardBundle;
+}
+
+/** Request payload for the cardMigrate bridge endpoint. */
+export interface DirectorCardMigrateRequest {
+  /** Unset the legacy `roles`/`defaultRole` settings after a successful migration. */
+  clearLegacy?: boolean;
+}
+
+/** Successful cardMigrate bridge response. */
+export interface DirectorCardMigrateSuccess {
+  result: CardMigrationResult;
+  library: CardLibrarySnapshot;
+  /** True when the legacy settings were cleared as requested. */
+  cleared: boolean;
+  /** Non-fatal clear failure, when clearing was requested but refused. */
+  clearError?: string;
+}
+
+/** Batch actions exposed by the card library toolbar. */
+export type DirectorCardBatchAction = 'enable' | 'disable' | 'delete';
+
+/** Request payload for the cardBatch bridge endpoint. */
+export interface DirectorCardBatchRequest {
+  ids: string[];
+  action: DirectorCardBatchAction;
+}
+
+/** Successful cardBatch bridge response. */
+export interface DirectorCardBatchSuccess {
+  library: CardLibrarySnapshot;
+  /** Cards changed by an enable/disable batch. */
+  cards: CharacterCard[];
+  /** Ids removed by a delete batch. */
+  removed: string[];
 }

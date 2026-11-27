@@ -46,6 +46,8 @@ import {
   settingsWarnings,
   type SubagentDirectorSettings,
 } from './settings.js';
+import { CARD_SERVICE_NAME, type CardServiceLike } from './card-store.js';
+import { CARD_LIMITS, type CardImportStrategy } from './card-types.js';
 import {
   SUBAGENT_DIRECTOR_RPC_VIEW,
   SUBAGENT_DIRECTOR_RPC_MUTATE,
@@ -53,6 +55,21 @@ import {
   SUBAGENT_DIRECTOR_RPC_MODEL,
   SUBAGENT_DIRECTOR_RPC_TOOLS,
   SUBAGENT_DIRECTOR_RPC_CATALOG,
+  SUBAGENT_DIRECTOR_RPC_CARDS,
+  SUBAGENT_DIRECTOR_RPC_CARD_PUT,
+  SUBAGENT_DIRECTOR_RPC_CARD_DELETE,
+  SUBAGENT_DIRECTOR_RPC_CARD_DEFAULT,
+  SUBAGENT_DIRECTOR_RPC_CARD_IMPORT,
+  SUBAGENT_DIRECTOR_RPC_CARD_EXPORT,
+  SUBAGENT_DIRECTOR_RPC_CARD_MIGRATE,
+  SUBAGENT_DIRECTOR_RPC_CARD_BATCH,
+  type DirectorCardBatchRequest,
+  type DirectorCardDeleteRequest,
+  type DirectorCardDefaultRequest,
+  type DirectorCardExportRequest,
+  type DirectorCardImportRequest,
+  type DirectorCardMigrateRequest,
+  type DirectorCardPutRequest,
   type DirectorCatalogSuccess,
   type DirectorCloseRequest,
   type DirectorModelRequest,
@@ -90,7 +107,18 @@ export { SUBAGENT_DIRECTOR_RPC_CLOSE };
 export { SUBAGENT_DIRECTOR_RPC_MODEL };
 /** Endpoint that returns the model-visible tool catalog for role tool-set editing. */
 export { SUBAGENT_DIRECTOR_RPC_TOOLS };
-/** Request payload for the settingsMutate bridge endpoint. */
+/** Endpoints that own the character-card library. */
+export {
+  SUBAGENT_DIRECTOR_RPC_CARDS,
+  SUBAGENT_DIRECTOR_RPC_CARD_PUT,
+  SUBAGENT_DIRECTOR_RPC_CARD_DELETE,
+  SUBAGENT_DIRECTOR_RPC_CARD_DEFAULT,
+  SUBAGENT_DIRECTOR_RPC_CARD_IMPORT,
+  SUBAGENT_DIRECTOR_RPC_CARD_EXPORT,
+  SUBAGENT_DIRECTOR_RPC_CARD_MIGRATE,
+  SUBAGENT_DIRECTOR_RPC_CARD_BATCH,
+};
+/** Request payloads for the settingsMutate bridge endpoint. */
 export type { DirectorMutateRequest, DirectorViewSuccess, DirectorCloseRequest, DirectorModelRequest, DirectorModelSuccess, DirectorToolsSuccess };
 
 /**
@@ -106,6 +134,8 @@ export interface BridgeDeps {
   sessionQuery?: { readSession(sessionId: SessionId): Promise<{ events: readonly unknown[] }> };
   /** Tool registry (dsh-tools ctx.tools), for the role tool-set catalog. */
   tools?: { schemas(): readonly { name: string }[] };
+  /** Resolve the character-card service provided by the main plugin entry. */
+  cards?: () => CardServiceLike | undefined;
   /** Host allowlist from the bridge entry's Config (unioned with the env). */
   trustedHosts?: readonly string[];
 }
@@ -378,8 +408,21 @@ async function handleDirectorBridgeRequestInner(
     sendPlain(res, 403, 'forbidden');
     return;
   }
-  // Read the JSON body → 400 on unparseable.
-  const raw = await readBody(req);
+  // Read the JSON body → 400 on unparseable, 413 above the import cap.
+  if (Number(req.headers['content-length'] ?? 0) > CARD_LIMITS.importBytes) {
+    sendPlain(res, 413, 'request body too large');
+    return;
+  }
+  let raw: string;
+  try {
+    raw = await readBody(req);
+  } catch (error) {
+    if (error instanceof RequestTooLarge) {
+      sendPlain(res, 413, 'request body too large');
+      return;
+    }
+    throw error;
+  }
   let body: unknown;
   try {
     body = raw.length === 0 ? {} : JSON.parse(raw);
@@ -447,7 +490,313 @@ async function dispatchBridgeEndpoint(
   if (endpoint === SUBAGENT_DIRECTOR_RPC_TOOLS) {
     return dispatchSubagentTools(deps, payload);
   }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARDS) {
+    return dispatchCardList(deps);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARD_PUT) {
+    return dispatchCardPut(deps, payload);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARD_DELETE) {
+    return dispatchCardDelete(deps, payload);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARD_DEFAULT) {
+    return dispatchCardDefault(deps, payload);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARD_IMPORT) {
+    return dispatchCardImport(deps, payload);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARD_EXPORT) {
+    return dispatchCardExport(deps, payload);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARD_MIGRATE) {
+    return dispatchCardMigrate(deps, payload);
+  }
+  if (endpoint === SUBAGENT_DIRECTOR_RPC_CARD_BATCH) {
+    return dispatchCardBatch(deps, payload);
+  }
   throw new Error('unknown bridge endpoint ' + JSON.stringify(endpoint));
+}
+
+/** Resolve the card service, or a structured unavailable result. */
+async function requireCardService(deps: BridgeDeps): Promise<
+  { ok: true; cards: CardServiceLike } | { ok: false; result: RpcResult<never> }
+> {
+  const cards = deps.cards?.();
+  if (cards === undefined) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        error: {
+          code: 'internal',
+          message:
+            'subagent-director: character cards are unavailable (the main subagent-director entry is not loaded)',
+          details: {},
+        },
+      },
+    };
+  }
+  await cards.ready();
+  return { ok: true, cards };
+}
+
+/** One card validation/storage failure as a bridge error branch. */
+function cardFailure(error: unknown): RpcResult<never> {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    ok: false,
+    error: {
+      code: /not available|not mounted|not loaded/.test(message) ? 'internal' : 'bad-request',
+      message,
+      details: { issues: [] },
+    },
+  };
+}
+
+/** Return the card library and storage status. */
+export async function dispatchCardList(deps: BridgeDeps): Promise<RpcResult<unknown>> {
+  const cards = deps.cards?.();
+  if (cards === undefined) {
+    return {
+      ok: true,
+      value: {
+        storage: {
+          state: 'unavailable',
+          message: 'the main subagent-director entry is not loaded; card storage is unavailable',
+        },
+        cards: [],
+        legacyRoles: [],
+      },
+    };
+  }
+  await cards.retry?.();
+  await cards.ready();
+  return { ok: true, value: cards.librarySnapshot() };
+}
+
+/** Create or update one card. */
+export async function dispatchCardPut(deps: BridgeDeps, payload: unknown): Promise<RpcResult<unknown>> {
+  const service = await requireCardService(deps);
+  if (!service.ok) return service.result;
+  const request = payload as Partial<DirectorCardPutRequest> | null;
+  if (
+    request === null ||
+    typeof request !== 'object' ||
+    request.card === undefined ||
+    request.card === null ||
+    typeof request.card !== 'object'
+  ) {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'cardPut: expected { card }', details: { issues: [] } },
+    };
+  }
+  if (request.id !== undefined && typeof request.id !== 'string') {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'cardPut: id must be a string', details: { issues: [] } },
+    };
+  }
+  try {
+    const card = await service.cards.put(request.card, {
+      create: request.create === true,
+      ...(request.id !== undefined && request.id !== '' ? { id: request.id } : {}),
+    });
+    return { ok: true, value: { card, library: service.cards.librarySnapshot() } };
+  } catch (error) {
+    return cardFailure(error);
+  }
+}
+
+/** Delete one or more cards. */
+export async function dispatchCardDelete(deps: BridgeDeps, payload: unknown): Promise<RpcResult<unknown>> {
+  const service = await requireCardService(deps);
+  if (!service.ok) return service.result;
+  const request = payload as Partial<DirectorCardDeleteRequest> | null;
+  if (request === null || typeof request !== 'object' || !Array.isArray(request.ids)) {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'cardDelete: expected { ids }', details: { issues: [] } },
+    };
+  }
+  const ids = request.ids.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  try {
+    await service.cards.remove(ids);
+    return { ok: true, value: { library: service.cards.librarySnapshot() } };
+  } catch (error) {
+    return cardFailure(error);
+  }
+}
+
+/** Set or clear the default card. */
+export async function dispatchCardDefault(deps: BridgeDeps, payload: unknown): Promise<RpcResult<unknown>> {
+  const service = await requireCardService(deps);
+  if (!service.ok) return service.result;
+  const request = payload as Partial<DirectorCardDefaultRequest> | null;
+  if (request === null || typeof request !== 'object') {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'cardDefault: expected { id }', details: { issues: [] } },
+    };
+  }
+  if (request.id !== undefined && typeof request.id !== 'string') {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'cardDefault: id must be a string', details: { issues: [] } },
+    };
+  }
+  try {
+    await service.cards.setDefault(request.id === '' ? undefined : request.id);
+    return { ok: true, value: { library: service.cards.librarySnapshot() } };
+  } catch (error) {
+    return cardFailure(error);
+  }
+}
+
+/** Import one portable payload. */
+export async function dispatchCardImport(deps: BridgeDeps, payload: unknown): Promise<RpcResult<unknown>> {
+  const service = await requireCardService(deps);
+  if (!service.ok) return service.result;
+  const request = payload as Partial<DirectorCardImportRequest> | null;
+  const strategy: CardImportStrategy | undefined =
+    request?.strategy === 'skip' || request?.strategy === 'overwrite' || request?.strategy === 'duplicate'
+      ? request.strategy
+      : undefined;
+  if (request === null || typeof request !== 'object' || request.payload === undefined || strategy === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: 'bad-request',
+        message: 'cardImport: expected { payload, strategy: "skip" | "overwrite" | "duplicate" }',
+        details: { issues: [] },
+      },
+    };
+  }
+  try {
+    const result = await service.cards.importCards(request.payload, strategy);
+    return { ok: true, value: { result, library: service.cards.librarySnapshot() } };
+  } catch (error) {
+    return cardFailure(error);
+  }
+}
+
+/** Export every card or a selected subset. */
+export async function dispatchCardExport(deps: BridgeDeps, payload: unknown): Promise<RpcResult<unknown>> {
+  const service = await requireCardService(deps);
+  if (!service.ok) return service.result;
+  const request = payload as Partial<DirectorCardExportRequest> | null;
+  if (request !== null && request !== undefined && request.ids !== undefined && !Array.isArray(request.ids)) {
+    return {
+      ok: false,
+      error: { code: 'bad-request', message: 'cardExport: ids must be an array', details: { issues: [] } },
+    };
+  }
+  const ids = Array.isArray(request?.ids)
+    ? request.ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : undefined;
+  return { ok: true, value: { bundle: service.cards.exportCards(ids) } };
+}
+
+/** Migrate the legacy settings roles and optionally clear the legacy fields. */
+export async function dispatchCardMigrate(deps: BridgeDeps, payload: unknown): Promise<RpcResult<unknown>> {
+  const service = await requireCardService(deps);
+  if (!service.ok) return service.result;
+  const request = payload as Partial<DirectorCardMigrateRequest> | null;
+  const clearLegacy = request?.clearLegacy === true;
+  try {
+    const before = service.cards.librarySnapshot();
+    const result = await service.cards.migrateLegacy();
+    let cleared = false;
+    let clearError: string | undefined;
+    let adjustedResult = result;
+    let library = service.cards.librarySnapshot();
+    if (clearLegacy) {
+      if (result.failed.length > 0) {
+        clearError =
+          'legacy settings were not cleared because ' + String(result.failed.length) + ' role(s) failed to migrate';
+      } else if (result.migrated.length === 0) {
+        clearError = 'no migrated roles to clear; existing cards and legacy settings were left untouched';
+      } else {
+        const migrated = new Set(result.migrated);
+        const remaining = before.legacyRoles.filter((id) => !migrated.has(id));
+        const defaultMigrated =
+          before.legacyDefaultRole !== undefined &&
+          migrated.has(before.legacyDefaultRole) &&
+          remaining.length === 0;
+        const ops: SettingsPathOpView[] = result.migrated.map((id) => ({
+          op: 'unset',
+          path: ['roles', id],
+        }));
+        if (defaultMigrated) ops.push({ op: 'unset', path: ['defaultRole'] });
+        const revision = deps.settings
+          .describe({ redactSecrets: true })
+          .find((candidate) => candidate.ns === String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE))?.revision;
+        const clearedView = await directorMutate(
+          (n, o, r) => deps.settings.mutate(n, o, r),
+          (opts) => deps.settings.describe(opts),
+          String(SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE),
+          ops,
+          revision,
+        );
+        if (clearedView.ok) {
+          cleared = true;
+          adjustedResult = { ...result, remainingLegacy: remaining };
+          library = {
+            ...library,
+            legacyRoles: remaining,
+            ...(defaultMigrated ? { legacyDefaultRole: undefined } : {}),
+          };
+        } else {
+          clearError = clearedView.error.message;
+        }
+      }
+    }
+    return {
+      ok: true,
+      value: {
+        result: adjustedResult,
+        library,
+        cleared,
+        ...(clearError !== undefined ? { clearError } : {}),
+      },
+    };
+  } catch (error) {
+    return cardFailure(error);
+  }
+}
+
+/** Enable, disable, or delete a card selection. */
+export async function dispatchCardBatch(deps: BridgeDeps, payload: unknown): Promise<RpcResult<unknown>> {
+  const service = await requireCardService(deps);
+  if (!service.ok) return service.result;
+  const request = payload as Partial<DirectorCardBatchRequest> | null;
+  const action = request?.action;
+  if (
+    request === null ||
+    typeof request !== 'object' ||
+    !Array.isArray(request.ids) ||
+    (action !== 'enable' && action !== 'disable' && action !== 'delete')
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: 'bad-request',
+        message: 'cardBatch: expected { ids, action: "enable" | "disable" | "delete" }',
+        details: { issues: [] },
+      },
+    };
+  }
+  const ids = request.ids.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  try {
+    if (action === 'delete') {
+      const removed = await service.cards.remove(ids);
+      return { ok: true, value: { library: service.cards.librarySnapshot(), cards: [], removed } };
+    }
+    const cards = await service.cards.setEnabled(ids, action === 'enable');
+    return { ok: true, value: { library: service.cards.librarySnapshot(), cards, removed: [] } };
+  } catch (error) {
+    return cardFailure(error);
+  }
 }
 
 /**
@@ -631,6 +980,7 @@ export function installDirectorRemoteBridge(
     agents: ctx.get('agents') as BridgeDeps['agents'],
     sessionQuery: ctx.get('sessionQuery') as BridgeDeps['sessionQuery'],
     tools: ctx.get('tools') as BridgeDeps['tools'],
+    cards: () => ctx.get(CARD_SERVICE_NAME) as CardServiceLike | undefined,
     trustedHosts: config?.trustedHosts,
   };
 
@@ -651,13 +1001,41 @@ export function installDirectorRemoteBridge(
   );
 }
 
+/** Raised when a request body exceeds the import cap. */
+class RequestTooLarge extends Error {
+  constructor() {
+    super('request body too large');
+    this.name = 'RequestTooLarge';
+  }
+}
+
 /** Collect the full request body as a UTF-8 string. */
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    let bytes = 0;
+    let settled = false;
+    const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    req.on('data', (chunk) => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.length;
+      if (bytes > CARD_LIMITS.importBytes) {
+        fail(new RequestTooLarge());
+        return;
+      }
+      chunks.push(buffer);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', (error) => fail(error instanceof Error ? error : new Error(String(error))));
   });
 }
 

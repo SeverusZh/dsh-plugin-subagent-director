@@ -351,7 +351,7 @@ describe('applyOrchestrate — per-turn detection', () => {
     fake.sessionProjections.appendEvent(session, 'user/message', { content: [{ type: 'text', text: '使用orchestrate模式帮我分析' }] });
     const text = fake.registeredSections[0].text({ agent: { session } });
     expect(text).not.toContain('PURE ORCHESTRATOR');
-    expect(text).toContain('no subagent-director roles are configured');
+    expect(text).toContain('no subagent-director character cards are configured');
   });
 
   it('still injects via the sticky projection when nothing is declared this turn (backward compat)', () => {

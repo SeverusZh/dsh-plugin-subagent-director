@@ -9,6 +9,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { defineTool, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
 
+import type { CardService } from './card-store.js';
 import { closeResident } from './resident-handles.js';
 
 /** Stable tool name (fixed, mirroring send_message / interrupt_agent). */
@@ -47,7 +48,8 @@ export function createCloseSubagentOutputSchema(): ValueSchemaSpec {
 
 /** Create the close_subagent ToolDefinition. The ctx argument is accepted for
  * composition symmetry; release uses the shared receipt registry. */
-export function createCloseSubagentTool(_options: { ctx: Context }) {
+export function createCloseSubagentTool(options: { ctx: Context; cards?: CardService }) {
+  const { cards } = options;
   return defineTool({
     name: CLOSE_SUBAGENT_TOOL_NAME,
     description:
@@ -93,6 +95,14 @@ export function createCloseSubagentTool(_options: { ctx: Context }) {
         throw new Error(
           `${ERROR_PREFIX} close_subagent target "${args.subagent_id}" is not a direct child of the calling agent`,
         );
+      }
+      if (cards !== undefined) {
+        try {
+          await cards.endBinding(args.subagent_id);
+        } catch {
+          // The resident handle is already released; a prompt-binding cleanup
+          // failure must not turn a successful close into an error.
+        }
       }
       return { closed: true };
     },

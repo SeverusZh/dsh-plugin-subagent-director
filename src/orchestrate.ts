@@ -15,10 +15,10 @@
  * model that reaches for the built-in `subagent` bypasses role persona and role
  * toolFilter.
  *
- * The role list rendered into the prompt is derived dynamically from the live
- * plugin settings (`subagent-director.roles`) — the same source `guidance.ts`
- * reads — so it never hard-codes role ids and stays correct when the operator
- * reconfigures roles. When no roles are configured the prompt tells the user
+ * The card list rendered into the prompt is derived dynamically from the live
+ * card library (and legacy roles) — the same source `guidance.ts` reads — so it
+ * never hard-codes ids and stays correct when the operator reconfigures cards.
+ * When no cards are configured the prompt tells the user
  * to configure them rather than silently emitting an empty section.
  *
  * Service posture mirrors `guidance.ts`: `commands` and `sessionProjections` are
@@ -78,13 +78,13 @@ export function detectOrchestrateRequest(text: string): OrchestrateRequest {
 
 /**
  * Short notice injected instead of the pure-orchestrator frame when the mode
- * is on but no roles are configured: the model must inform the user and
+ * is on but no cards are configured: the model must inform the user and
  * continue in normal mode — never sit paralyzed (the "returns nothing" bug).
  */
 export function renderOrchestratorUnavailableNotice(toolName: string): string {
   return (
-    `Orchestrator mode is active, but no subagent-director roles are configured (subagent-director.roles is empty), so you cannot delegate work via \`${toolName}\`. ` +
-    `Inform the user that orchestrator mode requires roles to be configured first, then handle their request in normal mode.`
+    `Orchestrator mode is active, but no subagent-director character cards are configured (the card library and legacy roles are empty), so you cannot delegate work via \`${toolName}\`. ` +
+    `Inform the user that orchestrator mode requires at least one character card first (create one in the plugin page), then handle their request in normal mode.`
   );
 }
 
@@ -121,20 +121,20 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 
 /**
  * Build the data-independent framing of the orchestrator prompt for a given
- * delegation tool name. The role list is appended separately by
+ * delegation tool name. The card list is appended separately by
  * {@link renderOrchestratorRoles}.
  * @param toolName - the configured model-facing delegation tool name.
  */
 export function buildOrchestratorFrame(toolName: string): string {
   return `You are a PURE ORCHESTRATOR. Your only action is to call the \`${toolName}\` tool (provided by the subagent-director plugin) to delegate work. You must NEVER read, write, edit, grep, find, or execute anything yourself.
 
-The subagent-director plugin supplies its role templates from settings (subagent-director.roles) and the guidance section 'subagent-director:roles'. Delegate exactly one task per call:
+The subagent-director plugin supplies character cards from the live card library (legacy roles remain accepted) and the guidance section 'subagent-director:cards'. Delegate exactly one task per call:
 
-    ${toolName}({ role: '<role-id>', prompt: '<self-contained task>', description: '<what this delegation produces>' })`;
+    ${toolName}({ role: '<card-id>', prompt: '<self-contained task>', description: '<what this delegation produces>' })`;
 }
 
 /**
- * Render the role list portion of the orchestrator prompt from the live
+ * Render the card list portion of the orchestrator prompt from the live
  * settings. Returns a "configure roles first" notice when no roles exist so
  * the operator is told what to do instead of receiving a blank contract.
  * @param settings - current resolved settings snapshot.
@@ -144,11 +144,11 @@ export function renderOrchestratorRoles(settings: SubagentDirectorSettings, tool
   const roles = settings.roles ?? {};
   const entries = Object.entries(roles).filter(([, role]) => role !== undefined);
   if (entries.length === 0) {
-    return 'No Subagent Director roles are configured yet. Configure `subagent-director.roles` (settings.yaml or the settings panel) before entering orchestrator mode — the orchestrator can only delegate to defined roles.';
+    return 'No Subagent Director character cards are configured yet. Create one on the plugin page (插件列表 → dsh-plugin-subagent-director) before entering orchestrator mode — the orchestrator can only delegate to configured cards.';
   }
 
   const lines = [
-    `Delegate work by calling the \`${toolName}\` tool with a role id from the list below. Reference roles by their id (shown), never by display name, and never invent a role id that is not listed:`,
+    `Delegate work by calling the \`${toolName}\` tool with a card id from the list below (passed as the role argument). Reference cards by their id (shown), never by display name, and never invent an id that is not listed:`,
   ];
   for (const [id, role] of entries) {
     lines.push(`- ${role.displayName || id}: ${role.description}`);
@@ -158,7 +158,7 @@ export function renderOrchestratorRoles(settings: SubagentDirectorSettings, tool
 }
 
 /**
- * Assemble the full orchestrator prompt (framing + dynamic role list).
+ * Assemble the full orchestrator prompt (framing + dynamic card list).
  * @param settings - current resolved settings snapshot.
  * @param toolName - the configured model-facing delegation tool name.
  */
@@ -168,14 +168,14 @@ export function renderOrchestratorPrompt(settings: SubagentDirectorSettings, too
 2. Independent tasks -> dispatch them in parallel (multiple ${toolName} calls in one turn).
 3. Dependent / relay tasks -> wait for the prior subagent to finish, then dispatch the next stage.
 4. Every subagent prompt must be self-contained: goal, constraints, output format, acceptance criteria. Subagents receive NO parent context.
-5. If the user's request names a specific role, dispatch to that role id. If a display name is given, map it to its id. If no role is named, dispatch to the role whose display name indicates coordination (e.g. contains 协调 / Orchestrator / Coordinator); when no such role exists, dispatch to the first configured role and let it decompose and coordinate.
+5. If the user's request names a specific card, dispatch to that card id. If a display name is given, map it to its id. If no card is named, dispatch to the card whose name indicates coordination (e.g. contains 协调 / Orchestrator / Coordinator); when no such card exists, dispatch to the first configured card and let it decompose and coordinate.
 6. Unclear dependencies or missing information -> ask the USER, never guess.
 7. For independent fan-out you may set run_in_background: true and collect results later; for relay steps set run_in_background: false so you wait for the result before dispatching the next stage.
 8. Finish only when every subagent has completed. Then output a summary report: who produced what, and remaining todos.`;
 }
 
 /**
- * Full orchestrator prompt when roles are configured, else the short
+ * Full orchestrator prompt when cards are configured, else the short
  * unavailable notice. The notice (not the paralyzing pure-orchestrator frame)
  * is what prevents the "conversation returns nothing" failure: a model that
  * cannot delegate must be told to inform the user and continue normally.
