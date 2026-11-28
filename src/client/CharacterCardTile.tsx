@@ -1,9 +1,13 @@
 /** One character card in the library grid. */
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { CharacterCard } from '../card-types.js';
-import { cardAccentOf, cardInitial, hasCardPrompt, isCardEnabled } from '../card-types.js';
+import type { CharacterCard, CardUsageSnapshot } from '../card-types.js';
+import { cardAccentOf, hasCardPrompt, isCardEnabled } from '../card-types.js';
 import type { SubagentDirectorKey } from './locales.js';
+import type { CardVisibleState } from './card-library-view.js';
+import { formatUsageTime } from './card-library-view.js';
+import { CardAvatar } from './CardAvatar.js';
+import { withReplacement } from './text.js';
 import { IconCopy, IconDownload, IconEdit, IconMore, IconStar, IconTrash } from './icons.js';
 
 export interface CharacterCardTileProps {
@@ -11,6 +15,10 @@ export interface CharacterCardTileProps {
   isDefault: boolean;
   selectionMode: boolean;
   selected: boolean;
+  /** Usage counters recorded by the Host; absent means never used. */
+  usage?: CardUsageSnapshot;
+  /** Usage state as the library labels it. */
+  usageState: CardVisibleState;
   t: (key: SubagentDirectorKey) => string;
   onToggleSelect: () => void;
   onEdit: () => void;
@@ -18,7 +26,41 @@ export interface CharacterCardTileProps {
   onDuplicate: () => void;
   onExport: () => void;
   onToggleEnabled: () => void;
+  onToggleNeverClose: () => void;
   onDelete: () => void;
+}
+
+const STATE_KEYS: Record<CardVisibleState, SubagentDirectorKey> = {
+  active: 'cardStateActive',
+  closed: 'cardStateClosed',
+  disabled: 'disabled',
+};
+
+const STATE_TONES: Record<CardVisibleState, string> = {
+  active: ' sd-chip-accent',
+  closed: ' sd-chip-warn',
+  disabled: ' sd-chip-muted',
+};
+
+/** Keep the pin interaction from reaching the card selection handler. */
+function stopCardSelection(event: { stopPropagation(): void }): void {
+  event.stopPropagation();
+}
+
+export interface CardPinToggleProps {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}
+
+/** Pin switch whose click and keyboard events never bubble to the card. */
+export function CardPinToggle(props: CardPinToggleProps): JSX.Element {
+  return (
+    <label className="sd-pin" title={props.label} onClick={stopCardSelection} onKeyDown={stopCardSelection}>
+      <input type="checkbox" checked={props.checked} onChange={props.onToggle} />
+      <span>{props.label}</span>
+    </label>
+  );
 }
 
 function modelLabel(card: CharacterCard): string | undefined {
@@ -31,7 +73,7 @@ function modelLabel(card: CharacterCard): string | undefined {
 }
 
 export function CharacterCardTile(props: CharacterCardTileProps): JSX.Element {
-  const { card, isDefault, selectionMode, selected, t } = props;
+  const { card, isDefault, selectionMode, selected, usage, t } = props;
   const enabled = isCardEnabled(card);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -41,6 +83,7 @@ export function CharacterCardTile(props: CharacterCardTileProps): JSX.Element {
   const tags = card.tags ?? [];
   const shownTags = tags.slice(0, 3);
   const extraTags = tags.length - shownTags.length;
+  const lastUsed = usage?.lastUsedAt === undefined ? undefined : formatUsageTime(usage.lastUsedAt);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -104,7 +147,7 @@ export function CharacterCardTile(props: CharacterCardTileProps): JSX.Element {
         </label>
       ) : null}
       <header className="sd-card-tile-head">
-        <div className="sd-card-avatar" aria-hidden="true">{card.emoji !== undefined && card.emoji !== '' ? card.emoji : cardInitial(card.name)}</div>
+        <CardAvatar name={card.name} emoji={card.emoji} accent={accent} />
         <div className="sd-card-tile-title">
           <h3>{card.name}</h3>
           <div className="sd-card-tile-sub">
@@ -142,7 +185,19 @@ export function CharacterCardTile(props: CharacterCardTileProps): JSX.Element {
         <span className="sd-chip sd-chip-model">{model ?? t('modelInherited')}</span>
         {hasCardPrompt(card) ? <span className="sd-chip sd-chip-accent">{t('cardPromptChip')}</span> : null}
         {card.agentPreset !== undefined && card.agentPreset !== '' ? <span className="sd-chip">{card.agentPreset}</span> : null}
-        {!enabled ? <span className="sd-chip sd-chip-muted">{t('disabled')}</span> : null}
+      </div>
+
+      <div className="sd-card-tile-status">
+        <span className={'sd-chip' + STATE_TONES[props.usageState]}>{t(STATE_KEYS[props.usageState])}</span>
+        <span className="sd-status-stat">{withReplacement(t('cardUses'), { count: usage?.uses ?? 0 })}</span>
+        <span className="sd-status-stat">
+          {lastUsed !== undefined ? withReplacement(t('cardLastUsed'), { time: lastUsed }) : t('cardNeverUsed')}
+        </span>
+        <CardPinToggle
+          label={t('cardNeverClose')}
+          checked={card.neverClose === true}
+          onToggle={props.onToggleNeverClose}
+        />
       </div>
 
       {!selectionMode ? (

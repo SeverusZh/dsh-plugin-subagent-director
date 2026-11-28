@@ -44,6 +44,8 @@ export type SubagentDirectorKey =
   | 'rejected'
   | 'fatal'
   | 'loadError'
+  | 'requestFailed'
+  | 'requestRejected'
   | 'readonly'
   | 'save'
   | 'cancel'
@@ -79,7 +81,7 @@ export type SubagentDirectorKey =
   | 'closingContinuable'
   | 'closedSubagent'
   | 'confirmCloseContinuable'
-  | 'closeFailed'
+  | 'closeFailedGeneric'
   | 'pageTitle'
   | 'pageIntro'
   | 'newCard'
@@ -89,9 +91,11 @@ export type SubagentDirectorKey =
   | 'cardsHint'
   | 'searchCards'
   | 'filterAll'
-  | 'filterEnabled'
   | 'filterDisabled'
-  | 'sortUpdated'
+  | 'filterActive'
+  | 'filterClosed'
+  | 'sortWeight'
+  | 'sortRecent'
   | 'sortName'
   | 'emptyCardsTitle'
   | 'emptyCardsBody'
@@ -104,6 +108,7 @@ export type SubagentDirectorKey =
   | 'disableCard'
   | 'editCard'
   | 'duplicateCard'
+  | 'duplicateName'
   | 'exportCard'
   | 'deleteCard'
   | 'confirmDeleteCard'
@@ -125,7 +130,15 @@ export type SubagentDirectorKey =
   | 'cardIdHint'
   | 'cardIdImmutable'
   | 'cardEmoji'
+  | 'cardAvatarInitial'
+  | 'cardAvatarCustom'
   | 'cardAccent'
+  | 'accentBlue'
+  | 'accentViolet'
+  | 'accentGreen'
+  | 'accentAmber'
+  | 'accentRose'
+  | 'accentSlate'
   | 'cardTags'
   | 'cardTagsHint'
   | 'cardModel'
@@ -178,11 +191,32 @@ export type SubagentDirectorKey =
   | 'importDuplicateHint'
   | 'importRun'
   | 'importPreview'
-  | 'importInvalid'
   | 'importResult'
   | 'importNoCards'
   | 'importParseError'
   | 'importFileTooLarge'
+  | 'importReadFailed'
+  | 'importIssueCount'
+  | 'importIssuePath'
+  | 'importIssueNotObject'
+  | 'importIssueFormatVersion'
+  | 'importIssueMissingCards'
+  | 'importIssueMissingCard'
+  | 'importIssueTooManyCards'
+  | 'importIssueInvalidField'
+  | 'importIssueInvalidFieldGeneric'
+  | 'importIssueInvalidCardId'
+  | 'importIssueReservedCardId'
+  | 'importIssueReservedCardSource'
+  | 'importIssueUnknown'
+  | 'importReasonTooSmall'
+  | 'importReasonTooBig'
+  | 'importReasonType'
+  | 'importReasonFormat'
+  | 'importReasonValue'
+  | 'importReasonShape'
+  | 'importReasonUnknownKeys'
+  | 'importReasonUnknown'
   | 'exportDone'
   | 'exportFailed'
   | 'download'
@@ -199,6 +233,7 @@ export type SubagentDirectorKey =
   | 'legacyClear'
   | 'legacyClearHint'
   | 'legacyResult'
+  | 'legacyClearFailed'
   | 'legacyNone'
   | 'legacyFailed'
   | 'statCards'
@@ -240,7 +275,15 @@ export type SubagentDirectorKey =
   | 'clearSearch'
   | 'filterCards'
   | 'sortCards'
-  | 'cardEditorHint';
+  | 'cardEditorHint'
+  | 'cardStateActive'
+  | 'cardStateClosed'
+  | 'cardUses'
+  | 'cardNeverUsed'
+  | 'cardLastUsed'
+  | 'cardNeverClose'
+  | 'cardPinned'
+  | 'cardUnpinned';
 
 /** English dictionary ($subagentDirector). */
 export const en: Record<SubagentDirectorKey, string> = {
@@ -281,6 +324,8 @@ export const en: Record<SubagentDirectorKey, string> = {
   "rejected": "The change was rejected by the settings provider.",
   "fatal": "Could not save: {message}",
   "loadError": "Could not load preference settings.",
+  "requestFailed": "The operation did not complete. Try again later.",
+  "requestRejected": "The request was rejected. Check the input and retry.",
   "readonly": "Settings are read-only in this deployment.",
   "save": "Save",
   "cancel": "Cancel",
@@ -316,7 +361,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "closingContinuable": "Releasing…",
   "closedSubagent": "Released",
   "confirmCloseContinuable": "Release Subagent Director child “{id}”? Only children started by this plugin in this process are tracked. A later send_message may cold-resume the session, but that new activation is not tracked here.",
-  "closeFailed": "Release failed: {message}",
+  "closeFailedGeneric": "Release failed. Try again.",
   "pageTitle": "Character cards",
   "pageIntro": "Package delegation guidance, a fixed system prompt, persona, and an optional model route into one reusable card.",
   "newCard": "New card",
@@ -326,9 +371,11 @@ export const en: Record<SubagentDirectorKey, string> = {
   "cardsHint": "Cards are stored as individual JSON files, separate from plugin configuration.",
   "searchCards": "Search cards",
   "filterAll": "All",
-  "filterEnabled": "Enabled",
   "filterDisabled": "Disabled",
-  "sortUpdated": "Recently updated",
+  "filterActive": "In use",
+  "filterClosed": "Closed pool",
+  "sortWeight": "Weight",
+  "sortRecent": "Recently used",
   "sortName": "Name",
   "emptyCardsTitle": "No character cards yet",
   "emptyCardsBody": "Create a card or import a portable JSON bundle to give your subagents a stable role.",
@@ -341,6 +388,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "disableCard": "Disable",
   "editCard": "Edit",
   "duplicateCard": "Duplicate",
+  "duplicateName": "{name} copy",
   "exportCard": "Export",
   "deleteCard": "Delete",
   "confirmDeleteCard": "Delete card “{id}”? This cannot be undone.",
@@ -362,7 +410,15 @@ export const en: Record<SubagentDirectorKey, string> = {
   "cardIdHint": "Lowercase letters, digits, and single hyphens. Used as the delegation role id.",
   "cardIdImmutable": "The id cannot change after the card is created.",
   "cardEmoji": "Avatar glyph",
+  "cardAvatarInitial": "Use the name initial",
+  "cardAvatarCustom": "Current custom glyph",
   "cardAccent": "Accent",
+  "accentBlue": "Blue",
+  "accentViolet": "Violet",
+  "accentGreen": "Green",
+  "accentAmber": "Amber",
+  "accentRose": "Rose",
+  "accentSlate": "Slate",
   "cardTags": "Tags",
   "cardTagsHint": "Comma separated. Used for search and filtering.",
   "cardModel": "Model route",
@@ -415,11 +471,32 @@ export const en: Record<SubagentDirectorKey, string> = {
   "importDuplicateHint": "Import under a new id derived from the name.",
   "importRun": "Import",
   "importPreview": "{count} card(s) ready to import.",
-  "importInvalid": "Some entries are invalid.",
   "importResult": "Imported {imported}, overwritten {overwritten}, skipped {skipped}, duplicates {duplicated}.",
   "importNoCards": "No cards were found in the selected input.",
   "importParseError": "Could not parse the JSON input.",
   "importFileTooLarge": "This file is larger than the import limit.",
+  "importReadFailed": "Could not read the selected file. Try again.",
+  "importIssueCount": "{count} issues",
+  "importIssuePath": "path: {path}",
+  "importIssueNotObject": "Not a JSON object.",
+  "importIssueFormatVersion": "Format version {version} is not supported; the maximum is {maxVersion}.",
+  "importIssueMissingCards": "The collection envelope has no cards array.",
+  "importIssueMissingCard": "The card envelope has no card object.",
+  "importIssueTooManyCards": "{count} cards exceed the import limit of {max}.",
+  "importIssueInvalidField": "The {field} field is invalid: {reason}.",
+  "importIssueInvalidFieldGeneric": "The card content is invalid: {reason}.",
+  "importIssueInvalidCardId": "The card id is invalid.",
+  "importIssueReservedCardId": "This id is reserved for the built-in Director card.",
+  "importIssueReservedCardSource": "The source cannot be builtin; it is reserved for code-defined cards.",
+  "importIssueUnknown": "This entry could not be imported; check its content and format.",
+  "importReasonTooSmall": "too short or empty",
+  "importReasonTooBig": "longer than allowed",
+  "importReasonType": "wrong type",
+  "importReasonFormat": "wrong format",
+  "importReasonValue": "not an allowed value",
+  "importReasonShape": "does not match the expected shape",
+  "importReasonUnknownKeys": "contains unknown fields",
+  "importReasonUnknown": "the value is not valid",
   "exportDone": "Export ready.",
   "exportFailed": "Export failed: {message}",
   "download": "Download",
@@ -436,6 +513,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "legacyClear": "Also clear the legacy fields",
   "legacyClearHint": "Removes `roles` and `defaultRole` from the plugin configuration after a successful migration.",
   "legacyResult": "Migrated {migrated}, skipped {skipped}, failed {failed}.",
+  "legacyClearFailed": "Migration finished, but the legacy settings could not be cleared.",
   "legacyNone": "No legacy roles remain.",
   "legacyFailed": "Migration failed: {message}",
   "statCards": "Cards",
@@ -477,7 +555,15 @@ export const en: Record<SubagentDirectorKey, string> = {
   "clearSearch": "Clear search",
   "filterCards": "Filter cards",
   "sortCards": "Sort cards",
-  "cardEditorHint": "Pack the delegation guidance, fixed prompt, persona, and model route for this card."
+  "cardEditorHint": "Pack the delegation guidance, fixed prompt, persona, and model route for this card.",
+  "cardStateActive": "In use",
+  "cardStateClosed": "Closed pool",
+  "cardUses": "{count} uses",
+  "cardNeverUsed": "Never used",
+  "cardLastUsed": "Last used {time}",
+  "cardNeverClose": "Never close",
+  "cardPinned": "Card pinned out of the closed pool",
+  "cardUnpinned": "Card released back into the pool"
 };
 
 /** Chinese dictionary. */
@@ -519,6 +605,8 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "rejected": "更改被设置提供方拒绝。",
   "fatal": "无法保存：{message}",
   "loadError": "无法加载偏好设置。",
+  "requestFailed": "操作未完成，请稍后重试。",
+  "requestRejected": "请求被拒绝，请检查输入后重试。",
   "readonly": "当前部署中设置为只读。",
   "save": "保存",
   "cancel": "取消",
@@ -554,7 +642,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "closingContinuable": "正在终止…",
   "closedSubagent": "已终止",
   "confirmCloseContinuable": "终止本插件启动的可持续子代理“{id}”？只有本插件在当前进程中启动的子代理会被跟踪；之后仍可用 send_message 冷恢复，但新的 activation 不再由此处跟踪。",
-  "closeFailed": "终止失败：{message}",
+  "closeFailedGeneric": "终止失败，请重试。",
   "pageTitle": "角色卡",
   "pageIntro": "把委派指引、固定系统提示词、persona 与可选的模型路由收进一张可复用的角色卡。",
   "newCard": "新建角色卡",
@@ -564,9 +652,11 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "cardsHint": "角色卡以独立 JSON 文件持久化，不再写入插件公共配置。",
   "searchCards": "搜索角色卡",
   "filterAll": "全部",
-  "filterEnabled": "已启用",
   "filterDisabled": "已停用",
-  "sortUpdated": "最近更新",
+  "filterActive": "使用中",
+  "filterClosed": "关闭池",
+  "sortWeight": "权重",
+  "sortRecent": "最近使用",
   "sortName": "名称",
   "emptyCardsTitle": "还没有角色卡",
   "emptyCardsBody": "新建一张角色卡，或导入可移植的 JSON 集合，让子代理拥有稳定的角色。",
@@ -579,6 +669,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "disableCard": "停用",
   "editCard": "编辑",
   "duplicateCard": "复制",
+  "duplicateName": "{name} 副本",
   "exportCard": "导出",
   "deleteCard": "删除",
   "confirmDeleteCard": "删除角色卡“{id}”？此操作不可撤销。",
@@ -600,7 +691,15 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "cardIdHint": "小写字母、数字与单个连字符；同时作为委派 role id。",
   "cardIdImmutable": "创建后不可修改 id。",
   "cardEmoji": "头像符号",
+  "cardAvatarInitial": "使用名称首字母",
+  "cardAvatarCustom": "当前自定义值",
   "cardAccent": "强调色",
+  "accentBlue": "蓝色",
+  "accentViolet": "紫色",
+  "accentGreen": "绿色",
+  "accentAmber": "琥珀色",
+  "accentRose": "玫红色",
+  "accentSlate": "石板灰",
   "cardTags": "标签",
   "cardTagsHint": "逗号分隔，用于搜索与筛选。",
   "cardModel": "模型路由",
@@ -653,11 +752,32 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "importDuplicateHint": "按名称派生新的 id 后导入。",
   "importRun": "导入",
   "importPreview": "待导入 {count} 张角色卡。",
-  "importInvalid": "部分条目无效。",
   "importResult": "已导入 {imported}，覆盖 {overwritten}，跳过 {skipped}，保留两者 {duplicated}。",
   "importNoCards": "所选输入中没有找到角色卡。",
   "importParseError": "无法解析 JSON 输入。",
   "importFileTooLarge": "文件超过导入上限。",
+  "importReadFailed": "无法读取所选文件，请重试。",
+  "importIssueCount": "共 {count} 个问题",
+  "importIssuePath": "路径 {path}",
+  "importIssueNotObject": "不是 JSON 对象。",
+  "importIssueFormatVersion": "格式版本 {version} 不受支持，最高支持 {maxVersion}。",
+  "importIssueMissingCards": "集合信封缺少 cards 数组。",
+  "importIssueMissingCard": "卡片信封缺少 card 对象。",
+  "importIssueTooManyCards": "共 {count} 张卡片，超过单次导入上限 {max}。",
+  "importIssueInvalidField": "字段 {field} 无效：{reason}。",
+  "importIssueInvalidFieldGeneric": "卡片内容无效：{reason}。",
+  "importIssueInvalidCardId": "卡片 id 无效。",
+  "importIssueReservedCardId": "该 id 为内置导演卡保留。",
+  "importIssueReservedCardSource": "来源不能为 builtin，该值仅供代码内置卡使用。",
+  "importIssueUnknown": "这一条无法导入，请检查内容与格式。",
+  "importReasonTooSmall": "内容过短或为空",
+  "importReasonTooBig": "内容超出长度上限",
+  "importReasonType": "类型不正确",
+  "importReasonFormat": "格式不正确",
+  "importReasonValue": "取值不在允许范围",
+  "importReasonShape": "结构不匹配",
+  "importReasonUnknownKeys": "包含未知字段",
+  "importReasonUnknown": "内容不符合要求",
   "exportDone": "导出已就绪。",
   "exportFailed": "导出失败：{message}",
   "download": "下载",
@@ -674,6 +794,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "legacyClear": "同时清除旧配置字段",
   "legacyClearHint": "迁移成功后从插件配置中移除 `roles` 与 `defaultRole`。",
   "legacyResult": "已迁移 {migrated}，跳过 {skipped}，失败 {failed}。",
+  "legacyClearFailed": "角色已迁移，但旧配置未能清除。",
   "legacyNone": "已无旧版角色。",
   "legacyFailed": "迁移失败：{message}",
   "statCards": "角色卡",
@@ -715,5 +836,13 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "clearSearch": "清除搜索",
   "filterCards": "筛选角色卡",
   "sortCards": "角色卡排序",
-  "cardEditorHint": "为这张卡打包委派指引、固定提示词、persona 与模型路由。"
+  "cardEditorHint": "为这张卡打包委派指引、固定提示词、persona 与模型路由。",
+  "cardStateActive": "使用中",
+  "cardStateClosed": "关闭池",
+  "cardUses": "使用 {count} 次",
+  "cardNeverUsed": "从未使用",
+  "cardLastUsed": "最近使用 {time}",
+  "cardNeverClose": "永不入池",
+  "cardPinned": "已设为永不入池",
+  "cardUnpinned": "已取消永不入池"
 };

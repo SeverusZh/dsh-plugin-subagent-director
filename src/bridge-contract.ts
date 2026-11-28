@@ -195,7 +195,7 @@ export interface DirectorCardMigrateSuccess {
 }
 
 /** Batch actions exposed by the card library toolbar. */
-export type DirectorCardBatchAction = 'enable' | 'disable' | 'delete';
+export type DirectorCardBatchAction = 'enable' | 'disable' | 'delete' | 'pin' | 'unpin';
 
 /** Request payload for the cardBatch bridge endpoint. */
 export interface DirectorCardBatchRequest {

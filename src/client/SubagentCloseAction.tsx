@@ -10,8 +10,8 @@
  * Clicking asks the Host bridge's `subagentClose` endpoint to dispose the
  * activation receipt retained for this child. Only children started by
  * Subagent Director in the same host process are tracked; on success the
- * button turns into a settled label, on failure a short inline error shows
- * the bridge message.
+ * button turns into a settled label, on failure a short localized error shows
+ * without the bridge's technical message.
  *
  * The seat is a list slot declared by ui-conversation; the framework session
  * standard kit supplies `useSession`/`sessionId` (ui-session merge over the
@@ -45,6 +45,11 @@ export const NS = 'settings.subagentDirector' as const;
 
 type ActionState = 'idle' | 'closing' | 'closed' | 'failed';
 
+/** Inline failure line for the release action; only localized copy is shown. */
+export function CloseFailure({ t }: { t: (key: SubagentDirectorKey) => string }): JSX.Element {
+  return <span className="sd-close-error" role="alert">{t('closeFailedGeneric')}</span>;
+}
+
 /** Render the release-sustained-state button for a continuable child, or nothing. */
 export function SubagentCloseAction({
   useSession,
@@ -54,12 +59,10 @@ export function SubagentCloseAction({
 }: SubagentCloseActionProps): React.JSX.Element | null {
   const session = useSession((s: SessionSnapshot) => s);
   const [state, setState] = useState<ActionState>('idle');
-  const [error, setError] = useState<string | null>(null);
 
   // Reset the outcome when the user switches to another session.
   useEffect(() => {
     setState('idle');
-    setError(null);
   }, [sessionId]);
 
   if (!isContinuableChild(session)) return null;
@@ -68,18 +71,12 @@ export function SubagentCloseAction({
   const onClose = async (): Promise<void> => {
     if (state === 'closing') return;
     setState('closing');
-    setError(null);
     try {
       const result = await rpc.call(SUBAGENT_DIRECTOR_RPC_CHANNEL, SUBAGENT_DIRECTOR_RPC_CLOSE, {
         parentSessionId: address.parentSessionId,
         childSessionId: address.childSessionId,
       });
-      if (result.ok) {
-        setState('closed');
-      } else {
-        setState('failed');
-        setError(result.error.message);
-      }
+      setState(result.ok ? 'closed' : 'failed');
     } catch {
       setState('failed');
     }
@@ -109,11 +106,7 @@ export function SubagentCloseAction({
       >
         {state === 'closing' ? t('closingContinuable') : t('closeContinuable')}
       </button>
-      {state === 'failed' && (
-        <span className="sd-close-error" role="alert" title={t('closeFailed', { message: error ?? '' })}>
-          {t('closeFailed', { message: error ?? '' })}
-        </span>
-      )}
+      {state === 'failed' && <CloseFailure t={t} />}
     </div>
   );
 }

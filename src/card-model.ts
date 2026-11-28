@@ -17,6 +17,7 @@ import {
   isCardId,
   parseTagInput,
   type CardImportIssue,
+  type CardImportIssueDetail,
   type CardImportResult,
   type CharacterCard,
   type CharacterCardBundle,
@@ -53,6 +54,7 @@ export const CharacterCardSchema = z.object({
   accent: z.enum(CARD_ACCENTS).optional(),
   notes: optionalText(CARD_LIMITS.notesLength),
   enabled: z.boolean().optional(),
+  neverClose: z.boolean().optional(),
   source: z.enum(['local', 'import', 'legacy', 'builtin']).optional(),
   createdAt: z.string().trim().max(80).optional(),
   updatedAt: z.string().trim().max(80).optional(),
@@ -89,17 +91,34 @@ export function parseCardImportPayload(payload: unknown): CardImportPayload {
   const push = (value: unknown, index: number): void => {
     const record = asRecord(value);
     if (record === undefined) {
-      issues.push({ index, message: 'Expected a JSON object for one character card.' });
+      issues.push({
+        index,
+        code: 'not-an-object',
+        message: 'Expected a JSON object for one character card.',
+      });
       return;
     }
     if (record.kind === CARD_BUNDLE_KIND || Array.isArray(record.cards)) {
       if (typeof record.version === 'number' && record.version > CARD_FORMAT_VERSION) {
-        issues.push({ index, message: 'Unsupported card format version ' + String(record.version) + '.' });
+        issues.push({
+          index,
+          code: 'unsupported-format-version',
+          field: 'version',
+          path: ['version'],
+          params: { version: record.version, maxVersion: CARD_FORMAT_VERSION },
+          message: 'Unsupported card format version ' + String(record.version) + '.',
+        });
         return;
       }
       const nested = record.cards;
       if (!Array.isArray(nested)) {
-        issues.push({ index, message: 'The collection envelope has no `cards` array.' });
+        issues.push({
+          index,
+          code: 'missing-cards-array',
+          field: 'cards',
+          path: ['cards'],
+          message: 'The collection envelope has no `cards` array.',
+        });
         return;
       }
       nested.forEach((entry, nestedIndex) => push(entry, index + nestedIndex));
@@ -107,11 +126,24 @@ export function parseCardImportPayload(payload: unknown): CardImportPayload {
     }
     if (record.kind === CARD_KIND) {
       if (typeof record.version === 'number' && record.version > CARD_FORMAT_VERSION) {
-        issues.push({ index, message: 'Unsupported card format version ' + String(record.version) + '.' });
+        issues.push({
+          index,
+          code: 'unsupported-format-version',
+          field: 'version',
+          path: ['version'],
+          params: { version: record.version, maxVersion: CARD_FORMAT_VERSION },
+          message: 'Unsupported card format version ' + String(record.version) + '.',
+        });
         return;
       }
       if (record.card === undefined) {
-        issues.push({ index, message: 'The card envelope has no `card` object.' });
+        issues.push({
+          index,
+          code: 'missing-card-object',
+          field: 'card',
+          path: ['card'],
+          message: 'The card envelope has no `card` object.',
+        });
         return;
       }
       push(record.card, index);
@@ -129,6 +161,10 @@ export function parseCardImportPayload(payload: unknown): CardImportPayload {
   if (cards.length > CARD_LIMITS.importCards) {
     issues.push({
       index: cards.length,
+      code: 'too-many-cards',
+      field: 'cards',
+      path: ['cards'],
+      params: { count: cards.length, max: CARD_LIMITS.importCards },
       message:
         'Too many cards in one import: ' +
         String(cards.length) +
@@ -193,30 +229,106 @@ function compactCard(card: CharacterCard): CharacterCard {
   };
 }
 
+/** One validated import candidate with structured issues instead of a string. */
+export interface ImportedCardValidation {
+  card?: CharacterCard;
+  issues: CardImportIssueDetail[];
+}
+
+/** The raw id of a card-shaped input, when it already carries one. */
+function issueCardId(value: unknown): string | undefined {
+  const id = asRecord(value)?.id;
+  return typeof id === 'string' && id.trim().length > 0 ? id.trim() : undefined;
+}
+
 /**
- * Validate and normalize one imported card. The id is required when the caller
- * provides a fallback resolver; otherwise it is derived from the name against
- * `existingIds` so a batch cannot silently collide.
+ * Validate and normalize one imported card, reporting every problem with a
+ * stable code. The id is required when the caller provides a fallback resolver;
+ * otherwise it is derived from the name against `existingIds` so a batch cannot
+ * silently collide.
  */
+export function validateImportedCard(
+  value: unknown,
+  existingIds: ReadonlySet<string>,
+): ImportedCardValidation {
+  const cardId = issueCardId(value);
+  const rawId = cardId !== undefined ? { id: cardId } : {};
+  const parsed = CharacterCardInputSchema.safeParse(value);
+  if (!parsed.success) {
+    return {
+      issues: parsed.error.issues.map((issue) => {
+        const path = issue.path.map((part) => (typeof part === 'number' ? part : String(part)));
+        const field = path.length > 0 ? String(path[0]) : undefined;
+        const invalidId = path.length === 1 && path[0] === 'id';
+        const params: Record<string, string | number> =
+          invalidId && cardId !== undefined ? { id: cardId } : invalidId ? {} : { reason: issue.code };
+        return {
+          code: invalidId ? 'invalid-card-id' : 'invalid-field',
+          ...(field !== undefined ? { field } : {}),
+          ...(path.length > 0 ? { path } : {}),
+          ...(Object.keys(params).length > 0 ? { params } : {}),
+          ...rawId,
+          message: issue.path.join('.') + ': ' + issue.message,
+        };
+      }),
+    };
+  }
+  const input = parsed.data;
+  if (input.source === 'builtin') {
+    return {
+      issues: [
+        {
+          code: 'reserved-card-source',
+          field: 'source',
+          path: ['source'],
+          params: { source: 'builtin' },
+          ...rawId,
+          message: 'The `builtin` source is reserved for code-defined cards.',
+        },
+      ],
+    };
+  }
+  const id = input.id ?? cardIdFromName(input.name, existingIds);
+  if (id === DIRECTOR_CARD_ID) {
+    return {
+      issues: [
+        {
+          code: 'reserved-card-id',
+          field: 'id',
+          path: ['id'],
+          params: { id: DIRECTOR_CARD_ID },
+          id: DIRECTOR_CARD_ID,
+          message: 'Card id "' + DIRECTOR_CARD_ID + '" is reserved for the built-in Director card.',
+        },
+      ],
+    };
+  }
+  const card = compactCard({ ...input, id, source: input.source ?? 'import' });
+  if (!isCardId(card.id)) {
+    return {
+      issues: [
+        {
+          code: 'invalid-card-id',
+          field: 'id',
+          path: ['id'],
+          params: { id: card.id },
+          id: card.id,
+          message: 'Invalid card id "' + card.id + '".',
+        },
+      ],
+    };
+  }
+  return { card, issues: [] };
+}
+
+/** Validate one imported card and keep the legacy single-message projection. */
 export function parseImportedCard(
   value: unknown,
   existingIds: ReadonlySet<string>,
 ): { card?: CharacterCard; issue?: string } {
-  const parsed = CharacterCardInputSchema.safeParse(value);
-  if (!parsed.success) {
-    return { issue: parsed.error.issues.map((issue) => issue.path.join('.') + ': ' + issue.message).join('; ') };
-  }
-  const input = parsed.data;
-  if (input.source === 'builtin') {
-    return { issue: 'The `builtin` source is reserved for code-defined cards.' };
-  }
-  const id = input.id ?? cardIdFromName(input.name, existingIds);
-  if (id === DIRECTOR_CARD_ID) {
-    return { issue: 'Card id "' + DIRECTOR_CARD_ID + '" is reserved for the built-in Director card.' };
-  }
-  const card = compactCard({ ...input, id, source: input.source ?? 'import' });
-  if (!isCardId(card.id)) return { issue: 'Invalid card id "' + card.id + '".' };
-  return { card };
+  const validation = validateImportedCard(value, existingIds);
+  if (validation.card !== undefined) return { card: validation.card };
+  return { issue: validation.issues.map((issue) => issue.message).join('; ') };
 }
 
 /** Validate one draft from the settings page. */

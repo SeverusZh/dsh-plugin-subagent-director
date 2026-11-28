@@ -49,6 +49,7 @@ import type {
   CardLibrarySnapshot,
   CardMigrationResult,
   CardStorageStatus,
+  CardUsageSnapshot,
   CharacterCard,
   CharacterCardBundle,
 } from '../card-types.js';
@@ -85,6 +86,8 @@ export interface SubagentOptionsState {
   allowedRoutes: readonly DirectorAllowedRoute[];
   /** Character cards as acknowledged by the Host. */
   cards: CharacterCard[];
+  /** Successful delegation counters keyed by card id. */
+  usage: Record<string, CardUsageSnapshot>;
   /** Default card id stored in the card domain. */
   defaultCardId: string | undefined;
   /** Legacy settings role ids that still exist. */
@@ -109,18 +112,13 @@ export function initialSubagentOptionsState(): SubagentOptionsState {
     modelSelectionEnabled: false,
     allowedRoutes: [],
     cards: [],
+    usage: {},
     defaultCardId: undefined,
     legacyRoles: [],
     legacyDefaultRole: undefined,
     cardStorage: { state: 'unavailable' },
     loading: false,
   };
-}
-
-/** Human text for a rejected wire call. */
-export function messageOf(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return typeof error === 'string' ? error : String(error);
 }
 
 /** Raised when the /subagent-director bridge channel is not reachable. */
@@ -148,11 +146,10 @@ export type CardActionResult<T> = { ok: true; value: T } | { ok: false; message:
 export type CardImportOutcome = CardActionResult<CardImportResult>;
 /** Export outcome. */
 export type CardExportOutcome = CardActionResult<CharacterCardBundle>;
-/** Migration outcome. */
+/** Migration outcome; host diagnostics beyond the counters stay off this face. */
 export type CardMigrationOutcome = CardActionResult<{
   result: CardMigrationResult;
   cleared: boolean;
-  clearError?: string;
 }>;
 
 /** The settings page controller. */
@@ -182,15 +179,30 @@ export class SubagentOptionsStore {
     return { ok: true, value: result.value };
   }
 
-  /** One card call, flattening a failure into a localizable message. */
+  /** One card call, flattening a failure into a localized message. */
   private async callCard<T>(endpoint: string, payload?: unknown): Promise<CardActionResult<T>> {
     try {
       const result = await this.callBridge<T>(endpoint, payload);
-      if (!result.ok) return { ok: false, message: this.errorMessage(result.error) };
+      if (!result.ok) return { ok: false, message: this.errorText(result.error) };
       return { ok: true, value: result.value };
     } catch (error) {
-      return { ok: false, message: isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : messageOf(error) };
+      return {
+        ok: false,
+        message: isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : this.wire.t('requestFailed'),
+      };
     }
+  }
+
+  /**
+   * Localized text for one bridge failure. Known codes map to page copy; the
+   * raw host message never reaches the Chinese page.
+   */
+  private errorText(error: unknown): string {
+    const code = this.errorCode(error);
+    if (code === 'settings-conflict') return this.wire.t('conflict');
+    if (code === 'settings-rejected' || code === 'schema-validation') return this.wire.t('rejected');
+    if (code === 'bad-request') return this.wire.t('requestRejected');
+    return this.wire.t('requestFailed');
   }
 
   /** Refresh the whole page snapshot. */
@@ -204,16 +216,18 @@ export class SubagentOptionsStore {
     try {
       const [viewResult, catalogResult, cardsResult] = await Promise.all([
         this.callBridge<DirectorViewSuccess>(SUBAGENT_DIRECTOR_RPC_VIEW),
-        this.callBridge<DirectorCatalogSuccess>(SUBAGENT_DIRECTOR_RPC_CATALOG).catch(() => ({
-          ok: false as const,
-          error: { code: 'internal', message: 'model-selection catalog unavailable' },
-        })),
-        this.callBridge<CardLibrarySnapshot>(SUBAGENT_DIRECTOR_RPC_CARDS).catch(() => ({
-          ok: false as const,
-          error: { code: 'internal', message: 'card library unavailable' },
-        })),
+        this.callCard<DirectorCatalogSuccess>(SUBAGENT_DIRECTOR_RPC_CATALOG),
+        this.callCard<CardLibrarySnapshot>(SUBAGENT_DIRECTOR_RPC_CARDS),
       ]);
-      if (!viewResult.ok) throw new Error(this.errorMessage(viewResult.error));
+      if (!viewResult.ok) {
+        if (generation !== this.generation) return;
+        this.store.update((s) => {
+          s.status = 'error';
+          s.error = this.errorText(viewResult.error);
+          s.loading = false;
+        });
+        return;
+      }
       if (generation !== this.generation) return;
       const view = viewResult.value.view;
       const section = (view?.value ?? {}) as StoredSection;
@@ -232,15 +246,16 @@ export class SubagentOptionsStore {
           this.applyLibraryTo(s, cardsResult.value);
         } else {
           s.cards = [];
+          s.usage = {};
           s.legacyRoles = [];
-          s.cardStorage = { state: 'error', message: this.errorMessage(cardsResult.error) };
+          s.cardStorage = { state: 'error' };
         }
       });
     } catch (error) {
       if (generation !== this.generation) return;
       this.store.update((s) => {
         s.status = 'error';
-        s.error = isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : messageOf(error);
+        s.error = isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : this.wire.t('requestFailed');
         s.loading = false;
       });
     }
@@ -248,22 +263,17 @@ export class SubagentOptionsStore {
 
   private applyLibraryTo(state: SubagentOptionsState, library: CardLibrarySnapshot): void {
     state.cards = library.cards;
+    state.usage = library.usage ?? {};
     state.defaultCardId = library.defaultCardId;
     state.legacyRoles = library.legacyRoles;
     state.legacyDefaultRole = library.legacyDefaultRole;
-    state.cardStorage = library.storage;
+    // Host storage diagnostics are English-only; the page renders localized
+    // copy from the state and never the host message.
+    state.cardStorage = { state: library.storage.state };
   }
 
   private commitLibrary(library: CardLibrarySnapshot): void {
     this.store.update((s) => this.applyLibraryTo(s, library));
-  }
-
-  private errorMessage(error: unknown): string {
-    if (error !== null && typeof error === 'object' && 'message' in error) {
-      const message = (error as { message?: string }).message;
-      if (typeof message === 'string') return message;
-    }
-    return messageOf(error);
   }
 
   // ---- character cards ----------------------------------------------------
@@ -339,7 +349,6 @@ export class SubagentOptionsStore {
       value: {
         result: result.value.result,
         cleared: result.value.cleared,
-        ...(result.value.clearError !== undefined ? { clearError: result.value.clearError } : {}),
       },
     };
   }
@@ -360,7 +369,7 @@ export class SubagentOptionsStore {
       return {
         ok: false,
         kind: 'fatal',
-        message: isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : messageOf(error),
+        message: isBridgeUnavailable(error) ? this.wire.t('bridgeUnavailable') : this.wire.t('requestFailed'),
       };
     }
     if (result.ok) {
@@ -373,7 +382,7 @@ export class SubagentOptionsStore {
       return { ok: true, kind: 'fatal', message: undefined };
     }
     const code = this.errorCode(result.error);
-    const message = this.errorMessage(result.error);
+    const message = this.errorText(result.error);
     const kind = classifyMutateError(code, message);
     if (kind === 'conflict') await this.reloadNamespace();
     return { ok: false, kind, message };

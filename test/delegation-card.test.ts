@@ -23,6 +23,7 @@ function harness(options: {
   includeBuiltInCards?: boolean;
   directorGuard?: boolean;
   agentPresetCapability?: boolean;
+  failStart?: boolean;
 }) {
   const cardsCreated = createCardService();
   const cards = cardsCreated.service;
@@ -53,6 +54,7 @@ function harness(options: {
     agentOptions?: { provider?: string; model?: string; reasoningEffort?: string };
     agentPreset?: string;
   }) => {
+    if (options.failStart === true) throw new Error('subagent transport refused to start');
     calls.push({
       ...(spec.provider !== undefined ? { provider: spec.provider } : {}),
       ...(spec.childId !== undefined ? { childId: spec.childId } : {}),
@@ -115,7 +117,7 @@ function harness(options: {
     agent: { id: 'parent-1', options: { provider: 'p', model: 'm' } },
     signal: new AbortController().signal,
   } as never;
-  return { cards, calls, tool, exec };
+  return { cards, memory: cardsCreated.memory, calls, tool, exec };
 }
 
 beforeEach(() => {});
@@ -451,5 +453,72 @@ describe('character-card storage readiness', () => {
         { agent: { id: 'parent-1', options: { provider: 'p', model: 'm' } }, signal: new AbortController().signal } as never,
       ),
     ).rejects.toThrow(/card storage is unavailable/);
+  });
+});
+describe('card usage recording', () => {
+  it('records one successful use for a foreground delegation', async () => {
+    const h = harness({});
+    await h.cards.ready();
+    await h.cards.put({ id: 'reviewer', name: 'Reviewer', delegationGuidance: 'Review.' }, { create: true });
+    await (h.tool as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute(
+      { description: 'review', prompt: 'Work', role: 'reviewer', run_in_background: false },
+      h.exec,
+    );
+    const usage = h.cards.cardUsage('reviewer');
+    expect(usage?.uses).toBe(1);
+    expect(usage?.lastUsedAt).toBeDefined();
+  });
+
+  it('records one successful use for a background delegation', async () => {
+    const h = harness({ continuable: true });
+    await h.cards.ready();
+    await h.cards.put({ id: 'reviewer', name: 'Reviewer', delegationGuidance: 'Review.' }, { create: true });
+    await (h.tool as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute(
+      { description: 'review', prompt: 'Work', role: 'reviewer' },
+      h.exec,
+    );
+    expect(h.cards.cardUsage('reviewer')?.uses).toBe(1);
+  });
+
+  it('does not count a failed activation', async () => {
+    const h = harness({ failStart: true });
+    await h.cards.ready();
+    await h.cards.put({ id: 'reviewer', name: 'Reviewer', delegationGuidance: 'Review.' }, { create: true });
+    await expect(
+      (h.tool as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute(
+        { description: 'review', prompt: 'Work', role: 'reviewer', run_in_background: false },
+        h.exec,
+      ),
+    ).rejects.toThrow(/refused to start/);
+    expect(h.cards.cardUsage('reviewer')).toBeUndefined();
+  });
+
+  it('still delegates when the usage write fails', async () => {
+    const h = harness({});
+    await h.cards.ready();
+    await h.cards.put({ id: 'reviewer', name: 'Reviewer', delegationGuidance: 'Review.' }, { create: true });
+    h.memory.failTablePuts.set('usage', new Set(['reviewer']));
+    const result = await (h.tool as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute(
+      { description: 'review', prompt: 'Work', role: 'reviewer', run_in_background: false },
+      h.exec,
+    );
+    expect(result).toMatchObject({ kind: 'foreground' });
+    expect(h.cards.cardUsage('reviewer')).toBeUndefined();
+  });
+
+  it('does not count a delegation that fails validation before starting', async () => {
+    const h = harness({});
+    await h.cards.ready();
+    await h.cards.put(
+      { id: 'preset-card', name: 'Preset Card', delegationGuidance: 'Guide.', agentPreset: 'missing-preset' },
+      { create: true },
+    );
+    await expect(
+      (h.tool as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute(
+        { description: 'preset', prompt: 'Work', role: 'preset-card', run_in_background: false },
+        h.exec,
+      ),
+    ).rejects.toThrow(/does not support independent preset selection/);
+    expect(h.cards.cardUsage('preset-card')).toBeUndefined();
   });
 });

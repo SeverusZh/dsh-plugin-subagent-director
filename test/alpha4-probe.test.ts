@@ -92,10 +92,19 @@ function subagentsStub() {
 /** Capture tool definitions registered through the real tools seam. */
 function captureTools() {
   const defs: Array<{ name?: string; execute?: (args: unknown, exec: unknown) => unknown }> = [];
+  const registrations: Array<{
+    definition: { name?: string };
+    options?: { when?: (context: { agent?: unknown }) => boolean };
+  }> = [];
   return {
     defs,
-    register: (def: unknown) => {
+    registrations,
+    register: (def: unknown, options?: { when?: (context: { agent?: unknown }) => boolean }) => {
       defs.push(def as { name?: string; execute?: (args: unknown, exec: unknown) => unknown });
+      registrations.push({
+        definition: def as { name?: string },
+        ...(options !== undefined ? { options } : {}),
+      });
       return () => {};
     },
   };
@@ -266,5 +275,27 @@ describe('real cordis probe — delegation constraints wired to the authorized l
     expect(subagents.calls[0].spec.agentPreset).toBe('reviewer-preset');
     expect(subagents.calls[0].spec.persona).toBeUndefined();
     expect(subagents.calls[0].spec.toolFilter).toBeUndefined();
+  });
+});
+describe('real cordis probe — card search tools are Director-gated', () => {
+  it('registers create, search, and get behind the live Director condition', async () => {
+    const ctx = new Context();
+    const tools = captureTools();
+    const settings = settingsStub();
+    const subagents = subagentsStub();
+    ctx.provide('agentPresets', {
+      composedPreset: (scope: object) => ((scope as { director?: boolean }).director === true ? 'director' : undefined),
+    });
+    loadPlugin(ctx, settings, tools, subagents);
+    await settle();
+
+    for (const name of ['subagent_card_create', 'subagent_card_search', 'subagent_card_get']) {
+      const registration = tools.registrations.find((entry) => entry.definition.name === name);
+      expect(registration).toBeDefined();
+      expect(typeof registration?.options?.when).toBe('function');
+      expect(registration?.options?.when?.({ agent: { ctx: { director: true } } })).toBe(true);
+      expect(registration?.options?.when?.({ agent: { ctx: { director: false } } })).toBe(false);
+      expect(registration?.options?.when?.({ agent: undefined })).toBe(false);
+    }
   });
 });

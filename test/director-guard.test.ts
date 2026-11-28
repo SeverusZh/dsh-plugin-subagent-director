@@ -13,6 +13,8 @@ describe('Director tool allowlist', () => {
       expect(isDirectorAllowedTool(name, 'subagent_role')).toBe(true);
     }
     expect(isDirectorAllowedTool('team_task_create', 'subagent_role')).toBe(true);
+    expect(isDirectorAllowedTool('subagent_card_search', 'subagent_role')).toBe(true);
+    expect(isDirectorAllowedTool('subagent_card_get', 'subagent_role')).toBe(true);
     expect(isDirectorAllowedTool('interrupt_agent', 'subagent_role')).toBe(false);
     expect(isDirectorAllowedTool('team_task_update', 'subagent_role')).toBe(true);
   });

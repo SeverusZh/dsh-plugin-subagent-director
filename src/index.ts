@@ -36,6 +36,7 @@ import { applyDirectorPolicy, restrictDirectorWorkTools } from './director-polic
 import { applyDirectorToolGuard } from './director-guard.js';
 import { shouldEnableDirectorTeam } from './director-team.js';
 import { createCardCreateTool } from './card-tool.js';
+import { createCardGetTool, createCardSearchTool } from './card-search-tool.js';
 import { readDirectorSettings, installDirectorSettingsPage, createSettingsWarner, type DirectorSettingsHandles } from './settings.js';
 
 export { Config } from './config.js';
@@ -55,7 +56,16 @@ export {
   type DelegationModeDecision,
   type SubagentRequestParts,
 } from './delegation-tool.js';
-export { applyGuidance, renderRolesGuidance, GUIDANCE_SECTION_ORDER, GUIDANCE_SECTION_NAME } from './guidance.js';
+export {
+  applyGuidance,
+  renderRolesGuidance,
+  GUIDANCE_CARD_TEXT_LIMIT,
+  GUIDANCE_GET_TOOL,
+  GUIDANCE_MAX_CARDS,
+  GUIDANCE_MAX_CHARS,
+  GUIDANCE_SECTION_ORDER,
+  GUIDANCE_SECTION_NAME,
+} from './guidance.js';
 export { DIRECTOR_CARD_ID, DIRECTOR_PRESET_ID, isDirectorAgent } from './director.js';
 export { BUILTIN_DIRECTOR_CARD } from './director-card.js';
 export {
@@ -72,6 +82,35 @@ export {
   restrictDirectorWorkTools,
 } from './director-policy.js';
 export { CARD_CREATE_TOOL_NAME, createCardCreateTool, type CardCreateArgs } from './card-tool.js';
+export {
+  CARD_GET_TOOL_NAME,
+  CARD_SEARCH_DEFAULT_LIMIT,
+  CARD_SEARCH_MAX_LIMIT,
+  CARD_SEARCH_PREVIEW_LIMIT,
+  CARD_SEARCH_TOOL_NAME,
+  createCardGetTool,
+  createCardSearchTool,
+} from './card-search-tool.js';
+export {
+  CARD_CLOSED_IDLE_DAYS,
+  CARD_CLOSED_LOW_USE_IDLE_DAYS,
+  CARD_CLOSED_LOW_USE_MAX,
+  CARD_SCORE_IDLE_HALF_LIFE_DAYS,
+  CARD_SCORE_USE_FACTOR,
+  MS_PER_DAY,
+  cardIdleDays,
+  cardScore,
+  cardUsageState,
+  isCardExempt,
+  normalizeUses,
+  rankCard,
+  rankCards,
+  type CardUsageCounters,
+  type CardUsageState,
+  type CardWeightFacts,
+  type RankCardsOptions,
+  type RankedCard,
+} from './card-weight.js';
 export { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
 export {
   SUBAGENT_DIRECTOR_SETTINGS_NAMESPACE,
@@ -92,10 +131,12 @@ export {
   CARD_DOMAIN_VERSION,
   CARD_SERVICE_NAME,
   CardBindingSchema,
+  CardUsageRecordSchema,
   cardDomainSpec,
   type CardLogger,
   type CardServiceLike,
   type CardServiceOptions,
+  type CardUsageRecord,
   type ResolvedCard,
 } from './card-store.js';
 export {
@@ -118,6 +159,7 @@ export {
 export {
   CARD_ACCENTS,
   CARD_BUNDLE_KIND,
+  CARD_GLYPHS,
   CARD_FORMAT_VERSION,
   CARD_ID_PATTERN,
   CARD_KIND,
@@ -140,6 +182,7 @@ export {
   type CardModelBinding,
   type CardPromptBinding,
   type CardStorageStatus,
+  type CardUsageSnapshot,
   type CharacterCard,
   type CharacterCardBundle,
   type CharacterCardDraft,
@@ -239,6 +282,14 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
         },
       ),
     'subagent-director: card create tool',
+  );
+  ctx.effect(
+    () => ctx.tools.register(createCardSearchTool({ cards }), { when: ({ agent }) => isDirectorAgent(ctx, agent) }),
+    'subagent-director: card search tool',
+  );
+  ctx.effect(
+    () => ctx.tools.register(createCardGetTool({ cards }), { when: ({ agent }) => isDirectorAgent(ctx, agent) }),
+    'subagent-director: card get tool',
   );
 
   // ---- close_subagent tool ----------------------------------------------

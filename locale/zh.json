@@ -1,4 +1,6 @@
 {
-  "title": "子代理导演",
-  "description": "为子代理提供角色卡，并提供纯编排的 Director Mode/导演模式预设：所有子代理由角色卡唤起，默认开启 Agent Teams。"
+  "meta": {
+    "title": "子代理导演",
+    "description": "为子代理提供角色卡，并提供纯编排的 Director Mode/导演模式预设：所有子代理由角色卡唤起，默认开启 Agent Teams。"
+  }
 }

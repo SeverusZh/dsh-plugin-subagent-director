@@ -30,9 +30,11 @@
 - **Fixed role prompt** — the child session receives the card's fixed system prompt and persona; a running child keeps the snapshot it started with, so editing a card never rewrites it;
 - **Import, export, batch** — single or batch JSON import/export with skip/overwrite/keep-both conflict policies, plus batch enable, disable, delete, and export;
 - **Legacy role migration** — one action converts the old `roles` into cards while preserving the default role, persona, and model binding; legacy tool-set data is kept as a note;
+- **Weight and closed pool** — cards are weighted by successful delegations and idle time; cards idle too long, or used at most once and then idle for 30 days, leave the rendered prompt for the closed pool while explicit delegation by id still works; the default card, imported/migrated cards, and `neverClose` cards stay exempt;
+- **Card search** — Director Mode exposes `subagent_card_search` and `subagent_card_get`, so the main agent searches, reuses, or restores an existing card before creating one;
 - **Four-layer fallback chain** — per-call args > card binding > plugin default > inherit from the parent agent (zero intrusion when unconfigured);
 - **Main-agent guidance** — the system prompt auto-injects the card list, so the main agent knows when to delegate to whom;
-- **Config UI** — a modern card library inside the plugin detail page (plugin list → dsh-plugin-subagent-director): search, filters, selection, card editor, import/export, and migration; light and dark themes, and the settings panel no longer hosts this plugin's configuration;
+- **Config UI** — a modern card library inside the plugin detail page (plugin list → dsh-plugin-subagent-director): search, state filters, weight/recent/name ordering, selection, card editor, import/export, and migration; each card shows in-use/closed-pool/disabled, its use count and last use, and a never-close switch; light and dark themes, and the settings panel no longer hosts this plugin's configuration;
 - **Continuable background** — returns a durable subagent id for ongoing delegation with send_message;
 - **Release continuable children** — a model-facing `close_subagent(subagent_id)` tool plus a "terminate continuable state" button on the subagent session page, releasing continuable subagents started by this plugin whose activation receipt is retained; this covers only the current process and activation, and a later send_message cold resume creates a new untracked activation; since DSH 0.2.2 the host no longer exposes a public per-child close API;
 - **Observability** — when a subagent session is opened, its actual provider/model is shown below the composer (the real route is read from the session's `request/header` records; graceful degradation when unavailable);
@@ -125,6 +127,7 @@ main agent reads and the fixed role prompt the child session receives. Core fiel
 - `persona`: identity and style text appended after the system prompt;
 - `delegationGuidance`: guidance shown to the main agent;
 - `agentPreset`: optional DSH Agent Preset for tool composition;
+- `neverClose`: keep the card out of the closed pool;
 - `enabled` / `notes` / `createdAt` / `updatedAt`: state and human-only information.
 
 Cards are saved as per-record JSON and can be imported or exported one at a time or in bulk.
@@ -154,6 +157,26 @@ already exists you can skip, overwrite, or keep both. The old `roles` can be mig
 the same page; clearing the legacy settings fields is recommended after migration. See
 [docs/character-cards.md](docs/character-cards.md) for fields and storage details.
 
+Card weight is `1.6 * ln(1 + uses) + 0.5 ^ (idleDays / 30)`. The default card,
+imported/migrated cards, and `neverClose` cards are exempt from the closed pool; every other
+card enters it after 90 idle days, or after 30 idle days when used at most once. The closed
+pool never deletes a card: delegate to it by id once to refresh its use and restore it, or
+turn on its never-close switch. The pool only changes prompt and search visibility, so
+explicit delegation by id keeps working.
+
+The settings page shows each card's state, use count, and last use, filters by state, and
+orders by weight, recent use, or name. The closed-pool filter lists only cards that are
+closed and still enabled; disabled cards stay under Disabled. The page reloads the library
+snapshot when it regains focus or visibility and re-reads the clock once a minute while it
+stays open; the never-close switch only writes `neverClose` without refreshing the update
+time.
+
+Upgrading to 0.9.0: local cards created before the release have no usage record, so idle time
+is counted from `createdAt`. Cards older than 30 days with at most one use, or older than 90
+days, enter the closed pool; the built-in Director card, the default card, `neverClose`
+cards, and cards whose source is not `local` are exempt. Cards are never deleted and the
+paths above restore them.
+
 ## 🎬 Director Mode
 
 Director Mode is an **Agent Preset** introduced in 0.8.5; it is no longer a command or a
@@ -168,9 +191,11 @@ locale.
   including dynamically mounted MCP tools, so the main agent cannot use bash, file
   read/write/search, skill, workflow, or built-in subagent tools.
 - Every subagent must be started through a character card: the agent-scope
-  `subagent_role` override makes `role` required in Director sessions. When no card
-  matches, the main agent must first call `subagent_card_create`, then delegate to the
-  returned id. Legacy `roles` are not accepted in Director Mode; migrate them to cards.
+  `subagent_role` override makes `role` required in Director sessions. The main agent first
+  calls `subagent_card_search` (and `subagent_card_get` when full text is needed), reuses an
+  existing card, or restores a closed-pool card through one successful delegation; only when
+  no card matches does it call `subagent_card_create` and delegate to the returned id.
+  Legacy `roles` are not accepted in Director Mode; migrate them to cards.
 - The built-in `director` card appears only in Director session guidance and role
   resolution; it is not shown in the settings page, not exported, and cannot be
   overridden by a same-id card. It coordinates decomposition-heavy work and binds the

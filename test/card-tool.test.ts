@@ -15,10 +15,12 @@ describe('subagent_card_create tool', () => {
       system_prompt: 'You review security-sensitive changes.',
     });
     expect(result).toEqual({ cardId: 'security-reviewer', name: 'Security Reviewer' });
+    expect((tool as unknown as { description: string }).description).not.toContain('unpin');
     const stored = created.service.get('security-reviewer');
     expect(stored?.avoidGuidance).toBe('Do not use for UI copy edits.');
     expect(stored?.agentPreset).toBe('standard');
     expect(stored?.systemPrompt).toContain('security-sensitive');
+    expect(created.service.cardUsage('security-reviewer')?.uses).toBe(1);
   });
 
   it('never derives the reserved built-in id', async () => {
@@ -65,5 +67,21 @@ describe('subagent_card_create tool', () => {
         system_prompt: 'Z',
       }),
     ).rejects.toThrow(/storage is unavailable/);
+  });
+});
+describe('card creation usage statistics', () => {
+  it('still creates the card when the usage write fails', async () => {
+    const created = createCardService();
+    created.memory.failTablePuts.set('usage', new Set(['security-reviewer']));
+    await created.service.ready();
+    const tool = createCardCreateTool({ cards: created.service });
+    const result = await (tool as { execute: (args: unknown) => Promise<unknown> }).execute({
+      name: 'Security Reviewer',
+      delegation_guidance: 'Use when auth changes.',
+      system_prompt: 'Review security.',
+    });
+    expect(result).toEqual({ cardId: 'security-reviewer', name: 'Security Reviewer' });
+    expect(created.service.get('security-reviewer')).toBeDefined();
+    expect(created.service.cardUsage('security-reviewer')).toBeUndefined();
   });
 });

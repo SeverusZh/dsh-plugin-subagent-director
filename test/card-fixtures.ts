@@ -17,12 +17,15 @@ export interface MemoryDomain {
   global: { value: Record<string, unknown> };
   /** Record keys whose next write is rejected, for migration failure probes. */
   failPuts: Set<string>;
+  /** Table-scoped record keys whose next write is rejected, for stats probes. */
+  failTablePuts: Map<string, Set<string>>;
 }
 
 export function createMemoryDomain(): MemoryDomain {
   const tables: Tables = new Map();
   const global = { value: {} as Record<string, unknown> };
   const failPuts = new Set<string>();
+  const failTablePuts = new Map<string, Set<string>>();
   const domain = {
     name: 'subagent_director',
     global: {
@@ -44,7 +47,9 @@ export function createMemoryDomain(): MemoryDomain {
         keys: () => map.keys(),
         size: map.size,
         put: async (key: string, value: unknown) => {
-          if (failPuts.has(key)) throw new Error('injected put failure for ' + key);
+          if (failPuts.has(key) || failTablePuts.get(name)?.has(key) === true) {
+            throw new Error('injected put failure for ' + name + '/' + key);
+          }
           map.set(key, value);
         },
         delete: async (key: string) => map.delete(key),
@@ -67,6 +72,7 @@ export function createMemoryDomain(): MemoryDomain {
     tables,
     global,
     failPuts,
+    failTablePuts,
   };
 }
 

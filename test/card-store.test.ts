@@ -79,14 +79,17 @@ describe('card import and export', () => {
     );
     expect(skip.skipped).toBe(1);
     expect(skip.imported).toBe(1);
+    expect(skip.issues).toEqual([]);
     expect(service.get('a')?.name).toBe('A');
 
     const overwrite = await service.importCards([card('a', { name: 'A3' })], 'overwrite');
     expect(overwrite.overwritten).toBe(1);
+    expect(overwrite.issues).toEqual([]);
     expect(service.get('a')?.name).toBe('A3');
 
     const duplicate = await service.importCards([card('a', { name: 'A4' })], 'duplicate');
     expect(duplicate.duplicated).toBe(1);
+    expect(duplicate.issues).toEqual([]);
     expect(service.list().some((entry) => entry.name === 'A4')).toBe(true);
     expect(duplicate.cards[0]?.id).not.toBe('a');
   });
@@ -95,6 +98,17 @@ describe('card import and export', () => {
     const result = await service.importCards([{ name: '', delegationGuidance: 'x' }, card('ok')], 'skip');
     expect(result.imported).toBe(1);
     expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]).toMatchObject({ index: 0, code: 'invalid-field', field: 'name' });
+    expect(result.issues[0]?.message).toContain('name');
+  });
+
+  it('reports every invalid field of one card with its index', async () => {
+    const result = await service.importCards([{ id: 'broken' }], 'skip');
+    expect(result.imported).toBe(0);
+    expect(result.issues.map((issue) => [issue.index, issue.code, issue.field])).toEqual([
+      [0, 'invalid-field', 'name'],
+      [0, 'invalid-field', 'delegationGuidance'],
+    ]);
   });
 
   it('exports all or a selection as a versioned bundle', async () => {
@@ -247,6 +261,7 @@ describe('built-in director card', () => {
     await expect(service.put(card('director'), { create: true })).rejects.toThrow(/reserved/);
     const imported = await service.importCards([{ ...card('director'), id: 'director' }], 'skip');
     expect(imported.imported).toBe(0);
+    expect(imported.issues[0]).toMatchObject({ code: 'reserved-card-id', field: 'id', params: { id: 'director' } });
     expect(imported.issues[0]?.message).toContain('reserved');
     expect(service.list().map((entry) => entry.id)).toEqual([]);
   });
@@ -306,5 +321,101 @@ describe('reserved card rename durability', () => {
     expect(service.get('director')?.name).toBe('Old Custom');
     expect(cards.has('director')).toBe(true);
     expect(cards.has('old-custom-legacy')).toBe(false);
+  });
+});
+describe('card usage and closed pool', () => {
+  const AT = '2026-11-28T00:00:00.000Z';
+
+  it('records uses, exposes them in the snapshot, and serializes concurrent writes', async () => {
+    await service.put(card('reviewer'), { create: true });
+    await Promise.all(Array.from({ length: 5 }, () => service.recordCardUse('reviewer', AT)));
+    expect(service.cardUsage('reviewer')).toEqual({ uses: 5, lastUsedAt: AT });
+    expect(memory.tables.get('usage')?.get('reviewer')).toEqual({ uses: 5, lastUsedAt: AT });
+    expect(service.librarySnapshot().usage).toEqual({ reviewer: { uses: 5, lastUsedAt: AT } });
+  });
+
+  it('ignores usage for unknown cards and removes the record with the card', async () => {
+    await service.put(card('a'), { create: true });
+    await service.recordCardUse('ghost');
+    expect(service.cardUsage('ghost')).toBeUndefined();
+    await service.recordCardUse('a', AT);
+    await service.remove(['a']);
+    expect(service.cardUsage('a')).toBeUndefined();
+    expect(memory.tables.get('usage')?.has('a')).toBe(false);
+  });
+
+  it('keeps card writes independent from a failing usage write', async () => {
+    await service.put(card('a'), { create: true });
+    memory.failTablePuts.set('usage', new Set(['a']));
+    await expect(service.recordCardUse('a', AT)).resolves.toBeUndefined();
+    expect(service.cardUsage('a')).toBeUndefined();
+    expect(service.get('a')).toBeDefined();
+  });
+
+  it('pins and unpins without touching updatedAt', async () => {
+    const created = await service.put(card('a'), { create: true });
+    const pinned = await service.setNeverClose(['a'], true);
+    expect(pinned[0]?.neverClose).toBe(true);
+    expect(pinned[0]?.updatedAt).toBe(created.updatedAt);
+    const stored = memory.tables.get('cards')?.get('a') as { neverClose?: boolean; updatedAt?: string };
+    expect(stored.neverClose).toBe(true);
+    expect(stored.updatedAt).toBe(created.updatedAt);
+
+    const unpinned = await service.setNeverClose(['a'], false);
+    expect(unpinned[0]).not.toHaveProperty('neverClose');
+    expect(unpinned[0]?.updatedAt).toBe(created.updatedAt);
+    expect((memory.tables.get('cards')?.get('a') as { neverClose?: boolean }).neverClose).toBeUndefined();
+  });
+
+  it('keeps a pin when an editor-shaped draft omits neverClose', async () => {
+    await service.put(card('reviewer'), { create: true });
+    await service.setNeverClose(['reviewer'], true);
+    const draft = { id: 'reviewer', name: 'Card reviewer', delegationGuidance: 'Use this card for reviewer.' };
+
+    const saved = await service.put(draft, { create: false });
+    expect(saved.neverClose).toBe(true);
+    expect(service.get('reviewer')?.neverClose).toBe(true);
+    expect((memory.tables.get('cards')?.get('reviewer') as { neverClose?: boolean }).neverClose).toBe(true);
+
+    const cleared = await service.put({ ...draft, neverClose: false }, { create: false });
+    expect(cleared.neverClose).toBe(false);
+    expect((memory.tables.get('cards')?.get('reviewer') as { neverClose?: boolean }).neverClose).toBe(false);
+  });
+
+  it('keeps import overwrite semantics for neverClose', async () => {
+    await service.put(card('reviewer'), { create: true });
+    await service.setNeverClose(['reviewer'], true);
+    const result = await service.importCards(
+      [{ id: 'reviewer', name: 'Card reviewer', delegationGuidance: 'Replaced guidance.' }],
+      'overwrite',
+    );
+    expect(result.overwritten).toBe(1);
+    expect(service.get('reviewer')?.neverClose).toBeUndefined();
+  });
+
+  it('ranks a seeded library by weight while list() keeps display order', async () => {
+    const seeded = createCardService();
+    const cards = new Map<string, unknown>();
+    cards.set('hot', { ...card('hot', { name: 'Hot', createdAt: '2026-11-27T00:00:00.000Z' }) });
+    cards.set('cold', { ...card('cold', { name: 'Cold', createdAt: '2026-01-01T00:00:00.000Z' }) });
+    cards.set('imported', {
+      ...card('imported', { name: 'Imported', createdAt: '2025-01-01T00:00:00.000Z', source: 'import' }),
+    });
+    seeded.memory.tables.set('cards', cards);
+    await seeded.service.ready();
+    await seeded.service.recordCardUse('hot', '2026-11-28T00:00:00.000Z');
+
+    const ranked = seeded.service.rankedCards({ now: Date.parse('2026-11-28T12:00:00.000Z') });
+    expect(ranked.map((entry) => [entry.card.id, entry.state])).toEqual([
+      ['hot', 'active'],
+      ['cold', 'closed'],
+      ['imported', 'exempt'],
+    ]);
+    expect(seeded.service.list().map((entry) => entry.id)).toEqual(['cold', 'hot', 'imported']);
+  });
+
+  it('includes the built-in Director card only when asked', () => {
+    expect(service.rankedCards().map((entry) => entry.card.id)).toEqual([]);
+    expect(service.rankedCards({ includeBuiltIn: true }).map((entry) => entry.card.id)).toContain('director');
   });
 });

@@ -10,6 +10,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 /** Global tools the Director main agent may call in addition to configured ones. */
 export const DIRECTOR_ALLOWED_TOOLS = [
   'subagent_card_create',
+  'subagent_card_search',
+  'subagent_card_get',
   'close_subagent',
   'list_agents',
   'wait_agent',

@@ -100,3 +100,16 @@ export function IconLayers(props: IconProps): JSX.Element {
 export function IconShield(props: IconProps): JSX.Element {
   return <Icon {...props}><path d="M12 3 4 6v6c0 4.5 3.4 7.7 8 9 4.6-1.3 8-4.5 8-9V6l-8-3Z" /><path d="m8.5 12 2.2 2.2 4.8-4.8" /></Icon>;
 }
+
+/** One director node delegating to three children; matches the manifest icon. */
+export function IconDirector(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="4.8" r="2.3" />
+      <circle cx="5.2" cy="17.6" r="2.3" />
+      <circle cx="12" cy="17.6" r="2.3" />
+      <circle cx="18.8" cy="17.6" r="2.3" />
+      <path d="M12 7.1v3.3M5.2 10.4v4.9M12 10.4v4.9M18.8 10.4v4.9M5.2 10.4h13.6" />
+    </Icon>
+  );
+}

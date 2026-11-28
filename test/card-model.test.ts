@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   CARD_BUNDLE_KIND,
+  CARD_FORMAT_VERSION,
+  CARD_IMPORT_ISSUE_CODES,
   CARD_KIND,
+  CARD_LIMITS,
   cardIdFromName,
   parseTagInput,
   renderCardPrompt,
@@ -13,6 +16,7 @@ import {
   parseCardDraft,
   parseCardImportPayload,
   parseImportedCard,
+  validateImportedCard,
 } from '../src/card-model.js';
 
 const baseCard = {
@@ -91,6 +95,15 @@ describe('portable card envelope', () => {
     expect(parseImportedCard({ ...baseCard, id: 'other', source: 'builtin' }, new Set()).issue).toContain('reserved');
   });
 
+  it('round-trips the optional neverClose pin through parse and export', () => {
+    const parsed = parseImportedCard({ ...baseCard, id: 'pinned', neverClose: true }, new Set());
+    expect(parsed.card?.neverClose).toBe(true);
+    expect(buildCardBundle([parsed.card!]).cards[0]?.neverClose).toBe(true);
+
+    const draft = parseCardDraft({ name: 'Unpinned', description: 'Guide.' }, new Set());
+    expect(draft.card?.neverClose).toBeUndefined();
+  });
+
   it('accepts a settings draft with a tag string and a description alias', () => {
     const parsed = parseCardDraft(
       {
@@ -154,5 +167,131 @@ describe('card projection and migration', () => {
     expect(text).toContain('Character card: X');
     expect(text).toContain('S');
     expect(text).toContain('Persona:\nP');
+  });
+});
+describe('structured import issues', () => {
+  it('codes non-object entries and envelope structure problems', () => {
+    const nonObject = parseCardImportPayload([baseCard, 42]);
+    expect(nonObject.issues[0]).toMatchObject({ index: 1, code: 'not-an-object' });
+    expect(nonObject.issues[0]?.message).toContain('Expected a JSON object');
+
+    const missingCards = parseCardImportPayload({ kind: CARD_BUNDLE_KIND, cards: 42 });
+    expect(missingCards.issues[0]).toMatchObject({
+      code: 'missing-cards-array',
+      field: 'cards',
+      path: ['cards'],
+    });
+
+    const missingCard = parseCardImportPayload({ kind: CARD_KIND, card: undefined });
+    expect(missingCard.issues[0]).toMatchObject({
+      code: 'missing-card-object',
+      field: 'card',
+      path: ['card'],
+    });
+  });
+
+  it('codes an unsupported format version with interpolation params', () => {
+    const parsed = parseCardImportPayload({ kind: CARD_BUNDLE_KIND, version: 99, cards: [baseCard] });
+    expect(parsed.cards).toHaveLength(0);
+    expect(parsed.issues[0]).toMatchObject({
+      code: 'unsupported-format-version',
+      field: 'version',
+      path: ['version'],
+      params: { version: 99, maxVersion: CARD_FORMAT_VERSION },
+    });
+    expect(parsed.issues[0]?.message).toContain('Unsupported card format version');
+  });
+
+  it('codes too many cards with count and max params', () => {
+    const many = Array.from({ length: CARD_LIMITS.importCards + 1 }, () => ({ ...baseCard }));
+    const parsed = parseCardImportPayload(many);
+    expect(parsed.cards).toHaveLength(0);
+    expect(parsed.issues[0]).toMatchObject({
+      code: 'too-many-cards',
+      field: 'cards',
+      path: ['cards'],
+      params: { count: CARD_LIMITS.importCards + 1, max: CARD_LIMITS.importCards },
+    });
+    expect(parsed.issues[0]?.message).toContain('Too many cards');
+  });
+
+  it('codes field validation failures with field, path, and a reason', () => {
+    const missingName = validateImportedCard({ ...baseCard, name: '  ' }, new Set());
+    expect(missingName.card).toBeUndefined();
+    expect(missingName.issues[0]).toMatchObject({
+      code: 'invalid-field',
+      field: 'name',
+      path: ['name'],
+      params: { reason: expect.any(String) },
+    });
+    expect(missingName.issues[0]?.message).toContain('name');
+
+    const wrongType = validateImportedCard({ ...baseCard, enabled: 'yes' }, new Set());
+    expect(wrongType.issues[0]).toMatchObject({ code: 'invalid-field', field: 'enabled', path: ['enabled'] });
+
+    const nested = validateImportedCard({ ...baseCard, model: { model: 42 } }, new Set());
+    expect(nested.issues[0]).toMatchObject({ code: 'invalid-field', field: 'model', path: ['model', 'model'] });
+  });
+
+  it('reports every invalid field of one card as a separate issue', () => {
+    const multiple = validateImportedCard({ id: 'broken' }, new Set());
+    expect(multiple.card).toBeUndefined();
+    expect(multiple.issues.map((issue) => [issue.code, issue.field])).toEqual([
+      ['invalid-field', 'name'],
+      ['invalid-field', 'delegationGuidance'],
+    ]);
+    expect(multiple.issues.every((issue) => issue.id === 'broken')).toBe(true);
+  });
+
+  it('codes invalid and reserved ids plus the reserved source', () => {
+    const invalidId = validateImportedCard({ ...baseCard, id: 'Bad ID!' }, new Set());
+    expect(invalidId.issues[0]).toMatchObject({
+      code: 'invalid-card-id',
+      field: 'id',
+      path: ['id'],
+      id: 'Bad ID!',
+      params: { id: 'Bad ID!' },
+    });
+
+    const reservedId = validateImportedCard({ ...baseCard, id: 'director' }, new Set());
+    expect(reservedId.issues[0]).toMatchObject({
+      code: 'reserved-card-id',
+      field: 'id',
+      path: ['id'],
+      params: { id: 'director' },
+    });
+    expect(reservedId.issues[0]?.message).toContain('reserved');
+
+    const reservedSource = validateImportedCard({ ...baseCard, id: 'other', source: 'builtin' }, new Set());
+    expect(reservedSource.issues[0]).toMatchObject({
+      code: 'reserved-card-source',
+      field: 'source',
+      path: ['source'],
+      params: { source: 'builtin' },
+    });
+    expect(reservedSource.issues[0]?.message).toContain('reserved');
+  });
+
+  it('keeps the legacy single-message projection unchanged', () => {
+    expect(parseImportedCard({ ...baseCard, name: '  ' }, new Set()).issue).toContain('name');
+    expect(parseImportedCard({ ...baseCard, id: 'director' }, new Set()).issue).toContain('reserved');
+  });
+
+  it('publishes the stable code vocabulary, including reserved conflict codes', () => {
+    expect(CARD_IMPORT_ISSUE_CODES).toEqual(
+      expect.arrayContaining([
+        'not-an-object',
+        'unsupported-format-version',
+        'missing-cards-array',
+        'missing-card-object',
+        'too-many-cards',
+        'invalid-field',
+        'invalid-card-id',
+        'reserved-card-id',
+        'reserved-card-source',
+        'card-id-conflict',
+        'card-name-conflict',
+      ]),
+    );
   });
 });
