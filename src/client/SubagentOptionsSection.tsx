@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
 import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client';
 import type { SnapshotSelectorHook } from './bind.js';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
-import { isCardEnabled, type CharacterCard } from '../card-types.js';
+import { isCardEnabled, type CardMigrationResult, type CharacterCard } from '../card-types.js';
 import { modelsForProvider, providerNames } from './allowed-routes.js';
 import type { SubagentDirectorKey } from './locales.js';
 import type { SubagentOptionsState, SubagentOptionsStore } from './store.js';
@@ -21,6 +21,7 @@ import { CharacterCardTile } from './CharacterCardTile.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
 import { ImportDialog } from './ImportDialog.js';
 import { CARD_FILTERS, CARD_SORTS, cardLibraryRows, type CardFilter, type CardSort } from './card-library-view.js';
+import { watchLibraryActivity } from './library-activity.js';
 import { withReplacement } from './text.js';
 import {
   IconChevron,
@@ -80,6 +81,28 @@ interface Notice {
   text: string;
 }
 
+/**
+ * User-facing outcome of one legacy migration. Host diagnostics never enter
+ * this text: when clearing the legacy fields was requested but did not happen,
+ * the page states that with localized copy and keeps the dialog open.
+ */
+export function legacyMigrationNotice(
+  t: (key: SubagentDirectorKey) => string,
+  result: CardMigrationResult,
+  options: { clearRequested: boolean; cleared: boolean },
+): { tone: Notice['tone']; text: string; close: boolean } {
+  const text = withReplacement(t('legacyResult'), {
+    migrated: result.migrated.length,
+    skipped: result.skipped.length,
+    failed: result.failed.length,
+  });
+  if (result.failed.length > 0) return { tone: 'error', text, close: false };
+  if (options.clearRequested && !options.cleared) {
+    return { tone: 'info', text: text + ' ' + t('legacyClearFailed'), close: false };
+  }
+  return { tone: 'success', text, close: options.cleared || result.migrated.length > 0 };
+}
+
 function downloadJson(value: unknown, filename: string): void {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -126,6 +149,7 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   const [migrateBusy, setMigrateBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
 
   useEffect(() => {
     if (state.status === 'idle' && !state.loading) void controller.load();
@@ -136,6 +160,16 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
     const timer = window.setTimeout(() => setNotice(null), 5000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    return watchLibraryActivity({
+      window,
+      document,
+      refresh: () => { void controller.refreshCards(); },
+      onTick: setClock,
+    });
+  }, [controller]);
 
   useEffect(() => {
     setSelected((current) => {
@@ -153,14 +187,14 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   const defaultModel = [state.section?.defaultProvider, state.section?.defaultModel].filter((value) => value !== undefined && value !== '').join('/');
   const rows = useMemo(
     () => cardLibraryRows(state.cards, {
-      now: Date.now(),
+      now: clock,
       usage: state.usage,
       ...(state.defaultCardId !== undefined ? { defaultCardId: state.defaultCardId } : {}),
       filter,
       sort,
       query,
     }),
-    [state.cards, state.usage, state.defaultCardId, filter, sort, query],
+    [clock, state.cards, state.usage, state.defaultCardId, filter, sort, query],
   );
 
   if (state.status === 'error') {
@@ -321,23 +355,10 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
         notify('error', outcome.message);
         return;
       }
-      const { result, cleared, clearError } = outcome.value;
-      const summary =
-        withReplacement(t('legacyResult'), {
-          migrated: result.migrated.length,
-          skipped: result.skipped.length,
-          failed: result.failed.length,
-        }) + (clearError !== undefined ? ' ' + clearError : '');
-      if (result.failed.length > 0) {
-        notify('error', summary);
-        return;
-      }
-      if (clearError !== undefined) {
-        notify('info', summary);
-        return;
-      }
-      notify('success', summary);
-      if (cleared || result.migrated.length > 0) setMigrateOpen(false);
+      const { result, cleared } = outcome.value;
+      const outcomeNotice = legacyMigrationNotice(t, result, { clearRequested: migrateClear, cleared });
+      notify(outcomeNotice.tone, outcomeNotice.text);
+      if (outcomeNotice.close) setMigrateOpen(false);
     } finally {
       setMigrateBusy(false);
     }
@@ -394,7 +415,7 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
           <IconWarning size={18} />
           <div>
             <strong>{state.cardStorage.state === 'error' ? t('storageError') : t('storageUnavailable')}</strong>
-            <p>{state.cardStorage.message ?? t('storageHint')}</p>
+            <p>{t('storageHint')}</p>
           </div>
           <button type="button" className="sd-btn sd-btn-ghost" onClick={() => void controller.refreshCards()}>
             <IconRefresh size={14} /> {t('retryCards')}

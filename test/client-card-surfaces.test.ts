@@ -5,12 +5,13 @@
  */
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CARD_GLYPHS, type CharacterCard } from '../src/card-types.js';
 import { CardAvatar } from '../src/client/CardAvatar.js';
 import { CardEditor } from '../src/client/CardEditor.js';
+import { CharacterCardTile, CardPinToggle } from '../src/client/CharacterCardTile.js';
 import { en } from '../src/client/locales.js';
-import { SubagentOptionsSection } from '../src/client/SubagentOptionsSection.js';
+import { SubagentOptionsSection, legacyMigrationNotice } from '../src/client/SubagentOptionsSection.js';
 import { initialSubagentOptionsState, type SubagentOptionsState, type SubagentOptionsStore } from '../src/client/store.js';
 
 const t = (key: keyof typeof en): string => en[key];
@@ -147,6 +148,97 @@ describe('card editor avatar picker', () => {
     expect(html).toContain('🧭');
     expect(html).not.toContain('Current custom glyph');
     expect(html).toContain('sd-avatar-option is-active');
+  });
+});
+
+describe('localized diagnostics', () => {
+  it('renders localized storage copy instead of the host English message', () => {
+    const html = renderPage(readyState({
+      cards: [],
+      cardStorage: { state: 'error', message: 'EACCES: permission denied, open /root/storage' },
+    }));
+    expect(html).toContain('Card storage error');
+    expect(html).toContain('Cards are persisted by the DSH storage domain');
+    expect(html).not.toContain('EACCES');
+    expect(html).not.toContain('permission denied');
+  });
+
+  it('renders without browser globals', () => {
+    expect(typeof window).toBe('undefined');
+    expect(renderPage(readyState({ cards: [] }))).toContain('Character cards');
+  });
+});
+
+describe('card pin switch', () => {
+  it('stops click and keyboard propagation to the card selection', () => {
+    const element = CardPinToggle({ label: 'Never close', checked: false, onToggle: () => {} });
+    const props = (element as unknown as {
+      props: {
+        onClick: (event: { stopPropagation(): void }) => void;
+        onKeyDown: (event: { stopPropagation(): void }) => void;
+      };
+    }).props;
+    const click = { stopPropagation: vi.fn() };
+    props.onClick(click);
+    expect(click.stopPropagation).toHaveBeenCalledTimes(1);
+    const key = { stopPropagation: vi.fn() };
+    props.onKeyDown(key);
+    expect(key.stopPropagation).toHaveBeenCalledTimes(1);
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain('class="sd-pin"');
+    expect(html).toContain('type="checkbox"');
+  });
+
+  it('keeps the pin switch beside the selection checkbox in selection mode', () => {
+    const html = renderToStaticMarkup(createElement(CharacterCardTile, {
+      card: card('used', 'Used'),
+      isDefault: false,
+      selectionMode: true,
+      selected: false,
+      usage: undefined,
+      usageState: 'active',
+      t,
+      onToggleSelect: () => {},
+      onEdit: () => {},
+      onSetDefault: () => {},
+      onDuplicate: () => {},
+      onExport: () => {},
+      onToggleEnabled: () => {},
+      onToggleNeverClose: () => {},
+      onDelete: () => {},
+    } as never));
+    expect(html).toContain('sd-card-select');
+    expect(html).toContain('sd-pin');
+    expect(html).toContain('Never close');
+  });
+});
+
+describe('legacy migration notice', () => {
+  const result = { migrated: ['a'], skipped: [], failed: [], remainingLegacy: [] };
+
+  it('states a failed legacy clear with localized copy, not the host error', () => {
+    const notice = legacyMigrationNotice(t, result, { clearRequested: true, cleared: false });
+    expect(notice.tone).toBe('info');
+    expect(notice.close).toBe(false);
+    expect(notice.text).toContain('Migration finished, but the legacy settings could not be cleared.');
+  });
+
+  it('closes after a successful clear or a run that does not request clearing', () => {
+    expect(legacyMigrationNotice(t, result, { clearRequested: true, cleared: true }))
+      .toMatchObject({ tone: 'success', close: true });
+    expect(legacyMigrationNotice(t, result, { clearRequested: false, cleared: false }))
+      .toMatchObject({ tone: 'success', close: true });
+  });
+
+  it('reports failed migrations without carrying host text', () => {
+    const notice = legacyMigrationNotice(
+      t,
+      { ...result, failed: [{ id: 'a', message: 'EACCES permission denied' }] },
+      { clearRequested: true, cleared: false },
+    );
+    expect(notice.tone).toBe('error');
+    expect(notice.close).toBe(false);
+    expect(notice.text).not.toContain('EACCES');
   });
 });
 

@@ -82,9 +82,13 @@ describe('character-card settings page render', () => {
     expect(html).toContain('legacyMigrate');
   });
 
-  it('renders the storage warning when cards are unavailable', () => {
-    const html = render(readyState({ cardStorage: { state: 'unavailable', message: 'No storage' } }));
+  it('renders the storage warning without host diagnostics', () => {
+    const html = render(readyState({
+      cardStorage: { state: 'unavailable', message: 'EACCES: permission denied, open /root/storage' },
+    }));
     expect(html).toContain('storageUnavailable');
-    expect(html).toContain('No storage');
+    expect(html).toContain('storageHint');
+    expect(html).not.toContain('EACCES');
+    expect(html).not.toContain('permission denied');
   });
 });

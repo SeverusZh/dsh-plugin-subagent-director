@@ -160,10 +160,20 @@ the same page; clearing the legacy settings fields is recommended after migratio
 Card weight is `1.6 * ln(1 + uses) + 0.5 ^ (idleDays / 30)`. The default card,
 imported/migrated cards, and `neverClose` cards are exempt from the closed pool; every other
 card enters it after 90 idle days, or after 30 idle days when used at most once. The closed
-pool only changes prompt and search visibility: explicit delegation by id still works, and a
-successful delegation brings the card back. The settings page shows each card's state, use
-count, and last use, filters by state, orders by weight, recent use, or name, and the
-never-close switch only writes `neverClose` without refreshing the update time.
+pool never deletes a card: delegate to it by id once to refresh its use and restore it, or
+turn on its never-close switch. The pool only changes prompt and search visibility, so
+explicit delegation by id keeps working.
+
+The settings page shows each card's state, use count, and last use, filters by state, and
+orders by weight, recent use, or name. The closed-pool filter lists only cards that are
+closed and still enabled; disabled cards stay under Disabled. The page reloads the library
+snapshot when it regains focus or visibility and re-reads the clock once a minute while it
+stays open; the never-close switch only writes `neverClose` without refreshing the update
+time.
+
+Upgrading to 0.9.0: local cards created before the release have no usage record, so idle time
+is counted from `createdAt`. Cards older than 30 days with at most one use, or older than 90
+days, enter the closed pool; they are never deleted and the paths above restore them.
 
 ## 🎬 Director Mode
 

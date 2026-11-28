@@ -109,7 +109,7 @@ describe('card library store', () => {
     const state = store.store.getSnapshot();
     expect(state.status).toBe('ready');
     expect(state.allowedRoutes).toEqual([]);
-    expect(state.cardStorage).toEqual({ state: 'error', message: 'T:bridgeUnavailable' });
+    expect(state.cardStorage).toEqual({ state: 'error' });
   });
 
   it('does not pass an internal English message through to the card banner', async () => {
@@ -120,7 +120,43 @@ describe('card library store', () => {
     });
     await store.load();
     const state = store.store.getSnapshot();
-    expect(state.cardStorage).toEqual({ state: 'error', message: 'T:requestFailed' });
-    expect(JSON.stringify(state.cardStorage)).not.toContain('unavailable');
+    expect(state.cardStorage).toEqual({ state: 'error' });
+    expect(JSON.stringify(state)).not.toContain('card library unavailable');
+  });
+
+  it('drops the host storage diagnostic from an acknowledged library', async () => {
+    const { store } = harness((endpoint) => {
+      if (endpoint === 'settingsView') return viewReply();
+      if (endpoint === 'settingsCatalog') return { ok: true, value: { modelSelectionEnabled: false, allowedRoutes: [] } };
+      return {
+        ok: true,
+        value: library({ storage: { state: 'error', message: 'EACCES: permission denied, open /root/storage' } }),
+      };
+    });
+    await store.load();
+    const state = store.store.getSnapshot();
+    expect(state.cardStorage).toEqual({ state: 'error' });
+    expect(JSON.stringify(state.cardStorage)).not.toContain('EACCES');
+  });
+
+  it('keeps the host clear-error diagnostic off the migration outcome', async () => {
+    const migratedLibrary = library({ legacyRoles: [] });
+    const { store } = harness(() => ({
+      ok: true,
+      value: {
+        result: { migrated: ['alpha'], skipped: [], failed: [], remainingLegacy: [] },
+        library: migratedLibrary,
+        cleared: false,
+        clearError: 'settings mutate failed: EACCES permission denied',
+      },
+    }));
+    const outcome = await store.migrateLegacy(true);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.value).toEqual({
+      result: { migrated: ['alpha'], skipped: [], failed: [], remainingLegacy: [] },
+      cleared: false,
+    });
+    expect('clearError' in outcome.value).toBe(false);
   });
 });

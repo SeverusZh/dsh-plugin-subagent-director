@@ -146,11 +146,10 @@ export type CardActionResult<T> = { ok: true; value: T } | { ok: false; message:
 export type CardImportOutcome = CardActionResult<CardImportResult>;
 /** Export outcome. */
 export type CardExportOutcome = CardActionResult<CharacterCardBundle>;
-/** Migration outcome. */
+/** Migration outcome; host diagnostics beyond the counters stay off this face. */
 export type CardMigrationOutcome = CardActionResult<{
   result: CardMigrationResult;
   cleared: boolean;
-  clearError?: string;
 }>;
 
 /** The settings page controller. */
@@ -249,7 +248,7 @@ export class SubagentOptionsStore {
           s.cards = [];
           s.usage = {};
           s.legacyRoles = [];
-          s.cardStorage = { state: 'error', message: cardsResult.message };
+          s.cardStorage = { state: 'error' };
         }
       });
     } catch (error) {
@@ -268,7 +267,9 @@ export class SubagentOptionsStore {
     state.defaultCardId = library.defaultCardId;
     state.legacyRoles = library.legacyRoles;
     state.legacyDefaultRole = library.legacyDefaultRole;
-    state.cardStorage = library.storage;
+    // Host storage diagnostics are English-only; the page renders localized
+    // copy from the state and never the host message.
+    state.cardStorage = { state: library.storage.state };
   }
 
   private commitLibrary(library: CardLibrarySnapshot): void {
@@ -348,7 +349,6 @@ export class SubagentOptionsStore {
       value: {
         result: result.value.result,
         cleared: result.value.cleared,
-        ...(result.value.clearError !== undefined ? { clearError: result.value.clearError } : {}),
       },
     };
   }

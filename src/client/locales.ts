@@ -212,6 +212,7 @@ export type SubagentDirectorKey =
   | 'legacyClear'
   | 'legacyClearHint'
   | 'legacyResult'
+  | 'legacyClearFailed'
   | 'legacyNone'
   | 'legacyFailed'
   | 'statCards'
@@ -470,6 +471,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "legacyClear": "Also clear the legacy fields",
   "legacyClearHint": "Removes `roles` and `defaultRole` from the plugin configuration after a successful migration.",
   "legacyResult": "Migrated {migrated}, skipped {skipped}, failed {failed}.",
+  "legacyClearFailed": "Migration finished, but the legacy settings could not be cleared.",
   "legacyNone": "No legacy roles remain.",
   "legacyFailed": "Migration failed: {message}",
   "statCards": "Cards",
@@ -729,6 +731,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "legacyClear": "同时清除旧配置字段",
   "legacyClearHint": "迁移成功后从插件配置中移除 `roles` 与 `defaultRole`。",
   "legacyResult": "已迁移 {migrated}，跳过 {skipped}，失败 {failed}。",
+  "legacyClearFailed": "角色已迁移，但旧配置未能清除。",
   "legacyNone": "已无旧版角色。",
   "legacyFailed": "迁移失败：{message}",
   "statCards": "角色卡",

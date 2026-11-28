@@ -42,6 +42,27 @@ const STATE_TONES: Record<CardVisibleState, string> = {
   disabled: ' sd-chip-muted',
 };
 
+/** Keep the pin interaction from reaching the card selection handler. */
+function stopCardSelection(event: { stopPropagation(): void }): void {
+  event.stopPropagation();
+}
+
+export interface CardPinToggleProps {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}
+
+/** Pin switch whose click and keyboard events never bubble to the card. */
+export function CardPinToggle(props: CardPinToggleProps): JSX.Element {
+  return (
+    <label className="sd-pin" title={props.label} onClick={stopCardSelection} onKeyDown={stopCardSelection}>
+      <input type="checkbox" checked={props.checked} onChange={props.onToggle} />
+      <span>{props.label}</span>
+    </label>
+  );
+}
+
 function modelLabel(card: CharacterCard): string | undefined {
   const provider = card.model?.provider;
   const model = card.model?.model;
@@ -172,10 +193,11 @@ export function CharacterCardTile(props: CharacterCardTileProps): JSX.Element {
         <span className="sd-status-stat">
           {lastUsed !== undefined ? withReplacement(t('cardLastUsed'), { time: lastUsed }) : t('cardNeverUsed')}
         </span>
-        <label className="sd-pin" title={t('cardNeverClose')}>
-          <input type="checkbox" checked={card.neverClose === true} onChange={props.onToggleNeverClose} />
-          <span>{t('cardNeverClose')}</span>
-        </label>
+        <CardPinToggle
+          label={t('cardNeverClose')}
+          checked={card.neverClose === true}
+          onToggle={props.onToggleNeverClose}
+        />
       </div>
 
       {!selectionMode ? (
