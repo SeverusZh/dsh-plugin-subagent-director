@@ -5,7 +5,7 @@ Director Mode 是 0.8.5 引入的 Agent Preset。它不是命令，也不是工�
 
 ## 主代理
 
-- 只保留编排工具：`subagent_role`、`subagent_card_create`、`close_subagent`、
+- 只保留编排工具：`subagent_role`、`subagent_card_search`、`subagent_card_get`、`subagent_card_create`、`close_subagent`、
   `list_agents` / `send_message` / `wait_agent`、`ask_user_question` 与 Agent Teams
   任务板；另允许 `session_send_message` 做跨会话编排；
 - 预设不挂载 bash、文件读写/搜索、技能、workflow 或内置 subagent；宿主侧按白名单收窄工具目录，
@@ -18,7 +18,7 @@ Director Mode 是 0.8.5 引入的 Agent Preset。它不是命令，也不是工�
 ## 角色卡
 
 - 每个子代理都必须由角色卡唤起；Director 会话中的 `subagent_role` 要求 `role` 必填；
-- 没有匹配卡片时，先调用 `subagent_card_create` 创建，再用返回的 id 委派；
+- 先调用 `subagent_card_search` 检索（必要时 `subagent_card_get` 读全文），优先复用或恢复已有卡片；没有匹配卡片时才调用 `subagent_card_create` 创建，再用返回的 id 委派；
 - 普通卡片未绑定 `agentPreset` 时，子代理默认运行在 `standard` 工作预设；内置 `director` 卡显式绑定 `director` 预设；
 - 内置卡 `director` 只在 Director 会话的 guidance 与 role 解析中可见，不进入设置
   面板、导出或同 id 覆盖。

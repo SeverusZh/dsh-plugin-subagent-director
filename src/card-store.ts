@@ -39,9 +39,11 @@ import {
   type CardMigrationResult,
   type CardPromptBinding,
   type CardStorageStatus,
+  type CardUsageSnapshot,
   type CharacterCard,
   type CharacterCardBundle,
 } from './card-types.js';
+import { rankCards, type RankedCard } from './card-weight.js';
 import type { RoleTemplate, SubagentDirectorSettings } from './route-resolver.js';
 import { BUILTIN_DIRECTOR_CARD } from './director-card.js';
 import { DIRECTOR_CARD_ID } from './director.js';
@@ -67,6 +69,18 @@ export const CardBindingSchema = z.object({
   createdAt: z.number().int().nonnegative(),
 });
 
+/**
+ * Successful-delegation counters for one card. Usage records live under their
+ * own table so a statistics write never rewrites the card document itself.
+ */
+export const CardUsageRecordSchema = z.object({
+  uses: z.number().int().nonnegative(),
+  lastUsedAt: z.string().trim().min(1).max(80),
+});
+
+/** Inferred usage record shape stored under `usage/<cardId>.json`. */
+export type CardUsageRecord = z.infer<typeof CardUsageRecordSchema>;
+
 /** Global singleton stored alongside the card table. */
 const CardGlobalSchema = z.object({
   defaultCardId: z.string().trim().max(CARD_LIMITS.idLength).optional(),
@@ -87,6 +101,7 @@ export const cardDomainSpec = defineDomain({
   },
   tables: {
     cards: domainTable(CharacterCardSchema),
+    usage: domainTable(CardUsageRecordSchema),
     // Bindings are a disposable cache of fixed-prompt snapshots. Storing them
     // as unknown lets one corrupt binding be skipped instead of failing the
     // whole card domain at open; the schema validates each record below.
@@ -142,6 +157,8 @@ export class CardService {
   private storage: CardStorageStatus = { state: 'unavailable' };
   private defaultCardId: string | undefined;
   private readonly cards = new Map<string, CharacterCard>();
+  private readonly usage = new Map<string, CardUsageRecord>();
+  private usageChain: Promise<void> = Promise.resolve();
   private readonly bindings = new Map<string, CardPromptBinding>();
   private readonly listeners = new Set<() => void>();
 
@@ -209,6 +226,14 @@ export class CardService {
       this.defaultCardId = global.defaultCardId;
       for (const [id, card] of domain.table('cards').entries()) {
         this.cards.set(id, card);
+      }
+      for (const [cardId, raw] of domain.table('usage').entries()) {
+        const parsed = CardUsageRecordSchema.safeParse(raw);
+        if (parsed.success) this.usage.set(cardId, parsed.data);
+        else {
+          this.logger.warn('[subagent-director] discarding invalid card usage record ' + cardId);
+          void domain.table('usage').delete(cardId);
+        }
       }
       if (this.cards.has(DIRECTOR_CARD_ID)) {
         const legacy = this.cards.get(DIRECTOR_CARD_ID)!;
@@ -352,6 +377,7 @@ export class CardService {
       storage: this.storage,
       cards: this.list(),
       ...(this.defaultId() !== undefined ? { defaultCardId: this.defaultId() } : {}),
+      usage: this.cardUsageMap(),
       legacyRoles: Object.keys(settings.roles ?? {}),
       ...(settings.defaultRole !== undefined ? { legacyDefaultRole: settings.defaultRole } : {}),
     };
@@ -404,6 +430,68 @@ export class CardService {
     return undefined;
   }
 
+  /** Recorded usage counters for one card, when it has been used at all. */
+  cardUsage(cardId: string): CardUsageRecord | undefined {
+    return this.usage.get(cardId);
+  }
+
+  /** Immutable copy of every recorded usage counter, keyed by card id. */
+  cardUsageMap(): Record<string, CardUsageSnapshot> {
+    const snapshot: Record<string, CardUsageSnapshot> = {};
+    for (const [cardId, record] of this.usage) {
+      snapshot[cardId] = { uses: record.uses, lastUsedAt: record.lastUsedAt };
+    }
+    return snapshot;
+  }
+
+  /**
+   * Record one successful delegation for a card. Statistics are best-effort:
+   * an unavailable or failing storage write is logged and skipped so the
+   * delegation or card creation that triggered it never fails. Writes are
+   * serialized so concurrent delegations cannot lose an increment.
+   */
+  async recordCardUse(cardId: string, at: string = new Date().toISOString()): Promise<CardUsageSnapshot | undefined> {
+    if (this.domain === undefined || this.disposed) return undefined;
+    if (!this.cards.has(cardId)) return undefined;
+    const run = async (): Promise<CardUsageSnapshot | undefined> => {
+      if (this.domain === undefined || this.disposed) return undefined;
+      if (!this.cards.has(cardId)) return undefined;
+      const current = this.usage.get(cardId);
+      const next: CardUsageRecord = { uses: (current?.uses ?? 0) + 1, lastUsedAt: at };
+      try {
+        await this.domain.table('usage').put(cardId, next);
+      } catch (error) {
+        this.logger.warn(
+          '[subagent-director] could not record card usage for "' +
+            cardId +
+            '": ' +
+            (error instanceof Error ? error.message : String(error)),
+        );
+        return undefined;
+      }
+      this.usage.set(cardId, next);
+      return { uses: next.uses, lastUsedAt: next.lastUsedAt };
+    };
+    const pending = this.usageChain.then(run, run);
+    this.usageChain = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
+  }
+
+  /**
+   * Score and classify the current library. Ordering is weight descending then
+   * name ascending; `list()` keeps its alphabetical display order.
+   */
+  rankedCards(options: { now?: number | Date; includeBuiltIn?: boolean } = {}): RankedCard[] {
+    return rankCards(this.list({ includeBuiltIn: options.includeBuiltIn === true }), {
+      now: options.now ?? Date.now(),
+      usage: this.cardUsageMap(),
+      ...(this.defaultCardId !== undefined ? { defaultCardId: this.defaultCardId } : {}),
+    });
+  }
+
   /**
    * Create or update one card. Creation requires an unused id (or derives one
    * from the name); update keeps the original `createdAt`.
@@ -445,6 +533,17 @@ export class CardService {
       if (!this.cards.has(id)) continue;
       await this.domain!.table('cards').delete(id);
       this.cards.delete(id);
+      try {
+        await this.domain!.table('usage').delete(id);
+      } catch (error) {
+        this.logger.warn(
+          '[subagent-director] could not remove the usage record for "' +
+            id +
+            '": ' +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      }
+      this.usage.delete(id);
       removed.push(id);
     }
     if (this.defaultCardId !== undefined && removed.includes(this.defaultCardId)) {
@@ -470,6 +569,27 @@ export class CardService {
     await this.domain!.global.set({ ...global, defaultCardId: id });
     this.defaultCardId = id;
     this.notify();
+  }
+
+  /**
+   * Pin cards out of the closed pool or release them again. Only `neverClose`
+   * changes; `updatedAt` deliberately stays untouched so pinning does not look
+   * like a content edit.
+   */
+  async setNeverClose(ids: readonly string[], neverClose: boolean): Promise<CharacterCard[]> {
+    this.requireReady();
+    const changed: CharacterCard[] = [];
+    for (const id of ids) {
+      const card = this.cards.get(id);
+      if (card === undefined) continue;
+      if ((card.neverClose === true) === neverClose) continue;
+      const { neverClose: _current, ...rest } = card;
+      const next: CharacterCard = neverClose ? { ...rest, neverClose: true } : rest;
+      await this.writeCard(next);
+      changed.push(next);
+    }
+    if (changed.length > 0) this.notify();
+    return changed;
   }
 
   /** Enable or disable a batch; disabling the default clears the default. */
@@ -682,12 +802,16 @@ export interface CardServiceLike {
   retry?: () => Promise<void>;
   status(): CardStorageStatus;
   librarySnapshot(): CardLibrarySnapshot;
+  cardUsageMap(): Record<string, CardUsageSnapshot>;
+  rankedCards(options?: { now?: number | Date; includeBuiltIn?: boolean }): RankedCard[];
+  recordCardUse(cardId: string, at?: string): Promise<CardUsageSnapshot | undefined>;
   exportCards(ids?: readonly string[]): CharacterCardBundle;
   importCards(payload: unknown, strategy: CardImportStrategy): Promise<CardImportResult>;
   put(value: unknown, options?: { create: boolean; id?: string }): Promise<CharacterCard>;
   remove(ids: readonly string[]): Promise<string[]>;
   setDefault(id: string | undefined): Promise<void>;
   setEnabled(ids: readonly string[], enabled: boolean): Promise<CharacterCard[]>;
+  setNeverClose(ids: readonly string[], neverClose: boolean): Promise<CharacterCard[]>;
   migrateLegacy(
     legacy?: Record<string, LegacyRole>,
     legacyDefaultRole?: string,

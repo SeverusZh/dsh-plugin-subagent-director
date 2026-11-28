@@ -53,6 +53,7 @@ export const CharacterCardSchema = z.object({
   accent: z.enum(CARD_ACCENTS).optional(),
   notes: optionalText(CARD_LIMITS.notesLength),
   enabled: z.boolean().optional(),
+  neverClose: z.boolean().optional(),
   source: z.enum(['local', 'import', 'legacy', 'builtin']).optional(),
   createdAt: z.string().trim().max(80).optional(),
   updatedAt: z.string().trim().max(80).optional(),

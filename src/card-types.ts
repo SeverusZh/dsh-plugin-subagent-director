@@ -39,6 +39,26 @@ export const CARD_LIMITS = {
 /** Accent palette for card avatars in the settings surface. */
 export const CARD_ACCENTS = ['blue', 'violet', 'green', 'amber', 'rose', 'slate'] as const;
 
+/** Single-glyph avatar choices offered by the card editor. */
+export const CARD_GLYPHS = [
+  '✦',
+  '⚙',
+  '🛡',
+  '🧭',
+  '🔍',
+  '⚖',
+  '📐',
+  '🧪',
+  '📦',
+  '🎯',
+  '🌐',
+  '🧠',
+  '📝',
+  '🛠',
+  '🧩',
+  '🚀',
+] as const;
+
 /** One accent token name. */
 export type CardAccent = (typeof CARD_ACCENTS)[number];
 
@@ -77,6 +97,8 @@ export interface CharacterCard {
   notes?: string;
   /** Disabled cards stay stored but are not offered for delegation. Default true. */
   enabled?: boolean;
+  /** Keep the card out of the closed pool regardless of idle time or use count. */
+  neverClose?: boolean;
   /** Provenance of this card; `builtin` is reserved for code-defined cards. */
   source?: 'local' | 'import' | 'legacy' | 'builtin';
   /** ISO-8601 creation time, managed by the Host. */
@@ -131,11 +153,21 @@ export interface CardStorageStatus {
   message?: string;
 }
 
+/** Successful delegation counters for one card. */
+export interface CardUsageSnapshot {
+  /** Successful delegations recorded for this card. */
+  uses: number;
+  /** ISO-8601 time of the most recent recorded use. */
+  lastUsedAt: string;
+}
+
 /** Card library payload returned by the Host. */
 export interface CardLibrarySnapshot {
   storage: CardStorageStatus;
   cards: CharacterCard[];
   defaultCardId?: string;
+  /** Successful delegation counters keyed by card id; absent cards have never been used. */
+  usage: Record<string, CardUsageSnapshot>;
   /** Legacy settings role ids still present in the plugin config. */
   legacyRoles: string[];
   legacyDefaultRole?: string;

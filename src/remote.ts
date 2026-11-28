@@ -565,6 +565,7 @@ export async function dispatchCardList(deps: BridgeDeps): Promise<RpcResult<unkn
           message: 'the main subagent-director entry is not loaded; card storage is unavailable',
         },
         cards: [],
+        usage: {},
         legacyRoles: [],
       },
     };
@@ -775,13 +776,13 @@ export async function dispatchCardBatch(deps: BridgeDeps, payload: unknown): Pro
     request === null ||
     typeof request !== 'object' ||
     !Array.isArray(request.ids) ||
-    (action !== 'enable' && action !== 'disable' && action !== 'delete')
+    (action !== 'enable' && action !== 'disable' && action !== 'delete' && action !== 'pin' && action !== 'unpin')
   ) {
     return {
       ok: false,
       error: {
         code: 'bad-request',
-        message: 'cardBatch: expected { ids, action: "enable" | "disable" | "delete" }',
+        message: 'cardBatch: expected { ids, action: "enable" | "disable" | "delete" | "pin" | "unpin" }',
         details: { issues: [] },
       },
     };
@@ -791,6 +792,10 @@ export async function dispatchCardBatch(deps: BridgeDeps, payload: unknown): Pro
     if (action === 'delete') {
       const removed = await service.cards.remove(ids);
       return { ok: true, value: { library: service.cards.librarySnapshot(), cards: [], removed } };
+    }
+    if (action === 'pin' || action === 'unpin') {
+      const cards = await service.cards.setNeverClose(ids, action === 'pin');
+      return { ok: true, value: { library: service.cards.librarySnapshot(), cards, removed: [] } };
     }
     const cards = await service.cards.setEnabled(ids, action === 'enable');
     return { ok: true, value: { library: service.cards.librarySnapshot(), cards, removed: [] } };

@@ -9,6 +9,7 @@
 - 卡片文件：`<storage-root>/subagent_director/cards/<id>.json`；
 - 文件内容为存储域包装：`{ "version": 1, "record": <角色卡> }`；该 version 是存储域记录版本，与导出格式 version 2 独立；
 - 默认卡 id：同一域的 global 槽位，不写入插件公共配置；
+- 使用统计：`<storage-root>/subagent_director/usage/<id>.json`，每个文件为 `{ "version": 1, "record": { "uses": 1, "lastUsedAt": "..." } }`；该 version 同样是存储域记录版本；
 - 旧版 `roles` / `defaultRole`：仅作为迁移来源保留；迁移后可从配置中清除。Director Mode 的委派只接受角色卡，旧 `roles` 需先迁移。
 
 ## 字段
@@ -27,6 +28,7 @@
 | `emoji` / `accent` | 否 | 卡片展示 |
 | `notes` | 否 | 仅供人阅读，不发送给模型 |
 | `enabled` | 否 | 默认 true；停用卡不参与委派 |
+| `neverClose` | 否 | 默认 false；为 true 时永不进入关闭池，由设置页的「永不入池」开关维护 |
 | `source` | 否 | `local` / `import` / `legacy`；`builtin` 仅供代码内置卡 |
 | `createdAt` / `updatedAt` | 否 | ISO-8601，由 Host 维护 |
 
@@ -81,3 +83,53 @@ Director Mode 内置一张 id 为 `director` 的角色卡：
 
 迁移是幂等的：已存在的卡片 id 会跳过。`defaultRole` 在迁移时若指向被迁移的角色，且当前
 没有默认卡，会提升为默认卡。
+
+## 使用统计
+
+- 记录点：前台委派成功、后台委派成功、建卡成功各记录一次；委派或建卡失败不计；
+- 统计写入是尽力而为的旁路：存储不可用或写入失败只记录告警，不会让委派或建卡失败；
+- 写入按顺序串行化，多次并发委派不会丢失计数；
+- 删除卡片会同时删除它的统计记录；
+- 设置页快照的 `usage` 字段为 `Record<string, { uses: number; lastUsedAt: string }>`，没有统计的卡片视为从未使用；
+- 旧卡片没有统计记录时按「未使用」处理，不会因此被立即关闭。
+
+## 权重与关闭池
+
+权重公式：
+
+```
+score = 1.6 * ln(1 + uses) + 0.5 ^ (idleDays / 30)
+idleDays = (now - (lastUsedAt ?? createdAt)) / 一天
+```
+
+- `now` 由调用方注入，`src/card-weight.ts` 内部不读系统时间；
+- 关闭池判定优先看豁免：内置导演卡、默认卡、`neverClose` 卡片、`source` 非 `local` 的卡片一律豁免；
+- 非豁免卡满足任一条件即进入关闭池：空闲达到 90 天；或使用次数不超过 1 且空闲达到 30 天；
+- 状态三态为 `exempt`、`active`、`closed`，排序为权重降序、名称升序；
+- 关闭池只影响提示词与检索的默认可见性：显式用卡片 id 委派仍然可用，一次成功委派会刷新
+  `lastUsedAt` 并让卡片自动回到使用中；
+- 「永不入池」开关只写入 `neverClose`，不刷新 `updatedAt`。
+
+## 导演检索工具
+
+Director Mode 额外注册两个工具，只有导演主代理可见，且在白名单内：
+
+- `subagent_card_search`：参数 `query`、`tags`、`includeClosed`、`limit`。`query` 大小写不敏感地匹配
+  名称、id、标签、推荐/不推荐指引与备注；`tags` 取 AND；`limit` 默认 8、上限 25。默认不返回关闭池，
+  `includeClosed: true` 时关闭池卡片排在活跃卡片之后。每行包含 id、名称、状态、权重、使用次数、
+  最近使用时间、标签、模型以及前 160 字的推荐指引；
+- `subagent_card_get`：按卡片 id 或精确名称返回完整字段与统计状态，包括推荐/不推荐指引、固定系统
+  提示词、persona、备注、标签、模型路由、Agent Preset、`enabled` 与 `neverClose`。
+
+导演契约要求先检索再决定：先 `subagent_card_search`，需要全文时 `subagent_card_get`，能复用或
+恢复已有卡片就不新建；只有在没有匹配卡片时才调用 `subagent_card_create`。
+
+## 提示词预算
+
+主代理提示词不再整库塞入，规则如下：
+
+- 只渲染权重最高的 12 张活跃卡片，内置导演卡始终在列；
+- 关闭池卡片默认不出现在提示词里；
+- 单张卡片的推荐与不推荐指引各截断到 720 字，截断处标注可调用 `subagent_card_get` 读取全文；
+- 段落总字符上限 12000，超出时按权重舍弃靠后的卡片并明确告知省略数量与检索方式；
+- 头部给出库总数、本次列出数量、关闭池数量，并说明 `subagent_card_search` 与 `subagent_card_get` 的用法。

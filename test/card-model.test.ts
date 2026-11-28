@@ -91,6 +91,15 @@ describe('portable card envelope', () => {
     expect(parseImportedCard({ ...baseCard, id: 'other', source: 'builtin' }, new Set()).issue).toContain('reserved');
   });
 
+  it('round-trips the optional neverClose pin through parse and export', () => {
+    const parsed = parseImportedCard({ ...baseCard, id: 'pinned', neverClose: true }, new Set());
+    expect(parsed.card?.neverClose).toBe(true);
+    expect(buildCardBundle([parsed.card!]).cards[0]?.neverClose).toBe(true);
+
+    const draft = parseCardDraft({ name: 'Unpinned', description: 'Guide.' }, new Set());
+    expect(draft.card?.neverClose).toBeUndefined();
+  });
+
   it('accepts a settings draft with a tag string and a description alias', () => {
     const parsed = parseCardDraft(
       {

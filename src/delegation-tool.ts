@@ -114,7 +114,7 @@ export function createDelegationParameters(
       type: 'string',
       ...(requireRole ? { required: true } : {}),
       description: requireRole
-        ? 'Character-card id (required in Director Mode). If no existing card matches the task, create one with subagent_card_create first.'
+        ? 'Character-card id (required in Director Mode). Search the library with subagent_card_search first; create a card with subagent_card_create only when nothing matches.'
         : 'Character-card id (optional). Falls back to the configured default card when unset.',
     },
     provider: {
@@ -451,7 +451,7 @@ export function createDelegationTool(options: {
         type: 'string',
         ...(requireRole ? { required: true } : {}),
         description: requireRole
-          ? 'Character-card id (required in Director Mode). If no existing card matches the task, create one with subagent_card_create first.'
+          ? 'Character-card id (required in Director Mode). Search the library with subagent_card_search first; create a card with subagent_card_create only when nothing matches.'
           : 'Character-card id (optional). Falls back to the configured default card when unset.',
       },
       provider: {
@@ -672,6 +672,16 @@ export function createDelegationTool(options: {
           );
         }
       }
+      const noteCardUse = async (): Promise<void> => {
+        if (cards === undefined || card === undefined) return;
+        try {
+          await cards.recordCardUse(card.id);
+        } catch (error) {
+          ctx.logger.warn(
+            `[${DELEGATION_TOOL_PREFIX}] failed to record card usage for ${card.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      };
       const releaseCardBinding = async (): Promise<void> => {
         if (!cardBindingStarted || childId === undefined) return;
         try {
@@ -711,7 +721,9 @@ export function createDelegationTool(options: {
             signal: exec.signal,
             delivery: 'caller',
           });
-          return await settleForegroundActivation(activation);
+          const execution = await settleForegroundActivation(activation);
+          await noteCardUse();
+          return execution;
         } finally {
           await releaseCardBinding();
         }
@@ -733,6 +745,7 @@ export function createDelegationTool(options: {
           delivery: 'parent',
         });
         started = true;
+        await noteCardUse();
         if (transportProvider.prepareContinuable !== undefined) {
           trackResident(String(parent.id), activation);
           return { kind: 'continuable' as const, subagentId: activation.childId };

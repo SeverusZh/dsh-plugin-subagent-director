@@ -87,3 +87,108 @@ describe('renderRolesGuidance guidance split', () => {
     expect(renderRolesGuidance(legacy, 'subagent_role', cardSource, { director: true })).not.toContain('Legacy role templates');
   });
 });
+const GUIDANCE_NOW = Date.parse('2026-11-28T12:00:00.000Z');
+const DAY = 86_400_000;
+const daysBefore = (days: number): string => new Date(GUIDANCE_NOW - days * DAY).toISOString();
+
+function recentCard(id: string, overrides: Partial<CharacterCard> = {}): CharacterCard {
+  return {
+    id,
+    name: 'Card ' + id,
+    delegationGuidance: 'Use card ' + id + '.',
+    enabled: true,
+    source: 'local',
+    createdAt: daysBefore(1),
+    ...overrides,
+  };
+}
+
+function sourceOf(cards: CharacterCard[]) {
+  return {
+    list: (options?: { includeBuiltIn?: boolean }) =>
+      options?.includeBuiltIn === true ? [...cards, BUILTIN_DIRECTOR_CARD] : cards,
+  };
+}
+
+describe('guidance prompt budget', () => {
+  it('renders at most 12 active cards and says how many were omitted', () => {
+    const cards = Array.from({ length: 15 }, (_, index) => recentCard(String(index).padStart(2, '0')));
+    const text = renderRolesGuidance({}, 'subagent_role', sourceOf(cards), { now: GUIDANCE_NOW });
+    expect(text).toContain('Card library: 15 card(s) total, 12 listed here, 0 in the closed pool.');
+    expect(text).toContain('3 more active card(s) not listed here');
+    expect(text).toContain('Card 11');
+    expect(text).not.toContain('Card 12');
+  });
+
+  it('keeps the built-in Director card in the list when 12 other cards outrank it', () => {
+    const cards = Array.from({ length: 13 }, (_, index) => recentCard(String(index).padStart(2, '0')));
+    const text = renderRolesGuidance({}, 'subagent_role', sourceOf(cards), { director: true, now: GUIDANCE_NOW });
+    expect(text).toContain('Director [director]');
+    expect(text).toContain('Card library: 14 card(s) total, 12 listed here, 0 in the closed pool.');
+    expect(text).not.toContain('Card 11');
+    expect(text).toContain('Card 10');
+  });
+
+  it('excludes closed-pool cards and reports their count', () => {
+    const cards = [
+      recentCard('active'),
+      recentCard('stale', { createdAt: daysBefore(200) }),
+      { id: 'unused', name: 'Unused', delegationGuidance: 'Old.', enabled: true, source: 'local' as const, createdAt: daysBefore(45) },
+    ];
+    const text = renderRolesGuidance({}, 'subagent_role', sourceOf(cards), { now: GUIDANCE_NOW });
+    expect(text).toContain('Card library: 3 card(s) total, 1 listed here, 2 in the closed pool.');
+    expect(text).toContain('Card active');
+    expect(text).not.toContain('Card stale');
+    expect(text).not.toContain('Unused');
+    expect(text).toContain('Closed-pool cards are not listed here');
+  });
+
+  it('clips per-card guidance at 720 characters and points at the detail tool', () => {
+    const long = 'x'.repeat(900);
+    const text = renderRolesGuidance({}, 'subagent_role', sourceOf([recentCard('long', { delegationGuidance: long })]), {
+      now: GUIDANCE_NOW,
+    });
+    expect(text).toContain('x'.repeat(720));
+    expect(text).not.toContain('x'.repeat(721));
+    expect(text).toContain('truncated; call subagent_card_get');
+  });
+
+  it('caps the whole section at 12000 characters across many large cards', () => {
+    const cards = Array.from({ length: 12 }, (_, index) =>
+      recentCard(String(index).padStart(2, '0'), {
+        delegationGuidance: 'g'.repeat(1000),
+        avoidGuidance: 'a'.repeat(1000),
+      }),
+    );
+    const text = renderRolesGuidance({}, 'subagent_role', sourceOf(cards), { now: GUIDANCE_NOW });
+    expect(text.length).toBeLessThanOrEqual(12000);
+    expect(text).toContain('more active card(s) not listed here');
+    expect(text).toContain('Card library: 12 card(s) total');
+  });
+
+  it('keeps the built-in Director card even when the budget trims large cards', () => {
+    const cards = Array.from({ length: 12 }, (_, index) =>
+      recentCard(String(index).padStart(2, '0'), {
+        delegationGuidance: 'g'.repeat(1000),
+        avoidGuidance: 'a'.repeat(1000),
+      }),
+    );
+    const text = renderRolesGuidance({}, 'subagent_role', sourceOf(cards), {
+      director: true,
+      now: GUIDANCE_NOW,
+    });
+    expect(text.length).toBeLessThanOrEqual(12000);
+    expect(text).toContain('Director [director]');
+    expect(text).toContain('more active card(s) not listed here');
+  });
+
+  it('names the search and detail tools in the Director header', () => {
+    const text = renderRolesGuidance({}, 'subagent_role', sourceOf([recentCard('a')]), {
+      director: true,
+      now: GUIDANCE_NOW,
+    });
+    expect(text).toContain('subagent_card_search');
+    expect(text).toContain('subagent_card_get');
+    expect(text).toContain('Card library: 2 card(s) total');
+  });
+});

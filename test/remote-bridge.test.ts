@@ -766,6 +766,7 @@ describe('character-card bridge endpoints', () => {
       remove: vi.fn(async () => ['a']),
       setDefault: vi.fn(async () => {}),
       setEnabled: vi.fn(async () => []),
+      setNeverClose: vi.fn(async () => []),
       importCards: vi.fn(async () => ({
         imported: 1,
         overwritten: 0,
@@ -794,7 +795,24 @@ describe('character-card bridge endpoints', () => {
 
     const without = await dispatchCardList({ settings: {} as never });
     expect(without.ok).toBe(true);
-    if (without.ok) expect((without.value as { storage: { state: string } }).storage.state).toBe('unavailable');
+    if (without.ok) {
+      expect((without.value as { storage: { state: string } }).storage.state).toBe('unavailable');
+      expect((without.value as { usage: unknown }).usage).toEqual({});
+    }
+
+    const withUsage = await dispatchCardList({
+      settings: {} as never,
+      cards: () =>
+        fakeCards({
+          librarySnapshot: () => ({ ...library(), usage: { a: { uses: 2, lastUsedAt: '2026-11-28T00:00:00.000Z' } } }),
+        }),
+    });
+    expect(withUsage.ok).toBe(true);
+    if (withUsage.ok) {
+      expect((withUsage.value as { usage: Record<string, unknown> }).usage).toEqual({
+        a: { uses: 2, lastUsedAt: '2026-11-28T00:00:00.000Z' },
+      });
+    }
   });
 
   it('creates a card and returns the acknowledged library', async () => {
@@ -828,6 +846,13 @@ describe('character-card bridge endpoints', () => {
     expect(exported.ok).toBe(true);
     expect((await dispatchCardBatch(deps, { ids: ['a'], action: 'enable' })).ok).toBe(true);
     expect((await dispatchCardBatch(deps, { ids: ['a'], action: 'bad' })).ok).toBe(false);
+
+    const pin = await dispatchCardBatch(deps, { ids: ['a'], action: 'pin' });
+    expect(pin.ok).toBe(true);
+    expect((cards as unknown as { setNeverClose: ReturnType<typeof vi.fn> }).setNeverClose).toHaveBeenCalledWith(['a'], true);
+    const unpin = await dispatchCardBatch(deps, { ids: ['a'], action: 'unpin' });
+    expect(unpin.ok).toBe(true);
+    expect((cards as unknown as { setNeverClose: ReturnType<typeof vi.fn> }).setNeverClose).toHaveBeenCalledWith(['a'], false);
   });
 
   it('migrates legacy roles and clears the settings fields on request', async () => {

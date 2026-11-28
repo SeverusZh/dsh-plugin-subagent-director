@@ -308,3 +308,73 @@ describe('reserved card rename durability', () => {
     expect(cards.has('old-custom-legacy')).toBe(false);
   });
 });
+describe('card usage and closed pool', () => {
+  const AT = '2026-11-28T00:00:00.000Z';
+
+  it('records uses, exposes them in the snapshot, and serializes concurrent writes', async () => {
+    await service.put(card('reviewer'), { create: true });
+    await Promise.all(Array.from({ length: 5 }, () => service.recordCardUse('reviewer', AT)));
+    expect(service.cardUsage('reviewer')).toEqual({ uses: 5, lastUsedAt: AT });
+    expect(memory.tables.get('usage')?.get('reviewer')).toEqual({ uses: 5, lastUsedAt: AT });
+    expect(service.librarySnapshot().usage).toEqual({ reviewer: { uses: 5, lastUsedAt: AT } });
+  });
+
+  it('ignores usage for unknown cards and removes the record with the card', async () => {
+    await service.put(card('a'), { create: true });
+    await service.recordCardUse('ghost');
+    expect(service.cardUsage('ghost')).toBeUndefined();
+    await service.recordCardUse('a', AT);
+    await service.remove(['a']);
+    expect(service.cardUsage('a')).toBeUndefined();
+    expect(memory.tables.get('usage')?.has('a')).toBe(false);
+  });
+
+  it('keeps card writes independent from a failing usage write', async () => {
+    await service.put(card('a'), { create: true });
+    memory.failTablePuts.set('usage', new Set(['a']));
+    await expect(service.recordCardUse('a', AT)).resolves.toBeUndefined();
+    expect(service.cardUsage('a')).toBeUndefined();
+    expect(service.get('a')).toBeDefined();
+  });
+
+  it('pins and unpins without touching updatedAt', async () => {
+    const created = await service.put(card('a'), { create: true });
+    const pinned = await service.setNeverClose(['a'], true);
+    expect(pinned[0]?.neverClose).toBe(true);
+    expect(pinned[0]?.updatedAt).toBe(created.updatedAt);
+    const stored = memory.tables.get('cards')?.get('a') as { neverClose?: boolean; updatedAt?: string };
+    expect(stored.neverClose).toBe(true);
+    expect(stored.updatedAt).toBe(created.updatedAt);
+
+    const unpinned = await service.setNeverClose(['a'], false);
+    expect(unpinned[0]).not.toHaveProperty('neverClose');
+    expect(unpinned[0]?.updatedAt).toBe(created.updatedAt);
+    expect((memory.tables.get('cards')?.get('a') as { neverClose?: boolean }).neverClose).toBeUndefined();
+  });
+
+  it('ranks a seeded library by weight while list() keeps display order', async () => {
+    const seeded = createCardService();
+    const cards = new Map<string, unknown>();
+    cards.set('hot', { ...card('hot', { name: 'Hot', createdAt: '2026-11-27T00:00:00.000Z' }) });
+    cards.set('cold', { ...card('cold', { name: 'Cold', createdAt: '2026-01-01T00:00:00.000Z' }) });
+    cards.set('imported', {
+      ...card('imported', { name: 'Imported', createdAt: '2025-01-01T00:00:00.000Z', source: 'import' }),
+    });
+    seeded.memory.tables.set('cards', cards);
+    await seeded.service.ready();
+    await seeded.service.recordCardUse('hot', '2026-11-28T00:00:00.000Z');
+
+    const ranked = seeded.service.rankedCards({ now: Date.parse('2026-11-28T12:00:00.000Z') });
+    expect(ranked.map((entry) => [entry.card.id, entry.state])).toEqual([
+      ['hot', 'active'],
+      ['cold', 'closed'],
+      ['imported', 'exempt'],
+    ]);
+    expect(seeded.service.list().map((entry) => entry.id)).toEqual(['cold', 'hot', 'imported']);
+  });
+
+  it('includes the built-in Director card only when asked', () => {
+    expect(service.rankedCards().map((entry) => entry.card.id)).toEqual([]);
+    expect(service.rankedCards({ includeBuiltIn: true }).map((entry) => entry.card.id)).toContain('director');
+  });
+});

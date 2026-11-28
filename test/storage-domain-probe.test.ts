@@ -4,7 +4,7 @@
  * the production persistence shape — one JSON document per card under the
  * Host storage root — rather than only the in-memory test fake.
  */
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -63,6 +63,16 @@ describe('real storage domain probe', () => {
     expect(stored.record.id).toBe('probe-reviewer');
     expect(stored.record.name).toBe('Probe Reviewer');
 
+    await service.recordCardUse('probe-reviewer', '2026-11-28T00:00:00.000Z');
+    const usageFile = join(root, CARD_DOMAIN_NAME, 'usage', 'probe-reviewer.json');
+    const storedUsage = JSON.parse(await readFile(usageFile, 'utf8')) as {
+      version: number;
+      record: { uses: number; lastUsedAt: string };
+    };
+    expect(storedUsage.version).toBe(1);
+    expect(storedUsage.record.uses).toBe(1);
+    expect(storedUsage.record.lastUsedAt).toBe('2026-11-28T00:00:00.000Z');
+
     await service.dispose();
     const reopened = await (facility as {
       open(spec: typeof cardDomainSpec): Promise<{
@@ -73,5 +83,52 @@ describe('real storage domain probe', () => {
     const record = reopened.table('cards').get('probe-reviewer') as { name: string } | undefined;
     expect(record?.name).toBe('Probe Reviewer');
     expect(reopened.global.get().defaultCardId).toBe('probe-reviewer');
+  });
+});
+describe('legacy per-record tree without usage data', () => {
+  it('opens cards written before the usage table existed', async () => {
+    const legacyRoot = await mkdtemp(join(tmpdir(), 'sd-card-legacy-'));
+    try {
+      await mkdir(join(legacyRoot, CARD_DOMAIN_NAME, 'cards'), { recursive: true });
+      await writeFile(
+        join(legacyRoot, CARD_DOMAIN_NAME, 'cards', 'legacy-reviewer.json'),
+        JSON.stringify({
+          version: 1,
+          record: {
+            id: 'legacy-reviewer',
+            name: 'Legacy Reviewer',
+            delegationGuidance: 'Old guidance.',
+            enabled: true,
+            source: 'local',
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+        }),
+        'utf8',
+      );
+
+      const legacyCtx = new Context();
+      legacyCtx.plugin(Storage);
+      legacyCtx.plugin({ name: jsonName, inject: jsonInject, apply: applyJson, Config: JsonConfig }, { root: legacyRoot });
+      legacyCtx.plugin({ name: domainName, inject: domainInject, apply: applyDomain, Config: DomainConfig }, { backend: 'json' });
+      await settle();
+
+      const facility = (legacyCtx as unknown as { get(name: string): unknown }).get('storageDomain') as never;
+      const service = new CardService({
+        ctx: { logger: { info: () => {}, warn: () => {}, debug: () => {} } } as never,
+        getSettings: () => ({}),
+        logger: { info: () => {}, warn: () => {}, debug: () => {} },
+      });
+      service.attachStorage(facility);
+      await service.ready();
+
+      expect(service.status().state).toBe('ready');
+      expect(service.list().map((entry) => entry.id)).toEqual(['legacy-reviewer']);
+      expect(service.librarySnapshot().usage).toEqual({});
+      const ranked = service.rankedCards({ now: Date.parse('2026-11-28T00:00:00.000Z') });
+      expect(ranked[0]?.state).toBe('closed');
+      await service.dispose();
+    } finally {
+      await rm(legacyRoot, { recursive: true, force: true });
+    }
   });
 });
