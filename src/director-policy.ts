@@ -47,12 +47,18 @@ export function restrictDirectorWorkTools(
       chain = [];
     }
   }
+  // A PTC root exposes only the reserved `run_code` program entry; there are
+  // no model-facing registry tools to narrow, so it is excluded from both
+  // sets and the restriction becomes a no-op instead of denying the entry.
+  const isRegistryTool = (definition: { name: string }): boolean => definition.name !== 'run_code';
   const inherited = new Set<string>();
   for (const key of [undefined, ...chain]) {
     if (scope !== undefined && key === scope) continue;
-    for (const definition of tools.getAll(key as never)) inherited.add(definition.name);
+    for (const definition of tools.getAll(key as never)) {
+      if (isRegistryTool(definition)) inherited.add(definition.name);
+    }
   }
-  const visible = new Set(tools.getAll(scope).map((definition) => definition.name));
+  const visible = new Set(tools.getAll(scope).filter(isRegistryTool).map((definition) => definition.name));
   const allow = directorAllowedNames(delegationTool).filter(
     (name) => visible.has(name) && inherited.has(name),
   );
