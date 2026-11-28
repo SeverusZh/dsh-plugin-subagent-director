@@ -50,6 +50,30 @@
 导入接受集合信封、单卡信封 `{ "kind": "subagent-director/character-card", "card": ... }`、
 裸卡片对象或上述任意形式的数组。id 冲突策略为 `skip`、`overwrite`、`duplicate`。
 
+被拒绝的条目会进入结果的 `issues` 数组。每条问题包含：
+
+- `index`：条目在本次导入中的序号；
+- `code`：稳定的 kebab-case 错误码，供插件页面本地化；
+- `id`、`field`、`path`、`params`：可选的卡片 id、顶层字段、结构化路径与插值参数；
+- `message`：英文技术细节，只用于日志与本地化兜底，页面不应直接展示。
+
+| code | 含义 | 附加字段 |
+| --- | --- | --- |
+| `not-an-object` | 条目不是 JSON 对象 | 无 |
+| `unsupported-format-version` | 导入信封版本高于当前支持 | `field: version`、`params.version`、`params.maxVersion` |
+| `missing-cards-array` | 集合信封缺少 cards 数组 | `field: cards` |
+| `missing-card-object` | 单卡信封缺少 card 对象 | `field: card` |
+| `too-many-cards` | 单次导入超过数量上限 | `field: cards`、`params.count`、`params.max` |
+| `invalid-field` | 卡片字段缺失、类型或格式错误 | `field`、`path`、`params.reason` |
+| `invalid-card-id` | id 不符合 kebab-case 或长度约束 | `field: id`、`params.id` |
+| `reserved-card-id` | id 使用内置导演卡保留值 | `field: id`、`params.id` |
+| `reserved-card-source` | source 使用保留值 builtin | `field: source`、`params.source` |
+| `card-id-conflict` | 保留码：当前由导入策略处理并计数，不产生 issue | 无 |
+| `card-name-conflict` | 保留码：同名卡允许共存，当前不产生 issue | 无 |
+
+id 与名称冲突由导入策略处理并体现在结果计数（skipped、overwritten、duplicated）中，不产生问题条目。
+客户端遇到本版本未知的新 code 时，应按一条通用校验失败兜底，不得因未知 code 放弃展示其余问题。
+
 ## 内置导演卡
 
 Director Mode 内置一张 id 为 `director` 的角色卡：

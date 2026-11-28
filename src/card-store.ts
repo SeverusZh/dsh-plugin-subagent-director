@@ -25,7 +25,7 @@ import {
   legacyRoleToCard,
   parseCardDraft,
   parseCardImportPayload,
-  parseImportedCard,
+  validateImportedCard,
   type LegacyRole,
 } from './card-model.js';
 import {
@@ -623,12 +623,16 @@ export class CardService {
     if (parsed.cards.length === 0) return result;
     const existing = new Set(this.cards.keys());
     for (let index = 0; index < parsed.cards.length; index += 1) {
-      const candidate = parseImportedCard(parsed.cards[index], existing);
-      if (candidate.card === undefined) {
-        result.issues.push({ index, message: candidate.issue ?? 'invalid card' });
+      const validated = validateImportedCard(parsed.cards[index], existing);
+      if (validated.card === undefined) {
+        if (validated.issues.length === 0) {
+          result.issues.push({ index, code: 'invalid-field', message: 'invalid card' });
+        } else {
+          for (const issue of validated.issues) result.issues.push({ ...issue, index });
+        }
         continue;
       }
-      let card = candidate.card;
+      let card = validated.card;
       if (this.cards.has(card.id)) {
         if (strategy === 'skip') {
           result.skipped += 1;

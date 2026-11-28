@@ -834,6 +834,43 @@ describe('character-card bridge endpoints', () => {
     if (!result.ok) expect(result.error.code).toBe('bad-request');
   });
 
+  it('passes unknown future import-issue codes through the cardImport endpoint', async () => {
+    const cards = fakeCards({
+      importCards: vi.fn(async () => ({
+        imported: 0,
+        overwritten: 0,
+        skipped: 0,
+        duplicated: 0,
+        issues: [
+          {
+            index: 0,
+            code: 'future-issue-code',
+            field: 'name',
+            params: { reason: 'future' },
+            message: 'Future host detail.',
+          },
+        ],
+        cards: [],
+      })),
+    });
+    const result = await dispatchCardImport(
+      { settings: {} as never, cards: () => cards },
+      { payload: { cards: [] }, strategy: 'skip' },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const value = result.value as {
+        result: { issues: Array<{ code: string; field?: string; params?: Record<string, unknown>; message: string }> };
+      };
+      expect(value.result.issues[0]).toMatchObject({
+        code: 'future-issue-code',
+        field: 'name',
+        params: { reason: 'future' },
+        message: 'Future host detail.',
+      });
+    }
+  });
+
   it('deletes, defaults, imports, exports, and batches', async () => {
     const cards = fakeCards();
     const deps = { settings: {} as never, cards: () => cards };

@@ -121,12 +121,47 @@ export interface CharacterCardBundle {
 /** Conflict policy applied when an imported card id already exists. */
 export type CardImportStrategy = 'skip' | 'overwrite' | 'duplicate';
 
+/**
+ * Stable kebab-case codes for rejected import inputs. Codes identify one kind
+ * of problem; the offending field travels in `field`/`path` so the set does
+ * not grow with every card field. `card-id-conflict` and `card-name-conflict`
+ * are reserved for diagnostics; conflicts are currently resolved by the chosen
+ * import strategy and counted, not reported as issues.
+ */
+export const CARD_IMPORT_ISSUE_CODES = [
+  'not-an-object',
+  'unsupported-format-version',
+  'missing-cards-array',
+  'missing-card-object',
+  'too-many-cards',
+  'invalid-field',
+  'invalid-card-id',
+  'reserved-card-id',
+  'reserved-card-source',
+  'card-id-conflict',
+  'card-name-conflict',
+] as const;
+
+/** One stable import-issue code. */
+export type CardImportIssueCode = (typeof CARD_IMPORT_ISSUE_CODES)[number];
+
 /** One rejected input during import. */
 export interface CardImportIssue {
   index: number;
+  /** Stable localization key; `message` remains the technical fallback. */
+  code: CardImportIssueCode;
   id?: string;
+  /** Top-level card field the problem belongs to, when one applies. */
+  field?: string;
+  /** Structured location of the offending value (zod paths are preserved). */
+  path?: Array<string | number>;
+  /** Values the UI may interpolate into a localized message. */
+  params?: Record<string, string | number>;
   message: string;
 }
+
+/** One card-level issue before the batch assigns its array index. */
+export type CardImportIssueDetail = Omit<CardImportIssue, 'index'>;
 
 /** Outcome of one import batch. */
 export interface CardImportResult {

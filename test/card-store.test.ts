@@ -79,14 +79,17 @@ describe('card import and export', () => {
     );
     expect(skip.skipped).toBe(1);
     expect(skip.imported).toBe(1);
+    expect(skip.issues).toEqual([]);
     expect(service.get('a')?.name).toBe('A');
 
     const overwrite = await service.importCards([card('a', { name: 'A3' })], 'overwrite');
     expect(overwrite.overwritten).toBe(1);
+    expect(overwrite.issues).toEqual([]);
     expect(service.get('a')?.name).toBe('A3');
 
     const duplicate = await service.importCards([card('a', { name: 'A4' })], 'duplicate');
     expect(duplicate.duplicated).toBe(1);
+    expect(duplicate.issues).toEqual([]);
     expect(service.list().some((entry) => entry.name === 'A4')).toBe(true);
     expect(duplicate.cards[0]?.id).not.toBe('a');
   });
@@ -95,6 +98,17 @@ describe('card import and export', () => {
     const result = await service.importCards([{ name: '', delegationGuidance: 'x' }, card('ok')], 'skip');
     expect(result.imported).toBe(1);
     expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]).toMatchObject({ index: 0, code: 'invalid-field', field: 'name' });
+    expect(result.issues[0]?.message).toContain('name');
+  });
+
+  it('reports every invalid field of one card with its index', async () => {
+    const result = await service.importCards([{ id: 'broken' }], 'skip');
+    expect(result.imported).toBe(0);
+    expect(result.issues.map((issue) => [issue.index, issue.code, issue.field])).toEqual([
+      [0, 'invalid-field', 'name'],
+      [0, 'invalid-field', 'delegationGuidance'],
+    ]);
   });
 
   it('exports all or a selection as a versioned bundle', async () => {
@@ -247,6 +261,7 @@ describe('built-in director card', () => {
     await expect(service.put(card('director'), { create: true })).rejects.toThrow(/reserved/);
     const imported = await service.importCards([{ ...card('director'), id: 'director' }], 'skip');
     expect(imported.imported).toBe(0);
+    expect(imported.issues[0]).toMatchObject({ code: 'reserved-card-id', field: 'id', params: { id: 'director' } });
     expect(imported.issues[0]?.message).toContain('reserved');
     expect(service.list().map((entry) => entry.id)).toEqual([]);
   });
