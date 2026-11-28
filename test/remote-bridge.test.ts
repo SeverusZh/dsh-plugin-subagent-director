@@ -706,7 +706,7 @@ describe('dispatchSubagentModel', () => {
 describe('dispatchSubagentTools', () => {
   const toolsDeps = (overrides: Partial<import('../src/remote.js').BridgeDeps> = {}) => ({
     settings: { writable: true, describe: () => [], mutate: async () => {} } as never,
-    tools: { schemas: () => [{ name: 'bash' }, { name: 'read' }, { name: 'bash' }, { name: '' }] },
+    tools: { getAll: () => [{ name: 'bash' }, { name: 'read' }, { name: 'bash' }, { name: '' }] },
     ...overrides,
   });
 
@@ -721,10 +721,10 @@ describe('dispatchSubagentTools', () => {
   });
 
   it('enumerates the agent tool view (preset tools) when a session id is supplied', async () => {
-    // The agent's own ctx carries a tools instance whose schemas(agent) view
+    // The agent's own ctx carries a tools instance whose getAll(agent) view
     // includes the preset tools (bash/read/write) beyond the global registry.
     const agentTools = {
-      schemas: (scope: unknown) => [
+      getAll: (scope: unknown) => [
         { name: 'bash' },
         { name: 'read' },
         { name: 'write' },

@@ -92,19 +92,19 @@ function subagentsStub() {
 /** Capture tool definitions registered through the real tools seam. */
 function captureTools() {
   const defs: Array<{ name?: string; execute?: (args: unknown, exec: unknown) => unknown }> = [];
-  const registrations: Array<{
-    definition: { name?: string };
-    options?: { when?: (context: { agent?: unknown }) => boolean };
+  const included: Array<{
+    getAll(scope?: unknown): readonly { name: string }[];
+    set(agent: unknown, names: readonly string[]): void;
   }> = [];
   return {
     defs,
-    registrations,
-    register: (def: unknown, options?: { when?: (context: { agent?: unknown }) => boolean }) => {
+    included,
+    register: (def: unknown) => {
       defs.push(def as { name?: string; execute?: (args: unknown, exec: unknown) => unknown });
-      registrations.push({
-        definition: def as { name?: string },
-        ...(options !== undefined ? { options } : {}),
-      });
+      return () => {};
+    },
+    include: (registry: (typeof included)[number]) => {
+      included.push(registry);
       return () => {};
     },
   };
@@ -118,7 +118,7 @@ function loadPlugin(
   subagents: ReturnType<typeof subagentsStub>,
   config: Record<string, unknown> = {},
 ): void {
-  ctx.provide('tools', { register: tools.register });
+  ctx.provide('tools', { register: tools.register, include: tools.include });
   ctx.provide('subagents', subagents);
   ctx.provide('llm', { listProviders: () => [{ id: 'cli' }, { id: 'rogue' }] });
   ctx.provide('settings', settings);
@@ -289,13 +289,22 @@ describe('real cordis probe — card search tools are Director-gated', () => {
     loadPlugin(ctx, settings, tools, subagents);
     await settle();
 
+    const registry = tools.included[0];
+    expect(registry).toBeDefined();
+    const names = registry!.getAll().map((definition) => definition.name);
     for (const name of ['subagent_card_create', 'subagent_card_search', 'subagent_card_get']) {
-      const registration = tools.registrations.find((entry) => entry.definition.name === name);
-      expect(registration).toBeDefined();
-      expect(typeof registration?.options?.when).toBe('function');
-      expect(registration?.options?.when?.({ agent: { ctx: { director: true } } })).toBe(true);
-      expect(registration?.options?.when?.({ agent: { ctx: { director: false } } })).toBe(false);
-      expect(registration?.options?.when?.({ agent: undefined })).toBe(false);
+      expect(names).toContain(name);
     }
+    const directorAgent = { id: 'director-1', ctx: { director: true }, session: { header: {} } };
+    const workerAgent = { id: 'worker-1', ctx: { director: false }, session: { header: {} } };
+    await ctx.emit('agent/created', { agent: directorAgent, source: 'startup' } as never);
+    await ctx.emit('agent/created', { agent: workerAgent, source: 'startup' } as never);
+    await settle();
+    expect(registry!.getAll(directorAgent).map((definition) => definition.name).sort()).toEqual([
+      'subagent_card_create',
+      'subagent_card_get',
+      'subagent_card_search',
+    ]);
+    expect(registry!.getAll(workerAgent)).toEqual([]);
   });
 });

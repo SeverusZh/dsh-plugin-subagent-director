@@ -18,6 +18,7 @@
  * alpha.4 SessionSnapshot), the registration injects the RPC caller.
  */
 
+import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client';
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client';

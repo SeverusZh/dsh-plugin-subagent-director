@@ -1,4 +1,5 @@
 /** One character card in the library grid. */
+import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { CharacterCard, CardUsageSnapshot } from '../card-types.js';

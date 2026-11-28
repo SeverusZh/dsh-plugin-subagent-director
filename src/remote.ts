@@ -133,7 +133,7 @@ export interface BridgeDeps {
   /** Unified session query (dsh-session-query ctx.sessionQuery). */
   sessionQuery?: { readSession(sessionId: SessionId): Promise<{ events: readonly unknown[] }> };
   /** Tool registry (dsh-tools ctx.tools), for the role tool-set catalog. */
-  tools?: { schemas(): readonly { name: string }[] };
+  tools?: { getAll(scope?: unknown): readonly { name: string }[] };
   /** Resolve the character-card service provided by the main plugin entry. */
   cards?: () => CardServiceLike | undefined;
   /** Host allowlist from the bridge entry's Config (unioned with the env). */
@@ -811,7 +811,7 @@ export async function dispatchCardBatch(deps: BridgeDeps, payload: unknown): Pro
  * registry tools) only exists in the calling agent's scope: preset tool
  * plugins register into the agent's ctx layers, so the global registry view
  * misses them. When the client supplies its session id, we enumerate through
- * that agent's own tools instance (`agent.ctx.get('tools').schemas(agent)`);
+ * that agent's own tools instance (`agent.ctx.get('tools').getAll(agent)`);
  * without a live agent we degrade to the global registry view so the page
  * still renders.
  */
@@ -826,17 +826,26 @@ export function dispatchSubagentTools(
       | { ctx?: { get(name: string): unknown } }
       | undefined;
     const agentTools = agent?.ctx?.get('tools') as
-      | { schemas(scope?: unknown): readonly { name: string }[] }
+      | { getAll(scope?: unknown): readonly { name: string }[] }
       | undefined;
     if (agentTools !== undefined) {
-      view = agentTools.schemas(agent);
+      try {
+        view = agentTools.getAll(agent);
+      } catch {
+        view = undefined;
+      }
     }
   }
   if (view === undefined) {
-    view = deps.tools?.schemas() ?? [];
+    try {
+      view = deps.tools?.getAll() ?? [];
+    } catch {
+      view = [];
+    }
   }
+  const entries = view ?? [];
   const names = new Set<string>();
-  for (const schema of view) {
+  for (const schema of entries) {
     if (schema !== null && typeof schema === 'object' && typeof schema.name === 'string' && schema.name !== '') {
       names.add(schema.name);
     }

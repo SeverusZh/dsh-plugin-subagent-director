@@ -52,7 +52,7 @@ describe('Director work-tool restriction', () => {
     const agent = {
       ctx: {
         tools: {
-          definitions: () => [
+          getAll: () => [
             { name: 'bash' },
             { name: 'read' },
             { name: 'subagent_role' },
@@ -85,7 +85,7 @@ describe('Director work-tool restriction', () => {
     const agent = {
       ctx: {
         tools: {
-          definitions: () => [{ name: 'bash' }],
+          getAll: () => [{ name: 'bash' }],
           restrict: (filter: { allow?: string[]; deny?: string[] }) => {
             filters.push(filter);
             return () => {};

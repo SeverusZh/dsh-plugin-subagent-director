@@ -21,6 +21,7 @@ describe('Director preset lifecycle', () => {
     let restrictionDisposed = 0;
     let teamEnabled = false;
     let currentPreset = 'director';
+    let cardRegistry: { getAll(scope?: unknown): readonly { name: string }[] } | undefined;
 
     const provider = {
       name: 'spawn',
@@ -39,7 +40,7 @@ describe('Director preset lifecycle', () => {
               shadowDisposed += 1;
             };
           },
-          definitions: () => [{ name: 'bash' }, { name: 'read' }, { name: 'subagent_role' }],
+          getAll: () => [{ name: 'bash' }, { name: 'read' }, { name: 'subagent_role' }],
           restrict: (filter: { allow?: string[]; deny?: string[] }) => {
             restrictions.push(filter);
             return () => {
@@ -58,7 +59,11 @@ describe('Director preset lifecycle', () => {
       },
       restrict: () => () => {},
       guard: () => () => {},
-      definitions: () => [{ name: 'bash' }],
+      getAll: () => [{ name: 'bash' }],
+      include: (registry: { getAll(scope?: unknown): readonly { name: string }[] }) => {
+        cardRegistry = registry;
+        return () => {};
+      },
     } as never);
     ctx.provide('subagents', {
       getProvider: (name: string) => (name === 'spawn' ? provider : undefined),
@@ -89,6 +94,11 @@ describe('Director preset lifecycle', () => {
     expect(shadow?.parameters.required).toContain('role');
     expect(restrictions).toHaveLength(1);
     expect(teamEnabled).toBe(true);
+    expect(cardRegistry?.getAll(agent).map((tool) => tool.name).sort()).toEqual([
+      'subagent_card_create',
+      'subagent_card_get',
+      'subagent_card_search',
+    ]);
 
     currentPreset = 'standard';
     await ctx.emit('agent-preset/selected', 'agent-1', 'standard');
@@ -96,5 +106,6 @@ describe('Director preset lifecycle', () => {
     expect(shadowDisposed).toBe(1);
     expect(restrictionDisposed).toBe(1);
     expect(teamEnabled).toBe(true);
+    expect(cardRegistry?.getAll(agent)).toEqual([]);
   });
 });

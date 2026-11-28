@@ -17,7 +17,7 @@
 
 **Subagent Director** 是一个 out-of-tree 的 DeepSeek Harness 插件，用于为 subagent 指定 LLM 供应商与模型，并通过「角色卡」打包固定系统提示词、persona 与委派分工。
 
-> **最新发布 0.8.5**：[npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.8.5) · [GitHub Releases](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
+> **最新发布 0.9.1**：[npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.9.1) · [GitHub Releases](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 
 ---
 
@@ -237,6 +237,7 @@ DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines
 | --- | --- |
 | 0.2.2-rc.5 | ✅ 兼容声明（0.8.0 基线；本轮未在该运行时复验） |
 | 0.2.3-alpha.2 | ✅ typecheck / 340 测试 / 构建 / 既有 Cordis 探针 |
+| 0.2.3-alpha.3 | ✅ typecheck / 450 测试 / 构建 / 隔离实例预设与桥接实测 |
 
 > 只列出**实际跑过**的版本；未实测的不列。
 

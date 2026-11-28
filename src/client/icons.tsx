@@ -1,5 +1,6 @@
 /** Small inline icon set for the Subagent Director surfaces, drawn with
  * currentColor and the official focus/contrast conventions. */
+import type { JSX } from 'react';
 import type { ReactNode, SVGProps } from 'react';
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };

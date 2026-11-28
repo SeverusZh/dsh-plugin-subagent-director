@@ -40,7 +40,7 @@ beforeAll(async () => {
     inheritsParentContext: false,
     prepareContinuable: async () => ({}),
   };
-  ctx.provide('tools', { register: () => () => {} });
+  ctx.provide('tools', { register: () => () => {}, include: () => () => {} });
   ctx.provide('subagents', {
     getProvider: (name: string) => (name === 'spawn' ? provider : undefined),
     startActivation: async () => ({ childId: 'generated', result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }),

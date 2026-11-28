@@ -56,7 +56,7 @@ describe('bridge + main entry integration', () => {
       prepareContinuable: async () => ({}),
     };
     ctx.provide('storageDomain', memory.facility as never);
-    ctx.provide('tools', { register: () => () => {} });
+    ctx.provide('tools', { register: () => () => {}, include: () => () => {} });
     ctx.provide('subagents', {
       getProvider: (name: string) => (name === 'spawn' ? provider : undefined),
       startActivation: async () => ({ childId: 'generated', result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }),

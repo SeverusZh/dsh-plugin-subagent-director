@@ -30,7 +30,7 @@ export function restrictDirectorWorkTools(
   delegationTool: string,
 ): (() => void) | undefined {
   const tools = agent.ctx.tools as unknown as {
-    definitions(scope?: unknown): readonly { name: string }[];
+    getAll(scope?: unknown): readonly { name: string }[];
     restrict(filter: { allow?: string[]; deny?: string[] }): () => void;
   };
   let scope: ReturnType<typeof scopeOf> = undefined;
@@ -50,9 +50,9 @@ export function restrictDirectorWorkTools(
   const inherited = new Set<string>();
   for (const key of [undefined, ...chain]) {
     if (scope !== undefined && key === scope) continue;
-    for (const definition of tools.definitions(key as never)) inherited.add(definition.name);
+    for (const definition of tools.getAll(key as never)) inherited.add(definition.name);
   }
-  const visible = new Set(tools.definitions(scope).map((definition) => definition.name));
+  const visible = new Set(tools.getAll(scope).map((definition) => definition.name));
   const allow = directorAllowedNames(delegationTool).filter(
     (name) => visible.has(name) && inherited.has(name),
   );

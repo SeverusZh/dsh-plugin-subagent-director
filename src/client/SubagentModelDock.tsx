@@ -22,6 +22,7 @@
  * registration injects the RPC caller and the chat-snapshot hook.
  */
 
+import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client';
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client';

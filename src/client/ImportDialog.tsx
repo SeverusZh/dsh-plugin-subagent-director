@@ -1,4 +1,5 @@
 /** Import dialog for portable character-card JSON. */
+import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
   CARD_BUNDLE_KIND,
