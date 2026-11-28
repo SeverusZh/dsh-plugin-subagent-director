@@ -96,11 +96,72 @@ describe('subagent_card_search', () => {
     const hidden = await h.run(h.search, { query: 'old' });
     expect((hidden.cards as Array<{ id: string }>).map((row) => row.id)).toEqual(['active-old']);
     expect(hidden.closedPool).toBe(1);
+    expect(hidden.hiddenClosed).toBe(1);
 
     const included = await h.run(h.search, { query: 'old', includeClosed: true });
     const rows = included.cards as Array<{ id: string; state: string }>;
     expect(rows.map((row) => row.id)).toEqual(['active-old', 'old']);
     expect(rows.at(-1)?.state).toBe('closed');
+    expect(included.hiddenClosed).toBe(0);
+  });
+
+  it('hints about hidden closed-pool cards only when they matched and includeClosed is off', async () => {
+    const h = await harness([reviewer, old]);
+    const render = (args: unknown, value: Record<string, unknown>): string =>
+      (
+        h.search as unknown as {
+          output: { render: (args: unknown, value: Record<string, unknown>) => Array<{ text: string }> };
+        }
+      ).output.render(args, value)[0]?.text ?? '';
+
+    const hiddenMatch = await h.run(h.search, { query: 'old' });
+    expect(render({ query: 'old' }, hiddenMatch)).toContain('pass includeClosed: true');
+    expect(render({ query: 'old', includeClosed: true }, await h.run(h.search, { query: 'old', includeClosed: true }))).not.toContain(
+      'pass includeClosed: true',
+    );
+
+    const noClosedMatch = await h.run(h.search, { query: 'reviewer' });
+    expect(noClosedMatch.closedPool).toBe(1);
+    expect(noClosedMatch.hiddenClosed).toBe(0);
+    expect(render({ query: 'reviewer' }, noClosedMatch)).not.toContain('pass includeClosed: true');
+  });
+
+  it('bounds the echoed name and tags so a full page stays compact', async () => {
+    const crowded = card('crowded', {
+      name: 'N'.repeat(80),
+      tags: Array.from({ length: 8 }, (_, index) => String(index).padEnd(32, 'x')),
+    });
+    const h = await harness([crowded]);
+    const result = await h.run(h.search, { query: 'crowded' });
+    const row = (result.cards as Array<Record<string, unknown>>)[0]!;
+    expect((row.name as string).length).toBe(48);
+    const tags = (row.tags as string).split(',');
+    expect(tags).toHaveLength(4);
+    for (const tag of tags) expect(tag.length).toBeLessThanOrEqual(16);
+  });
+
+  it('keeps a 25-row worst-case page bounded', async () => {
+    const bulky = Array.from({ length: 25 }, (_, index) =>
+      card('bulk-' + String(index).padStart(2, '0'), {
+        name: String(index).padStart(2, '0') + 'N'.repeat(80),
+        tags: Array.from({ length: 12 }, (_, tagIndex) => String(tagIndex).padEnd(32, 'x')),
+        model: { provider: 'p'.repeat(160), model: 'm'.repeat(240) },
+        delegationGuidance: 'g'.repeat(300),
+      }),
+    );
+    const h = await harness(bulky);
+    const result = await h.run(h.search, { limit: 25 });
+    for (const row of result.cards as Array<Record<string, unknown>>) {
+      expect((row.model as string).length).toBeLessThanOrEqual(80);
+      expect((row.useWhen as string).length).toBeLessThanOrEqual(160);
+    }
+    const rendered = (
+      h.search as unknown as {
+        output: { render: (args: unknown, value: Record<string, unknown>) => Array<{ text: string }> };
+      }
+    ).output.render({ limit: 25 }, result)[0]?.text;
+    expect(rendered).toBeDefined();
+    expect(rendered!.length).toBeLessThan(16000);
   });
 
   it('returns compact rows with counters, tags, model, and a 160-character use preview', async () => {
@@ -131,6 +192,12 @@ describe('subagent_card_search', () => {
     const h = await harness([pinned]);
     const result = await h.run(h.search, {});
     expect((result.cards as Array<{ state: string }>)[0]?.state).toBe('exempt');
+  });
+
+  it('does not ask the model to run a pin or unpin action', () => {
+    expect((createCardSearchTool({ cards: createCardService().service }) as unknown as { description: string }).description).not.toMatch(
+      /unpin/i,
+    );
   });
 
   it('omits disabled cards', async () => {

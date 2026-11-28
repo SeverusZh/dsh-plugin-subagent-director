@@ -15,6 +15,7 @@ describe('subagent_card_create tool', () => {
       system_prompt: 'You review security-sensitive changes.',
     });
     expect(result).toEqual({ cardId: 'security-reviewer', name: 'Security Reviewer' });
+    expect((tool as unknown as { description: string }).description).not.toContain('unpin');
     const stored = created.service.get('security-reviewer');
     expect(stored?.avoidGuidance).toBe('Do not use for UI copy edits.');
     expect(stored?.agentPreset).toBe('standard');

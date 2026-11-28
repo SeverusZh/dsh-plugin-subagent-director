@@ -20,14 +20,26 @@ export const CARD_SEARCH_TOOL_NAME = 'subagent_card_search';
 /** Model-facing detail tool name. */
 export const CARD_GET_TOOL_NAME = 'subagent_card_get';
 
-/** Default result count when the model omits \`limit\`. */
+/** Default result count when the model omits `limit`. */
 export const CARD_SEARCH_DEFAULT_LIMIT = 8;
 
 /** Hard result cap so one call cannot flood the context. */
 export const CARD_SEARCH_MAX_LIMIT = 25;
 
-/** Characters of \`delegationGuidance\` previewed per search row. */
+/** Characters of `delegationGuidance` previewed per search row. */
 export const CARD_SEARCH_PREVIEW_LIMIT = 160;
+
+/** Maximum characters of a card name echoed in one result row. */
+export const CARD_SEARCH_NAME_LIMIT = 48;
+
+/** Maximum tags echoed per result row. */
+export const CARD_SEARCH_TAG_LIMIT = 4;
+
+/** Maximum characters per echoed tag. */
+export const CARD_SEARCH_TAG_TEXT_LIMIT = 16;
+
+/** Maximum characters of the model route echoed in one row. */
+export const CARD_SEARCH_MODEL_LIMIT = 80;
 
 interface SearchRow {
   id: string;
@@ -94,16 +106,25 @@ function limitOf(value: number | undefined): number {
   return Math.min(CARD_SEARCH_MAX_LIMIT, Math.max(1, Math.floor(value)));
 }
 
+function compactTags(card: CharacterCard): string {
+  return (card.tags ?? [])
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0)
+    .slice(0, CARD_SEARCH_TAG_LIMIT)
+    .map((tag) => tag.slice(0, CARD_SEARCH_TAG_TEXT_LIMIT))
+    .join(',');
+}
+
 function searchRows(entries: readonly RankedCard[], limit: number): SearchRow[] {
   return entries.slice(0, limit).map((entry) => ({
     id: entry.card.id,
-    name: entry.card.name,
+    name: entry.card.name.slice(0, CARD_SEARCH_NAME_LIMIT),
     state: entry.state,
     score: round(entry.score, 2),
     uses: entry.uses,
     lastUsed: entry.lastUsedAt ?? '',
-    tags: (entry.card.tags ?? []).join(','),
-    model: modelLabel(entry.card),
+    tags: compactTags(entry.card),
+    model: modelLabel(entry.card).slice(0, CARD_SEARCH_MODEL_LIMIT),
     useWhen: preview(entry.card.delegationGuidance, CARD_SEARCH_PREVIEW_LIMIT),
   }));
 }
@@ -142,7 +163,7 @@ export function createCardSearchTool(options: { cards: CardService; now?: () => 
       String(CARD_SEARCH_PREVIEW_LIMIT) +
       ' characters of the delegation guidance. After searching, read a candidate with ' +
       CARD_GET_TOOL_NAME +
-      '; reuse or unpin an existing card before calling subagent_card_create.',
+      '; reuse an existing card before calling subagent_card_create. A closed-pool card returns to active after one successful delegation to its id.',
     parameters: {
       query: {
         type: 'string',
@@ -190,9 +211,10 @@ export function createCardSearchTool(options: { cards: CardService; now?: () => 
           shown: { type: 'integer', required: true },
           total: { type: 'integer', required: true },
           closedPool: { type: 'integer', required: true },
+          hiddenClosed: { type: 'integer', required: true },
         },
       },
-      render: (_args, value) => {
+      render: (args, value) => {
         const header =
           'subagent_card_search: ' +
           String(value.shown) +
@@ -208,8 +230,10 @@ export function createCardSearchTool(options: { cards: CardService; now?: () => 
             ? ['No character card matched. Refine the query or create a card with subagent_card_create.']
             : searchLines(value.cards);
         const hint =
-          value.closedPool > 0 && value.matched === value.shown
-            ? ['Closed-pool cards were hidden; pass includeClosed: true to search them.']
+          args.includeClosed !== true && value.hiddenClosed > 0
+            ? [
+                'Closed-pool cards matched this search but were hidden; pass includeClosed: true to include them. Delegating to one by id once restores it to active.',
+              ]
             : [];
         return [{ type: 'text', text: [header, ...body, ...hint].join('\n') }];
       },
@@ -228,8 +252,8 @@ export function createCardSearchTool(options: { cards: CardService; now?: () => 
       const limit = limitOf(args.limit);
       const ranked = cards.rankedCards({ includeBuiltIn: true, now: now() }).filter((entry) => isCardEnabled(entry.card));
       const closedPool = ranked.filter((entry) => entry.state === 'closed').length;
-      const matched = ranked
-        .filter((entry) => (includeClosed || entry.state !== 'closed') && matchesQuery(entry.card, query))
+      const matching = ranked
+        .filter((entry) => matchesQuery(entry.card, query))
         .filter((entry) => {
           if (tags.length === 0) return true;
           const cardTags = cardTagSet(entry.card);
@@ -245,6 +269,8 @@ export function createCardSearchTool(options: { cards: CardService; now?: () => 
             a.card.id.localeCompare(b.card.id)
           );
         });
+      const hiddenClosed = includeClosed ? 0 : matching.filter((entry) => entry.state === 'closed').length;
+      const matched = includeClosed ? matching : matching.filter((entry) => entry.state !== 'closed');
       const shown = searchRows(matched, limit);
       return {
         cards: shown,
@@ -252,6 +278,7 @@ export function createCardSearchTool(options: { cards: CardService; now?: () => 
         shown: shown.length,
         total: ranked.length,
         closedPool,
+        hiddenClosed,
       };
     },
   });
@@ -274,7 +301,7 @@ export function createCardGetTool(options: { cards: CardService; now?: () => num
     description:
       'Read one character card by id or exact display name. Returns the full delegation guidance, avoid guidance, child system prompt, persona, notes, tags, model route, Agent Preset, enabled and neverClose flags, plus its state, weight, use count, last use, and idle days. Use it after ' +
       CARD_SEARCH_TOOL_NAME +
-      ' to read guidance that the prompt truncated, and before reusing, unpinning, or creating a card.',
+      ' to read guidance that the prompt truncated, and before reusing or creating a card.',
     parameters: {
       id: {
         type: 'string',

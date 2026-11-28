@@ -352,6 +352,32 @@ describe('card usage and closed pool', () => {
     expect((memory.tables.get('cards')?.get('a') as { neverClose?: boolean }).neverClose).toBeUndefined();
   });
 
+  it('keeps a pin when an editor-shaped draft omits neverClose', async () => {
+    await service.put(card('reviewer'), { create: true });
+    await service.setNeverClose(['reviewer'], true);
+    const draft = { id: 'reviewer', name: 'Card reviewer', delegationGuidance: 'Use this card for reviewer.' };
+
+    const saved = await service.put(draft, { create: false });
+    expect(saved.neverClose).toBe(true);
+    expect(service.get('reviewer')?.neverClose).toBe(true);
+    expect((memory.tables.get('cards')?.get('reviewer') as { neverClose?: boolean }).neverClose).toBe(true);
+
+    const cleared = await service.put({ ...draft, neverClose: false }, { create: false });
+    expect(cleared.neverClose).toBe(false);
+    expect((memory.tables.get('cards')?.get('reviewer') as { neverClose?: boolean }).neverClose).toBe(false);
+  });
+
+  it('keeps import overwrite semantics for neverClose', async () => {
+    await service.put(card('reviewer'), { create: true });
+    await service.setNeverClose(['reviewer'], true);
+    const result = await service.importCards(
+      [{ id: 'reviewer', name: 'Card reviewer', delegationGuidance: 'Replaced guidance.' }],
+      'overwrite',
+    );
+    expect(result.overwritten).toBe(1);
+    expect(service.get('reviewer')?.neverClose).toBeUndefined();
+  });
+
   it('ranks a seeded library by weight while list() keeps display order', async () => {
     const seeded = createCardService();
     const cards = new Map<string, unknown>();

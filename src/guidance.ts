@@ -69,11 +69,13 @@ function clip(text: string, limit: number): { text: string; truncated: boolean }
   return { text: trimmed.slice(0, limit), truncated: true };
 }
 
-function truncationNote(cardId: string): string {
-  return ` … [truncated; call ${GUIDANCE_GET_TOOL}({ id: "${cardId}" }) for the full text]`;
+function truncationNote(cardId: string, director: boolean): string {
+  return director
+    ? ` … [truncated; call ${GUIDANCE_GET_TOOL}({ id: "${cardId}" }) for the full text]`
+    : ' … [truncated; open the character-card library for the full guidance]';
 }
 
-function cardLines(entry: RankedCard, toolName: string): string[] {
+function cardLines(entry: RankedCard, toolName: string, director: boolean): string[] {
   const card = entry.card;
   const tags = (card.tags ?? []).filter((tag) => tag.length > 0);
   const meta = [
@@ -84,11 +86,11 @@ function cardLines(entry: RankedCard, toolName: string): string[] {
   const suffix = meta.length > 0 ? ` (${meta.join('; ')})` : '';
   const lines = [`- ${card.name} [${card.id}]${suffix}:`];
   const use = clip(card.delegationGuidance, GUIDANCE_CARD_TEXT_LIMIT);
-  lines.push(`    Use when: ${use.text}${use.truncated ? truncationNote(card.id) : ''}`);
+  lines.push(`    Use when: ${use.text}${use.truncated ? truncationNote(card.id, director) : ''}`);
   const avoidText = (card.avoidGuidance ?? '').trim();
   if (avoidText.length > 0) {
     const avoid = clip(avoidText, GUIDANCE_CARD_TEXT_LIMIT);
-    lines.push(`    Do not use when: ${avoid.text}${avoid.truncated ? truncationNote(card.id) : ''}`);
+    lines.push(`    Do not use when: ${avoid.text}${avoid.truncated ? truncationNote(card.id, director) : ''}`);
   }
   lines.push(`    Delegate with: ${toolName}({ role: "${card.id}", prompt: "..." })`);
   return lines;
@@ -103,7 +105,7 @@ interface GuidanceStats {
 function headerLines(director: boolean, stats: GuidanceStats): string[] {
   const lines: string[] = director
     ? [
-        'Director Mode card policy — every subagent must be started through one of these character cards. Respect each card\'s recommended and not-recommended conditions. Before creating a card, search the library with subagent_card_search and read a candidate with subagent_card_get; reuse or unpin an existing card when it fits, and call subagent_card_create only when nothing matches.',
+        'Director Mode card policy — every subagent must be started through one of these character cards. Respect each card\'s recommended and not-recommended conditions. Before creating a card, search the library with subagent_card_search and read a candidate with subagent_card_get; reuse an existing card when it fits, and call subagent_card_create only when nothing matches. A closed-pool card returns to active after one successful delegation to its id.',
         'Reference cards by their bracketed id, never by display name; when the user names a card by its display name, map it to that id.',
       ]
     : [
@@ -186,7 +188,7 @@ export function renderRolesGuidance(
     if (index < 0) selected[selected.length - 1] = directorEntry;
     else if (index > 0) selected.unshift(...selected.splice(index, 1));
   }
-  const cardBlocks = selected.map((entry) => cardLines(entry, toolName));
+  const cardBlocks = selected.map((entry) => cardLines(entry, toolName, director));
   const legacyBlocks = legacy.map(([id, role]) => legacyLines(role ?? {}, id, toolName));
   const closedCount = enabledRanked.filter((entry) => entry.state === 'closed').length;
   const total = enabledRanked.length;

@@ -12,6 +12,8 @@ describe('Director contract section', () => {
     expect(text).toContain('Do not take over a failed subagent');
     expect(text).toContain('Agent Teams is available');
     expect(text).toContain('Every delegation prompt must be self-contained');
+    expect(text).toContain('returns to active after one successful delegation');
+    expect(text).not.toContain('unpin');
   });
 
   it('renders only for Director agents', () => {

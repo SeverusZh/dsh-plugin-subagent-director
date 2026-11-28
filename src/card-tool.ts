@@ -40,7 +40,7 @@ export function createCardCreateTool(options: {
   return defineTool({
     name: CARD_CREATE_TOOL_NAME,
     description:
-      'Create a character card in the Director card library. Search first with subagent_card_search and read candidates with subagent_card_get: reuse or unpin an existing card when it fits, and create a card here only when nothing matches. Director Mode requires every subagent to be invoked through a character card; after creation, call ' +
+      'Create a character card in the Director card library. Search first with subagent_card_search and read candidates with subagent_card_get: reuse an existing card when it fits, and create a card here only when nothing matches. Director Mode requires every subagent to be invoked through a character card; after creation, call ' +
       toolName +
       ' with the returned card id. Write a complete fixed role prompt for the child and state both when the card is recommended and when it is not.',
     parameters: {

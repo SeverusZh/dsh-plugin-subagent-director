@@ -515,8 +515,13 @@ export class CardService {
     }
     const previous = this.cards.get(card.id);
     const now = new Date().toISOString();
+    // The editor submits the card shape it rendered; an omitted neverClose
+    // means "unchanged", while an explicit false clears the pin.
     const next: CharacterCard = {
       ...card,
+      ...(card.neverClose === undefined && previous?.neverClose !== undefined
+        ? { neverClose: previous.neverClose }
+        : {}),
       ...(previous?.createdAt !== undefined ? { createdAt: previous.createdAt } : card.createdAt !== undefined ? { createdAt: card.createdAt } : { createdAt: now }),
       updatedAt: now,
       source: card.source ?? previous?.source ?? 'local',
