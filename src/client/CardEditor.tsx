@@ -1,4 +1,5 @@
 /** Modal editor for one character card. */
+import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
 import {

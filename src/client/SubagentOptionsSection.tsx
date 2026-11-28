@@ -7,6 +7,7 @@
  * presentation and local UI state; all persistence goes through the page store,
  * which talks to the Host bridge and reloads the acknowledged library.
  */
+import type { JSX } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client';

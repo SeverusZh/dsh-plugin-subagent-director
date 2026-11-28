@@ -1,4 +1,5 @@
 /** Generic confirmation dialog for destructive or irreversible card actions. */
+import type { JSX } from 'react';
 import { useEffect, useRef } from 'react';
 import type { SubagentDirectorKey } from './locales.js';
 import { IconWarning, IconX } from './icons.js';

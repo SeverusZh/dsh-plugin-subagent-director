@@ -23,6 +23,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { DomainFacility } from '@deepseek-ai/dsh-storage-domain';
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent';
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent';
+import { AgentToolRegistry } from '@deepseek-ai/dsh-tools/pipeline';
 
 import { createDelegationTool } from './delegation-tool.js';
 import { CLOSE_SUBAGENT_TOOL_NAME, createCloseSubagentTool } from './close-tool.js';
@@ -35,8 +36,13 @@ import { registerDirectorPreset } from './director-preset.js';
 import { applyDirectorPolicy, restrictDirectorWorkTools } from './director-policy.js';
 import { applyDirectorToolGuard } from './director-guard.js';
 import { shouldEnableDirectorTeam } from './director-team.js';
-import { createCardCreateTool } from './card-tool.js';
-import { createCardGetTool, createCardSearchTool } from './card-search-tool.js';
+import { CARD_CREATE_TOOL_NAME, createCardCreateTool } from './card-tool.js';
+import {
+  CARD_GET_TOOL_NAME,
+  CARD_SEARCH_TOOL_NAME,
+  createCardGetTool,
+  createCardSearchTool,
+} from './card-search-tool.js';
 import { readDirectorSettings, installDirectorSettingsPage, createSettingsWarner, type DirectorSettingsHandles } from './settings.js';
 
 export { Config } from './config.js';
@@ -269,28 +275,28 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   registerDirectorPreset(ctx);
   applyDirectorPolicy(ctx, (agent) => isDirectorAgent(ctx, agent), toolName);
   applyDirectorToolGuard(ctx, (agent) => isDirectorAgent(ctx, agent), toolName);
+  const cardToolNames = [CARD_CREATE_TOOL_NAME, CARD_SEARCH_TOOL_NAME, CARD_GET_TOOL_NAME];
+  const cardTools = new AgentToolRegistry();
   ctx.effect(
     () =>
-      ctx.tools.register(
+      cardTools.register(
         createCardCreateTool({
           cards,
           toolName,
           workerPreset: config.directorWorkerPreset ?? 'standard',
         }),
-        {
-          when: ({ agent }) => isDirectorAgent(ctx, agent),
-        },
       ),
     'subagent-director: card create tool',
   );
   ctx.effect(
-    () => ctx.tools.register(createCardSearchTool({ cards }), { when: ({ agent }) => isDirectorAgent(ctx, agent) }),
+    () => cardTools.register(createCardSearchTool({ cards })),
     'subagent-director: card search tool',
   );
   ctx.effect(
-    () => ctx.tools.register(createCardGetTool({ cards }), { when: ({ agent }) => isDirectorAgent(ctx, agent) }),
+    () => cardTools.register(createCardGetTool({ cards })),
     'subagent-director: card get tool',
   );
+  ctx.effect(() => ctx.tools.include(cardTools), 'subagent-director: card tool registry');
 
   // ---- close_subagent tool ----------------------------------------------
   // Registers at mount time like the control tools. It releases only the
@@ -389,10 +395,12 @@ export function apply(ctx: Context, config: import('./config.js').DirectorConfig
   const syncDirectorAgent = (agent: Agent, director: boolean): void => {
     const id = String(agent.id);
     if (!director) {
+      cardTools.set(agent, []);
       disposeShadow(id);
       liftRestriction(id);
       return;
     }
+    cardTools.set(agent, cardToolNames);
     if (!restrictions.has(id)) {
       try {
         const dispose = restrictDirectorWorkTools(agent, toolName);

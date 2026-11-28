@@ -11,7 +11,7 @@ const FOCUSABLE = [
 ].join(',');
 
 /** Keep keyboard focus inside one dialog while it is open and restore it after. */
-export function useDialogFocus(ref: RefObject<HTMLElement>, open: boolean): void {
+export function useDialogFocus(ref: RefObject<HTMLElement | null>, open: boolean): void {
   useEffect(() => {
     if (!open) return;
     const node = ref.current;

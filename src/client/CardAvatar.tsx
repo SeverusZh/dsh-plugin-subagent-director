@@ -1,4 +1,5 @@
 /** Shared card avatar: the configured glyph, or the name initial as fallback. */
+import type { JSX } from 'react';
 import { cardAccentOf, cardInitial, type CardAccent } from '../card-types.js';
 
 export interface CardAvatarProps {
