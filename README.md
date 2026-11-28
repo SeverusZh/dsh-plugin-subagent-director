@@ -17,7 +17,7 @@
 
 **Subagent Director** 是一个 out-of-tree 的 DeepSeek Harness 插件，用于为 subagent 指定 LLM 供应商与模型，并通过「角色卡」打包固定系统提示词、persona 与委派分工。
 
-> **最新发布 0.9.1**：[npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.9.1) · [GitHub Releases](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
+> **最新发布 0.9.2**：[npm](https://www.npmjs.com/package/dsh-plugin-subagent-director/v/0.9.2) · [GitHub Releases](https://github.com/SeverusZh/dsh-plugin-subagent-director/releases)
 
 ---
 
@@ -231,17 +231,15 @@ DSH alpha.4 起，官方内置 subagent 的模型选择收敛到 `subagent-model
 
 ## 🧩 兼容性 / Compatibility
 
-DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines.dsh: ">=0.2.2-rc.2"`**，全部 `@deepseek-ai/dsh-*` peer 也收敛到 `>=0.2.2-rc.2`：
+DSH 0.2.1 起兼容门禁优先读取 `engines.dsh`。本插件声明 **`engines.dsh: ">=0.2.3-alpha.3"`**，`@deepseek-ai/dsh-tools` peer 同步收敛到 `>=0.2.3-alpha.3`：
 
 | DSH 版本 | 状态 |
 | --- | --- |
-| 0.2.2-rc.5 | ✅ 兼容声明（0.8.0 基线；本轮未在该运行时复验） |
-| 0.2.3-alpha.2 | ✅ typecheck / 340 测试 / 构建 / 既有 Cordis 探针 |
-| 0.2.3-alpha.3 | ✅ typecheck / 450 测试 / 构建 / 隔离实例预设与桥接实测 |
+| 0.2.3-alpha.3 | ✅ typecheck / 451 测试 / 构建 / 隔离实例预设与桥接实测 |
 
 > 只列出**实际跑过**的版本；未实测的不列。
 
-v0.7.0 支持 DSH **0.2.2-rc.2+**，修复 0.2.2 扁平 activation spec 导致的委派崩溃与 `drainChildren` 移除后的关闭失效。**破坏性**：0.2.1-rc.x / 0.2.2-rc.1 请停留在插件 **0.6.0**。
+v0.9.2 起实现与声明都以 DSH **0.2.3-alpha.3** 为下限；0.9.1 的声明仍允许 0.2.2-rc.2，但代码已使用 alpha.3 的 `AgentToolRegistry` / `getAll()`，该组合不受支持。0.2.2-rc.2 ~ 0.2.3-alpha.2 请停留在 **0.9.0**。
 
 ## 🛠️ 开发 / Develop
 

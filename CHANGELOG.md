@@ -2,6 +2,17 @@
 
 本项目的所有显著变更都会记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.9.2 - 2026-11-29
+
+### 兼容性
+
+- **破坏性下限提升**：`engines.dsh` 与 `@deepseek-ai/dsh-tools` peer 提到 `>=0.2.3-alpha.3`。
+  0.9.1 已使用 alpha.3 的 `AgentToolRegistry` 与 `getAll()`，但声明仍允许 0.2.2-rc.2，
+  旧运行时会通过门禁后在加载期失败；0.2.2-rc.2 ~ 0.2.3-alpha.2 请停留 0.9.0。
+- **PTC 根下不再误判**：只看 `run_code` 的程序化根不再尝试 deny 保留入口，工作工具收窄
+  在该路径下是有记录的空操作；原生根行为不变。
+- 本机 alpha.3 隔离实例：451 项测试、typecheck、构建通过。
+
 ## 0.9.1 - 2026-11-29
 
 ### 兼容性

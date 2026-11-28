@@ -80,6 +80,23 @@ describe('Director work-tool restriction', () => {
     expect(disposed).toBe(1);
   });
 
+  it('skips the restriction on a PTC root that only exposes run_code', () => {
+    let restrictCalls = 0;
+    const agent = {
+      ctx: {
+        tools: {
+          getAll: () => [{ name: 'run_code' }],
+          restrict: () => {
+            restrictCalls += 1;
+            return () => {};
+          },
+        },
+      },
+    } as never;
+    expect(restrictDirectorWorkTools(agent, 'subagent_role')).toBeUndefined();
+    expect(restrictCalls).toBe(0);
+  });
+
   it('denies visible work tools when no allowlisted tool is visible', () => {
     const filters: Array<{ allow?: string[]; deny?: string[] }> = [];
     const agent = {

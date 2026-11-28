@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-subagent-director",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Subagent Director: character cards for role-bound subagents plus Director Mode, an orchestration-only Agent Preset whose main agent delegates every task through a card and uses Agent Teams by default.",
   "type": "module",
   "main": "lib/index.js",
@@ -65,8 +65,6 @@
     },
     "compatibility": {
       "dshReleases": {
-        "0.2.2-rc.5": "compatible",
-        "0.2.3-alpha.2": "compatible",
         "0.2.3-alpha.3": "compatible"
       },
       "node": ">=20"
@@ -115,7 +113,7 @@
     "@deepseek-ai/dsh-storage-domain": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-subagent": ">=0.2.2-rc.2",
     "@deepseek-ai/dsh-system-prompt": ">=0.2.2-rc.2",
-    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.3-alpha.3",
     "@deepseek-ai/schemastery": ">=3.19.0-0 <3.21.0",
     "react": "^18.2.0 || ^19.3.1"
   },
@@ -172,7 +170,7 @@
     "@deepseek-ai/dsh-cordis-host-runner": "0.2.3-alpha.2"
   },
   "engines": {
-    "dsh": ">=0.2.2-rc.2",
+    "dsh": ">=0.2.3-alpha.3",
     "node": ">=22.19.0"
   }
 }
