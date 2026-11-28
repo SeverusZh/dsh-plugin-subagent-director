@@ -44,6 +44,8 @@ export type SubagentDirectorKey =
   | 'rejected'
   | 'fatal'
   | 'loadError'
+  | 'requestFailed'
+  | 'requestRejected'
   | 'readonly'
   | 'save'
   | 'cancel'
@@ -89,9 +91,11 @@ export type SubagentDirectorKey =
   | 'cardsHint'
   | 'searchCards'
   | 'filterAll'
-  | 'filterEnabled'
   | 'filterDisabled'
-  | 'sortUpdated'
+  | 'filterActive'
+  | 'filterClosed'
+  | 'sortWeight'
+  | 'sortRecent'
   | 'sortName'
   | 'emptyCardsTitle'
   | 'emptyCardsBody'
@@ -104,6 +108,7 @@ export type SubagentDirectorKey =
   | 'disableCard'
   | 'editCard'
   | 'duplicateCard'
+  | 'duplicateName'
   | 'exportCard'
   | 'deleteCard'
   | 'confirmDeleteCard'
@@ -125,7 +130,15 @@ export type SubagentDirectorKey =
   | 'cardIdHint'
   | 'cardIdImmutable'
   | 'cardEmoji'
+  | 'cardAvatarInitial'
+  | 'cardAvatarCustom'
   | 'cardAccent'
+  | 'accentBlue'
+  | 'accentViolet'
+  | 'accentGreen'
+  | 'accentAmber'
+  | 'accentRose'
+  | 'accentSlate'
   | 'cardTags'
   | 'cardTagsHint'
   | 'cardModel'
@@ -240,7 +253,15 @@ export type SubagentDirectorKey =
   | 'clearSearch'
   | 'filterCards'
   | 'sortCards'
-  | 'cardEditorHint';
+  | 'cardEditorHint'
+  | 'cardStateActive'
+  | 'cardStateClosed'
+  | 'cardUses'
+  | 'cardNeverUsed'
+  | 'cardLastUsed'
+  | 'cardNeverClose'
+  | 'cardPinned'
+  | 'cardUnpinned';
 
 /** English dictionary ($subagentDirector). */
 export const en: Record<SubagentDirectorKey, string> = {
@@ -281,6 +302,8 @@ export const en: Record<SubagentDirectorKey, string> = {
   "rejected": "The change was rejected by the settings provider.",
   "fatal": "Could not save: {message}",
   "loadError": "Could not load preference settings.",
+  "requestFailed": "The operation did not complete. Try again later.",
+  "requestRejected": "The request was rejected. Check the input and retry.",
   "readonly": "Settings are read-only in this deployment.",
   "save": "Save",
   "cancel": "Cancel",
@@ -326,9 +349,11 @@ export const en: Record<SubagentDirectorKey, string> = {
   "cardsHint": "Cards are stored as individual JSON files, separate from plugin configuration.",
   "searchCards": "Search cards",
   "filterAll": "All",
-  "filterEnabled": "Enabled",
   "filterDisabled": "Disabled",
-  "sortUpdated": "Recently updated",
+  "filterActive": "In use",
+  "filterClosed": "Closed pool",
+  "sortWeight": "Weight",
+  "sortRecent": "Recently used",
   "sortName": "Name",
   "emptyCardsTitle": "No character cards yet",
   "emptyCardsBody": "Create a card or import a portable JSON bundle to give your subagents a stable role.",
@@ -341,6 +366,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "disableCard": "Disable",
   "editCard": "Edit",
   "duplicateCard": "Duplicate",
+  "duplicateName": "{name} copy",
   "exportCard": "Export",
   "deleteCard": "Delete",
   "confirmDeleteCard": "Delete card “{id}”? This cannot be undone.",
@@ -362,7 +388,15 @@ export const en: Record<SubagentDirectorKey, string> = {
   "cardIdHint": "Lowercase letters, digits, and single hyphens. Used as the delegation role id.",
   "cardIdImmutable": "The id cannot change after the card is created.",
   "cardEmoji": "Avatar glyph",
+  "cardAvatarInitial": "Use the name initial",
+  "cardAvatarCustom": "Current custom glyph",
   "cardAccent": "Accent",
+  "accentBlue": "Blue",
+  "accentViolet": "Violet",
+  "accentGreen": "Green",
+  "accentAmber": "Amber",
+  "accentRose": "Rose",
+  "accentSlate": "Slate",
   "cardTags": "Tags",
   "cardTagsHint": "Comma separated. Used for search and filtering.",
   "cardModel": "Model route",
@@ -477,7 +511,15 @@ export const en: Record<SubagentDirectorKey, string> = {
   "clearSearch": "Clear search",
   "filterCards": "Filter cards",
   "sortCards": "Sort cards",
-  "cardEditorHint": "Pack the delegation guidance, fixed prompt, persona, and model route for this card."
+  "cardEditorHint": "Pack the delegation guidance, fixed prompt, persona, and model route for this card.",
+  "cardStateActive": "In use",
+  "cardStateClosed": "Closed pool",
+  "cardUses": "{count} uses",
+  "cardNeverUsed": "Never used",
+  "cardLastUsed": "Last used {time}",
+  "cardNeverClose": "Never close",
+  "cardPinned": "Card pinned out of the closed pool",
+  "cardUnpinned": "Card released back into the pool"
 };
 
 /** Chinese dictionary. */
@@ -519,6 +561,8 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "rejected": "更改被设置提供方拒绝。",
   "fatal": "无法保存：{message}",
   "loadError": "无法加载偏好设置。",
+  "requestFailed": "操作未完成，请稍后重试。",
+  "requestRejected": "请求被拒绝，请检查输入后重试。",
   "readonly": "当前部署中设置为只读。",
   "save": "保存",
   "cancel": "取消",
@@ -564,9 +608,11 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "cardsHint": "角色卡以独立 JSON 文件持久化，不再写入插件公共配置。",
   "searchCards": "搜索角色卡",
   "filterAll": "全部",
-  "filterEnabled": "已启用",
   "filterDisabled": "已停用",
-  "sortUpdated": "最近更新",
+  "filterActive": "使用中",
+  "filterClosed": "关闭池",
+  "sortWeight": "权重",
+  "sortRecent": "最近使用",
   "sortName": "名称",
   "emptyCardsTitle": "还没有角色卡",
   "emptyCardsBody": "新建一张角色卡，或导入可移植的 JSON 集合，让子代理拥有稳定的角色。",
@@ -579,6 +625,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "disableCard": "停用",
   "editCard": "编辑",
   "duplicateCard": "复制",
+  "duplicateName": "{name} 副本",
   "exportCard": "导出",
   "deleteCard": "删除",
   "confirmDeleteCard": "删除角色卡“{id}”？此操作不可撤销。",
@@ -600,7 +647,15 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "cardIdHint": "小写字母、数字与单个连字符；同时作为委派 role id。",
   "cardIdImmutable": "创建后不可修改 id。",
   "cardEmoji": "头像符号",
+  "cardAvatarInitial": "使用名称首字母",
+  "cardAvatarCustom": "当前自定义值",
   "cardAccent": "强调色",
+  "accentBlue": "蓝色",
+  "accentViolet": "紫色",
+  "accentGreen": "绿色",
+  "accentAmber": "琥珀色",
+  "accentRose": "玫红色",
+  "accentSlate": "石板灰",
   "cardTags": "标签",
   "cardTagsHint": "逗号分隔，用于搜索与筛选。",
   "cardModel": "模型路由",
@@ -715,5 +770,13 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "clearSearch": "清除搜索",
   "filterCards": "筛选角色卡",
   "sortCards": "角色卡排序",
-  "cardEditorHint": "为这张卡打包委派指引、固定提示词、persona 与模型路由。"
+  "cardEditorHint": "为这张卡打包委派指引、固定提示词、persona 与模型路由。",
+  "cardStateActive": "使用中",
+  "cardStateClosed": "关闭池",
+  "cardUses": "使用 {count} 次",
+  "cardNeverUsed": "从未使用",
+  "cardLastUsed": "最近使用 {time}",
+  "cardNeverClose": "永不入池",
+  "cardPinned": "已设为永不入池",
+  "cardUnpinned": "已取消永不入池"
 };

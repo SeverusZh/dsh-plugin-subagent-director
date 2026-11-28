@@ -32,10 +32,12 @@
 - **固定角色提示词** —— 委派时为该子会话注入固定系统提示词与 persona；运行中的子代理保持启动时的提示词快照，编辑卡片不会改写它；
 - **导入导出与批量操作** —— 单卡或批量 JSON 导入导出、跳过/覆盖/保留两者冲突策略，批量启用、停用、删除与导出；
 - **旧角色迁移** —— 一键把旧版 `roles` 转为角色卡，保留默认角色、persona 与模型绑定，旧工具集信息转为备注；
+- **权重与关闭池** —— 卡片按成功委派次数与空闲时间计算权重；闲置过久或仅用过一次再闲置 30 天的卡片进入关闭池，不再占用主代理提示词，但显式按 id 委派仍然可用；默认卡、导入/迁移卡与 `neverClose` 卡豁免；
+- **卡片检索** —— Director 模式提供 `subagent_card_search` 与 `subagent_card_get`，主代理先检索、复用或恢复已有卡片，没有匹配时才建卡；
 - **四级回退链** —— 单次调用参数 > 角色卡绑定 > 插件默认 > 继承主代理（未配置时零侵入）；
 - **主代理指引** —— 系统提示自动注入角色卡清单，分别说明每张卡的推荐委派与不推荐委派场景；
 - **Director 模式** —— 0.8.5 新增的编排专用 Agent Preset：主代理不做实际工作，每个子代理都必须经角色卡唤起，默认开启 Agent Teams；
-- **配置界面** —— 插件详情页内现代卡片库（插件列表 → dsh-plugin-subagent-director）：搜索、筛选、批量、卡片编辑器、导入导出与迁移；亮暗主题通用，设置面板不再承载本插件配置；
+- **配置界面** —— 插件详情页内现代卡片库（插件列表 → dsh-plugin-subagent-director）：搜索、按状态筛选、按权重/最近使用/名称排序、批量、卡片编辑器、导入导出与迁移；每张卡显示使用中/关闭池/已停用、使用次数与最近使用时间，并提供「永不入池」开关；亮暗主题通用，设置面板不再承载本插件配置；
 - **continuable 后台** —— 返回可续聊子代理 id，配合 send_message 持续委派；
 - **释放可持续子代理** —— 模型可见工具 `close_subagent(subagent_id)` 与子代理会话
   页的「终止可持续状态」按钮，释放本插件启动并保留 activation 凭证的 continuable
@@ -132,6 +134,7 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
 - `delegationGuidance`：给主代理看的推荐委派场景；
 - `avoidGuidance`：给主代理看的不推荐委派场景；
 - `agentPreset`：可选的 DSH Agent Preset，用于工具组合；
+- `neverClose`：设为永不进入关闭池；
 - `enabled` / `notes` / `createdAt` / `updatedAt`：状态与人读信息。
 
 卡片以 per-record JSON 保存，可单张或批量导入导出。导出集合示例：
@@ -159,6 +162,12 @@ subagent_role({ role: "translator", prompt: "把 README.md 翻译成英文" })
 `roles` 可从同一页面一键迁移，迁移后建议勾选清除旧配置字段。字段与存储格式见
 [docs/character-cards.md](docs/character-cards.md)。
 
+卡片权重为 `1.6 * ln(1 + 使用次数) + 0.5 ^ (空闲天数 / 30)`。默认卡、导入/迁移卡与
+`neverClose` 卡豁免关闭池；其他卡片空闲 90 天，或使用不超过 1 次且空闲 30 天，即进入
+关闭池。关闭池只影响提示词与检索的默认可见性，不影响显式按 id 委派；一次成功委派会让
+卡片回到使用中。设置页显示每张卡的状态、使用次数与最近使用时间，可按状态筛选并按权重、
+最近使用或名称排序；「永不入池」开关只写入 `neverClose`，不刷新更新时间。
+
 ## 🎬 Director 模式 / Director Mode
 
 Director Mode 是 0.8.5 引入的 **Agent Preset**，不再是命令或工具。在会话预设中选择
@@ -170,8 +179,10 @@ Director Mode 是 0.8.5 引入的 **Agent Preset**，不再是命令或工具。
   任务板；`session_send_message` 仅用于跨会话编排。宿主侧按白名单收窄工具目录并在执行层拦截其他工具，包括动态挂载的 MCP 工具，因此主代理
   不能调用 bash、文件读写/搜索、技能、workflow 或内置 subagent。
 - 每个子代理必须由角色卡唤起：Director 会话中的 `subagent_role` 使用 agent scope
-  覆盖为 `role` 必填；没有匹配的卡片时，主代理必须先调用 `subagent_card_create`
-  建卡，再用返回的 id 委派。旧 `roles` 在 Director 下不参与委派，需先迁移为角色卡。
+  覆盖为 `role` 必填；主代理先调用 `subagent_card_search` 检索（需要全文时用
+  `subagent_card_get`），优先复用已有卡片或通过一次成功委派恢复关闭池卡片；没有匹配
+  卡片时才调用 `subagent_card_create` 建卡，再用返回的 id 委派。旧 `roles` 在
+  Director 下不参与委派，需先迁移为角色卡。
 - 内置导演卡 `director` 只出现在 Director 会话的指引与 role 解析中；设置面板不展示、
   导出不包含，也不能被同 id 卡片覆盖。它用于需要拆解和协调的任务，默认绑定
   `director` 预设，作为可继续向下委派的导演层；普通卡片未绑定预设时才回退

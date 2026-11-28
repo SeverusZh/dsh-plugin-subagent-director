@@ -1,10 +1,11 @@
 {
   "name": "dsh-plugin-subagent-director",
-  "version": "0.8.5",
+  "version": "0.9.0",
   "description": "Subagent Director: character cards for role-bound subagents plus Director Mode, an orchestration-only Agent Preset whose main agent delegates every task through a card and uses Agent Teams by default.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "icon": "./icon.svg",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SeverusZh/dsh-plugin-subagent-director.git"
@@ -17,6 +18,7 @@
     "lib",
     "CHANGELOG.md",
     "cordis.patch.yml",
+    "icon.svg",
     "locale/*.json",
     "docs/assets/screenshots",
     "docs/character-cards.md",
@@ -39,11 +41,14 @@
       "default": "./lib/client/index.js"
     },
     "./package.json": "./package.json",
+    "./icon": "./icon.svg",
     "./locale/*.json": "./locale/*.json",
     "./bridge": {
       "types": "./lib/bridge-entry.d.ts",
       "default": "./lib/bridge-entry.js"
-    }
+    },
+    "./bridge/icon": "./icon.svg",
+    "./bridge/locale/*.json": "./locale/*.json"
   },
   "dsh": {
     "bundle": {

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
 import {
   CARD_ACCENTS,
+  CARD_GLYPHS,
   CARD_LIMITS,
   cardIdFromName,
   formatTagInput,
@@ -13,7 +14,19 @@ import {
 import type { SubagentDirectorKey } from './locales.js';
 import { modelsForProvider, providerNames } from './allowed-routes.js';
 import { useDialogFocus } from './dialog-focus.js';
+import { CardAvatar } from './CardAvatar.js';
+import { withReplacement } from './text.js';
 import { IconX } from './icons.js';
+
+/** Dictionary keys for the six avatar accent tokens. */
+const ACCENT_KEYS: Record<CardAccent, SubagentDirectorKey> = {
+  blue: 'accentBlue',
+  violet: 'accentViolet',
+  green: 'accentGreen',
+  amber: 'accentAmber',
+  rose: 'accentRose',
+  slate: 'accentSlate',
+};
 
 export interface CardEditorProps {
   open: boolean;
@@ -91,12 +104,6 @@ function draftOf(card: CharacterCard | undefined): Draft {
   };
 }
 
-function withReplacement(template: string, values: Record<string, string | number>): string {
-  let text = template;
-  for (const [key, value] of Object.entries(values)) text = text.split('{' + key + '}').join(String(value));
-  return text;
-}
-
 export function CardEditor(props: CardEditorProps): JSX.Element | null {
   const { open, card, initial, routes, modelSelectionEnabled, existingIds, t, onClose, onSave } = props;
   const create = props.create ?? card === undefined;
@@ -149,6 +156,8 @@ export function CardEditor(props: CardEditorProps): JSX.Element | null {
   const providers = providerNames(routes);
   const modelOptions = draft.provider === '' ? [] : modelsForProvider(routes, draft.provider);
   const noRoutes = routes.length === 0;
+  const glyphs: readonly string[] = CARD_GLYPHS;
+  const customGlyph = draft.emoji !== '' && !glyphs.includes(draft.emoji);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]): void => {
     setDraft((current) => ({ ...current, [key]: value }));
   };
@@ -272,17 +281,41 @@ export function CardEditor(props: CardEditorProps): JSX.Element | null {
                 />
                 <span className="sd-note">{create ? t('cardIdHint') : t('cardIdImmutable')}</span>
               </div>
-              <div className="sd-field">
-                <label className="sd-label" htmlFor="sd-card-emoji">{t('cardEmoji')}</label>
-                <input
-                  id="sd-card-emoji"
-                  className="sd-input"
-                  value={draft.emoji}
-                  maxLength={CARD_LIMITS.emojiLength}
-                  placeholder="✦"
-                  onChange={(event) => set('emoji', event.target.value)}
-                />
+            </div>
+            <div className="sd-field">
+              <span className="sd-label">{t('cardEmoji')}</span>
+              <div className="sd-avatar-picker">
+                <CardAvatar name={draft.name} emoji={draft.emoji} accent={draft.accent} size="lg" />
+                <div className="sd-avatar-options" role="group" aria-label={t('cardEmoji')}>
+                  <button
+                    type="button"
+                    className={'sd-avatar-option is-initial' + (draft.emoji === '' ? ' is-active' : '')}
+                    aria-pressed={draft.emoji === ''}
+                    onClick={() => set('emoji', '')}
+                  >
+                    {t('cardAvatarInitial')}
+                  </button>
+                  {glyphs.map((glyph) => (
+                    <button
+                      key={glyph}
+                      type="button"
+                      className={'sd-avatar-option' + (draft.emoji === glyph ? ' is-active' : '')}
+                      aria-pressed={draft.emoji === glyph}
+                      onClick={() => set('emoji', glyph)}
+                    >
+                      {glyph}
+                    </button>
+                  ))}
+                  {customGlyph ? (
+                    <span className="sd-avatar-custom" title={t('cardAvatarCustom')}>
+                      <span className="sd-avatar-custom-glyph">{draft.emoji}</span>
+                      <span>{t('cardAvatarCustom')}</span>
+                    </span>
+                  ) : null}
+                </div>
               </div>
+            </div>
+            <div className="sd-grid sd-grid-2">
               <div className="sd-field">
                 <label className="sd-label" htmlFor="sd-card-accent">{t('cardAccent')}</label>
                 <select
@@ -291,19 +324,19 @@ export function CardEditor(props: CardEditorProps): JSX.Element | null {
                   value={draft.accent}
                   onChange={(event) => set('accent', event.target.value as CardAccent)}
                 >
-                  {CARD_ACCENTS.map((accent) => <option key={accent} value={accent}>{accent}</option>)}
+                  {CARD_ACCENTS.map((accent) => <option key={accent} value={accent}>{t(ACCENT_KEYS[accent])}</option>)}
                 </select>
               </div>
-            </div>
-            <div className="sd-field">
-              <label className="sd-label" htmlFor="sd-card-tags">{t('cardTags')}</label>
-              <input
-                id="sd-card-tags"
-                className="sd-input"
-                value={draft.tags}
-                onChange={(event) => set('tags', event.target.value)}
-              />
-              <span className="sd-note">{t('cardTagsHint')}</span>
+              <div className="sd-field">
+                <label className="sd-label" htmlFor="sd-card-tags">{t('cardTags')}</label>
+                <input
+                  id="sd-card-tags"
+                  className="sd-input"
+                  value={draft.tags}
+                  onChange={(event) => set('tags', event.target.value)}
+                />
+                <span className="sd-note">{t('cardTagsHint')}</span>
+              </div>
             </div>
           </section>
 

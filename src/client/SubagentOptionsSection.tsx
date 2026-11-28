@@ -8,6 +8,7 @@
  * which talks to the Host bridge and reloads the acknowledged library.
  */
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client';
 import type { SnapshotSelectorHook } from './bind.js';
 import type { DirectorAllowedRoute } from '../bridge-contract.js';
@@ -19,8 +20,11 @@ import { CardEditor } from './CardEditor.js';
 import { CharacterCardTile } from './CharacterCardTile.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
 import { ImportDialog } from './ImportDialog.js';
+import { CARD_FILTERS, CARD_SORTS, cardLibraryRows, type CardFilter, type CardSort } from './card-library-view.js';
+import { withReplacement } from './text.js';
 import {
   IconChevron,
+  IconDirector,
   IconDownload,
   IconPlus,
   IconRefresh,
@@ -31,6 +35,21 @@ import {
   IconX,
 } from './icons.js';
 
+/** Toolbar labels for the library filters. */
+const FILTER_KEYS: Record<CardFilter, SubagentDirectorKey> = {
+  all: 'filterAll',
+  active: 'filterActive',
+  closed: 'filterClosed',
+  disabled: 'filterDisabled',
+};
+
+/** Toolbar labels for the library orderings. */
+const SORT_KEYS: Record<CardSort, SubagentDirectorKey> = {
+  weight: 'sortWeight',
+  recent: 'sortRecent',
+  name: 'sortName',
+};
+
 /** Injected dependencies of the page (slot `inject`). */
 export interface SubagentOptionsSectionInjected {
   controller: SubagentOptionsStore;
@@ -40,9 +59,6 @@ export interface SubagentOptionsSectionInjected {
 
 /** Props delivered by the slot outlet. */
 export type SubagentOptionsSectionProps = Partial<SubagentOptionsSectionInjected> & Partial<PluginConfigViewProps>;
-
-type Filter = 'all' | 'enabled' | 'disabled';
-type Sort = 'updated' | 'name';
 
 interface EditorState {
   key: number;
@@ -62,12 +78,6 @@ interface ConfirmState {
 interface Notice {
   tone: 'success' | 'error' | 'info';
   text: string;
-}
-
-function withReplacement(template: string, values: Record<string, string | number>): string {
-  let text = template;
-  for (const [key, value] of Object.entries(values)) text = text.split('{' + key + '}').join(String(value));
-  return text;
 }
 
 function downloadJson(value: unknown, filename: string): void {
@@ -103,8 +113,8 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   const { controller, t } = injected;
   const state = injected.useSnapshot((snapshot) => snapshot);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
-  const [sort, setSort] = useState<Sort>('updated');
+  const [filter, setFilter] = useState<CardFilter>('all');
+  const [sort, setSort] = useState<CardSort>('weight');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -141,29 +151,17 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   const enabledCount = state.cards.filter((card) => isCardEnabled(card)).length;
   const defaultCard = state.cards.find((card) => card.id === state.defaultCardId);
   const defaultModel = [state.section?.defaultProvider, state.section?.defaultModel].filter((value) => value !== undefined && value !== '').join('/');
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return state.cards
-      .filter((card) => {
-        if (filter === 'enabled' && !isCardEnabled(card)) return false;
-        if (filter === 'disabled' && isCardEnabled(card)) return false;
-        if (needle === '') return true;
-        const haystack = [
-          card.name,
-          card.id,
-          card.delegationGuidance,
-          card.avoidGuidance ?? '',
-          card.persona ?? '',
-          card.notes ?? '',
-          ...(card.tags ?? []),
-        ].join('\n').toLowerCase();
-        return haystack.includes(needle);
-      })
-      .sort((a, b) => {
-        if (sort === 'name') return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-        return (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || a.name.localeCompare(b.name);
-      });
-  }, [state.cards, filter, query, sort]);
+  const rows = useMemo(
+    () => cardLibraryRows(state.cards, {
+      now: Date.now(),
+      usage: state.usage,
+      ...(state.defaultCardId !== undefined ? { defaultCardId: state.defaultCardId } : {}),
+      filter,
+      sort,
+      query,
+    }),
+    [state.cards, state.usage, state.defaultCardId, filter, sort, query],
+  );
 
   if (state.status === 'error') {
     return (
@@ -182,13 +180,7 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   if (state.status !== 'ready') {
     return (
       <div className="sd-page">
-        <header className="sd-page-head">
-          <div>
-            <span className="sd-eyebrow">{t('nav')}</span>
-            <h1 className="sd-page-title">{t('pageTitle')}</h1>
-            <p className="sd-page-intro">{t('pageIntro')}</p>
-          </div>
-        </header>
+        <PageHead t={t} />
         <div className="sd-skeleton" role="status" aria-label={t('loading')}>
           <div /><div /><div />
         </div>
@@ -197,7 +189,7 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   }
 
   const canWriteCards = state.cardStorage.state === 'ready';
-  const allVisibleSelected = filtered.length > 0 && filtered.every((card) => selected.has(card.id));
+  const allVisibleSelected = rows.length > 0 && rows.every((row) => selected.has(row.card.id));
   const selectedCards = state.cards.filter((card) => selected.has(card.id));
 
   const toggleSelected = (id: string): void => {
@@ -212,8 +204,8 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   const toggleSelectAll = (): void => {
     setSelected((current) => {
       const next = new Set(current);
-      if (allVisibleSelected) for (const card of filtered) next.delete(card.id);
-      else for (const card of filtered) next.add(card.id);
+      if (allVisibleSelected) for (const row of rows) next.delete(row.card.id);
+      else for (const row of rows) next.add(row.card.id);
       return next;
     });
   };
@@ -354,35 +346,39 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
   const openCreate = (): void => setEditor({ key: Date.now(), create: true });
   const openEdit = (card: CharacterCard): void => setEditor({ key: Date.now(), card });
   const openDuplicate = (card: CharacterCard): void => {
-    const copyName = card.name + ' copy';
-    setEditor({ key: Date.now(), create: true, initial: { ...card, id: '', name: copyName } });
+    setEditor({ key: Date.now(), create: true, initial: { ...card, id: '', name: withReplacement(t('duplicateName'), { name: card.name }) } });
+  };
+
+  const toggleNeverClose = async (card: CharacterCard): Promise<void> => {
+    const pin = card.neverClose !== true;
+    const message = await controller.batchCards(pin ? 'pin' : 'unpin', [card.id]);
+    if (message !== undefined) notify('error', message);
+    else notify('success', pin ? t('cardPinned') : t('cardUnpinned'));
   };
 
   return (
     <div className="sd-page">
-      <header className="sd-page-head">
-        <div className="sd-page-head-main">
-          <span className="sd-eyebrow">{t('nav')}</span>
-          <h1 className="sd-page-title">{t('pageTitle')}</h1>
-          <p className="sd-page-intro">{t('pageIntro')}</p>
-        </div>
-        <div className="sd-actions">
-          <button type="button" className="sd-btn sd-btn-primary" disabled={!canWriteCards} onClick={openCreate}>
-            <IconPlus size={15} /> {t('newCard')}
-          </button>
-          <button type="button" className="sd-btn sd-btn-ghost" disabled={!canWriteCards} onClick={() => setImportOpen(true)}>
-            <IconUpload size={15} /> {t('importCards')}
-          </button>
-          <button
-            type="button"
-            className="sd-btn sd-btn-ghost"
-            disabled={state.cards.length === 0 || actionBusy === 'export'}
-            onClick={() => void exportCards()}
-          >
-            <IconDownload size={15} /> {t('exportAll')}
-          </button>
-        </div>
-      </header>
+      <PageHead
+        t={t}
+        actions={
+          <>
+            <button type="button" className="sd-btn sd-btn-primary" disabled={!canWriteCards} onClick={openCreate}>
+              <IconPlus size={15} /> {t('newCard')}
+            </button>
+            <button type="button" className="sd-btn sd-btn-ghost" disabled={!canWriteCards} onClick={() => setImportOpen(true)}>
+              <IconUpload size={15} /> {t('importCards')}
+            </button>
+            <button
+              type="button"
+              className="sd-btn sd-btn-ghost"
+              disabled={state.cards.length === 0 || actionBusy === 'export'}
+              onClick={() => void exportCards()}
+            >
+              <IconDownload size={15} /> {t('exportAll')}
+            </button>
+          </>
+        }
+      />
 
       {notice !== null ? (
         <div className={'sd-toast is-' + notice.tone} role="status" aria-live="polite">
@@ -461,7 +457,7 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
             ) : null}
           </div>
           <div className="sd-segmented" role="group" aria-label={t('filterCards')}>
-            {(['all', 'enabled', 'disabled'] as Filter[]).map((value) => (
+            {CARD_FILTERS.map((value) => (
               <button
                 key={value}
                 type="button"
@@ -469,13 +465,12 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
                 aria-pressed={filter === value}
                 onClick={() => setFilter(value)}
               >
-                {value === 'all' ? t('filterAll') : value === 'enabled' ? t('filterEnabled') : t('filterDisabled')}
+                {t(FILTER_KEYS[value])}
               </button>
             ))}
           </div>
-          <select className="sd-select sd-sort" value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label={t('sortCards')}>
-            <option value="updated">{t('sortUpdated')}</option>
-            <option value="name">{t('sortName')}</option>
+          <select className="sd-select sd-sort" value={sort} onChange={(event) => setSort(event.target.value as CardSort)} aria-label={t('sortCards')}>
+            {CARD_SORTS.map((value) => <option key={value} value={value}>{t(SORT_KEYS[value])}</option>)}
           </select>
         </div>
 
@@ -512,7 +507,7 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
           </div>
         ) : null}
 
-        {filtered.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="sd-empty-state">
             <div className="sd-empty-icon"><IconPlus size={22} /></div>
             <h3>{state.cards.length === 0 ? t('emptyCardsTitle') : t('noSearchResults')}</h3>
@@ -530,21 +525,24 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
           </div>
         ) : (
           <div className="sd-card-grid">
-            {filtered.map((card) => (
+            {rows.map((row) => (
               <CharacterCardTile
-                key={card.id}
-                card={card}
-                isDefault={state.defaultCardId === card.id}
+                key={row.card.id}
+                card={row.card}
+                isDefault={state.defaultCardId === row.card.id}
                 selectionMode={selectionMode}
-                selected={selected.has(card.id)}
+                selected={selected.has(row.card.id)}
+                usage={state.usage[row.card.id]}
+                usageState={row.visibleState}
                 t={t}
-                onToggleSelect={() => toggleSelected(card.id)}
-                onEdit={() => openEdit(card)}
-                onSetDefault={() => void setDefault(card)}
-                onDuplicate={() => openDuplicate(card)}
-                onExport={() => void exportCards([card.id])}
-                onToggleEnabled={() => void toggleEnabled(card)}
-                onDelete={() => deleteCard(card)}
+                onToggleSelect={() => toggleSelected(row.card.id)}
+                onEdit={() => openEdit(row.card)}
+                onSetDefault={() => void setDefault(row.card)}
+                onDuplicate={() => openDuplicate(row.card)}
+                onExport={() => void exportCards([row.card.id])}
+                onToggleEnabled={() => void toggleEnabled(row.card)}
+                onToggleNeverClose={() => void toggleNeverClose(row.card)}
+                onDelete={() => deleteCard(row.card)}
               />
             ))}
           </div>
@@ -630,6 +628,22 @@ function Loaded({ injected }: { injected: SubagentOptionsSectionInjected }): JSX
         </div>
       </ConfirmDialog>
     </div>
+  );
+}
+
+function PageHead({ t, actions }: { t: (key: SubagentDirectorKey) => string; actions?: ReactNode }): JSX.Element {
+  return (
+    <header className="sd-page-head">
+      <div className="sd-page-head-main">
+        <span className="sd-eyebrow">{t('nav')}</span>
+        <div className="sd-page-title-row">
+          <IconDirector size={22} className="sd-page-title-icon" />
+          <h1 className="sd-page-title">{t('pageTitle')}</h1>
+        </div>
+        <p className="sd-page-intro">{t('pageIntro')}</p>
+      </div>
+      {actions !== undefined ? <div className="sd-actions">{actions}</div> : null}
+    </header>
   );
 }
 
@@ -756,7 +770,7 @@ function DefaultModelRow({ controller, routes, modelSelectionEnabled, writable, 
             className="sd-input"
             value={draft.reasoningEffort}
             disabled={!writable}
-            placeholder={modelSelectionEnabled ? '' : '(advisory)'}
+            placeholder={modelSelectionEnabled ? '' : t('modelAdvisory')}
             onChange={(event) => setDraft((value) => ({ ...value, reasoningEffort: event.target.value }))}
           />
         </div>
