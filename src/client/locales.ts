@@ -81,7 +81,7 @@ export type SubagentDirectorKey =
   | 'closingContinuable'
   | 'closedSubagent'
   | 'confirmCloseContinuable'
-  | 'closeFailed'
+  | 'closeFailedGeneric'
   | 'pageTitle'
   | 'pageIntro'
   | 'newCard'
@@ -191,11 +191,32 @@ export type SubagentDirectorKey =
   | 'importDuplicateHint'
   | 'importRun'
   | 'importPreview'
-  | 'importInvalid'
   | 'importResult'
   | 'importNoCards'
   | 'importParseError'
   | 'importFileTooLarge'
+  | 'importReadFailed'
+  | 'importIssueCount'
+  | 'importIssuePath'
+  | 'importIssueNotObject'
+  | 'importIssueFormatVersion'
+  | 'importIssueMissingCards'
+  | 'importIssueMissingCard'
+  | 'importIssueTooManyCards'
+  | 'importIssueInvalidField'
+  | 'importIssueInvalidFieldGeneric'
+  | 'importIssueInvalidCardId'
+  | 'importIssueReservedCardId'
+  | 'importIssueReservedCardSource'
+  | 'importIssueUnknown'
+  | 'importReasonTooSmall'
+  | 'importReasonTooBig'
+  | 'importReasonType'
+  | 'importReasonFormat'
+  | 'importReasonValue'
+  | 'importReasonShape'
+  | 'importReasonUnknownKeys'
+  | 'importReasonUnknown'
   | 'exportDone'
   | 'exportFailed'
   | 'download'
@@ -340,7 +361,7 @@ export const en: Record<SubagentDirectorKey, string> = {
   "closingContinuable": "Releasing…",
   "closedSubagent": "Released",
   "confirmCloseContinuable": "Release Subagent Director child “{id}”? Only children started by this plugin in this process are tracked. A later send_message may cold-resume the session, but that new activation is not tracked here.",
-  "closeFailed": "Release failed: {message}",
+  "closeFailedGeneric": "Release failed. Try again.",
   "pageTitle": "Character cards",
   "pageIntro": "Package delegation guidance, a fixed system prompt, persona, and an optional model route into one reusable card.",
   "newCard": "New card",
@@ -450,11 +471,32 @@ export const en: Record<SubagentDirectorKey, string> = {
   "importDuplicateHint": "Import under a new id derived from the name.",
   "importRun": "Import",
   "importPreview": "{count} card(s) ready to import.",
-  "importInvalid": "Some entries are invalid.",
   "importResult": "Imported {imported}, overwritten {overwritten}, skipped {skipped}, duplicates {duplicated}.",
   "importNoCards": "No cards were found in the selected input.",
   "importParseError": "Could not parse the JSON input.",
   "importFileTooLarge": "This file is larger than the import limit.",
+  "importReadFailed": "Could not read the selected file. Try again.",
+  "importIssueCount": "{count} issues",
+  "importIssuePath": "path: {path}",
+  "importIssueNotObject": "Not a JSON object.",
+  "importIssueFormatVersion": "Format version {version} is not supported; the maximum is {maxVersion}.",
+  "importIssueMissingCards": "The collection envelope has no cards array.",
+  "importIssueMissingCard": "The card envelope has no card object.",
+  "importIssueTooManyCards": "{count} cards exceed the import limit of {max}.",
+  "importIssueInvalidField": "The {field} field is invalid: {reason}.",
+  "importIssueInvalidFieldGeneric": "The card content is invalid: {reason}.",
+  "importIssueInvalidCardId": "The card id is invalid.",
+  "importIssueReservedCardId": "This id is reserved for the built-in Director card.",
+  "importIssueReservedCardSource": "The source cannot be builtin; it is reserved for code-defined cards.",
+  "importIssueUnknown": "This entry could not be imported; check its content and format.",
+  "importReasonTooSmall": "too short or empty",
+  "importReasonTooBig": "longer than allowed",
+  "importReasonType": "wrong type",
+  "importReasonFormat": "wrong format",
+  "importReasonValue": "not an allowed value",
+  "importReasonShape": "does not match the expected shape",
+  "importReasonUnknownKeys": "contains unknown fields",
+  "importReasonUnknown": "the value is not valid",
   "exportDone": "Export ready.",
   "exportFailed": "Export failed: {message}",
   "download": "Download",
@@ -600,7 +642,7 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "closingContinuable": "正在终止…",
   "closedSubagent": "已终止",
   "confirmCloseContinuable": "终止本插件启动的可持续子代理“{id}”？只有本插件在当前进程中启动的子代理会被跟踪；之后仍可用 send_message 冷恢复，但新的 activation 不再由此处跟踪。",
-  "closeFailed": "终止失败：{message}",
+  "closeFailedGeneric": "终止失败，请重试。",
   "pageTitle": "角色卡",
   "pageIntro": "把委派指引、固定系统提示词、persona 与可选的模型路由收进一张可复用的角色卡。",
   "newCard": "新建角色卡",
@@ -710,11 +752,32 @@ export const zh: Record<SubagentDirectorKey, string> = {
   "importDuplicateHint": "按名称派生新的 id 后导入。",
   "importRun": "导入",
   "importPreview": "待导入 {count} 张角色卡。",
-  "importInvalid": "部分条目无效。",
   "importResult": "已导入 {imported}，覆盖 {overwritten}，跳过 {skipped}，保留两者 {duplicated}。",
   "importNoCards": "所选输入中没有找到角色卡。",
   "importParseError": "无法解析 JSON 输入。",
   "importFileTooLarge": "文件超过导入上限。",
+  "importReadFailed": "无法读取所选文件，请重试。",
+  "importIssueCount": "共 {count} 个问题",
+  "importIssuePath": "路径 {path}",
+  "importIssueNotObject": "不是 JSON 对象。",
+  "importIssueFormatVersion": "格式版本 {version} 不受支持，最高支持 {maxVersion}。",
+  "importIssueMissingCards": "集合信封缺少 cards 数组。",
+  "importIssueMissingCard": "卡片信封缺少 card 对象。",
+  "importIssueTooManyCards": "共 {count} 张卡片，超过单次导入上限 {max}。",
+  "importIssueInvalidField": "字段 {field} 无效：{reason}。",
+  "importIssueInvalidFieldGeneric": "卡片内容无效：{reason}。",
+  "importIssueInvalidCardId": "卡片 id 无效。",
+  "importIssueReservedCardId": "该 id 为内置导演卡保留。",
+  "importIssueReservedCardSource": "来源不能为 builtin，该值仅供代码内置卡使用。",
+  "importIssueUnknown": "这一条无法导入，请检查内容与格式。",
+  "importReasonTooSmall": "内容过短或为空",
+  "importReasonTooBig": "内容超出长度上限",
+  "importReasonType": "类型不正确",
+  "importReasonFormat": "格式不正确",
+  "importReasonValue": "取值不在允许范围",
+  "importReasonShape": "结构不匹配",
+  "importReasonUnknownKeys": "包含未知字段",
+  "importReasonUnknown": "内容不符合要求",
   "exportDone": "导出已就绪。",
   "exportFailed": "导出失败：{message}",
   "download": "下载",

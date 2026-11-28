@@ -97,10 +97,11 @@ export function legacyMigrationNotice(
     failed: result.failed.length,
   });
   if (result.failed.length > 0) return { tone: 'error', text, close: false };
-  if (options.clearRequested && !options.cleared) {
+  const migrated = result.migrated.length > 0;
+  if (migrated && options.clearRequested && !options.cleared) {
     return { tone: 'info', text: text + ' ' + t('legacyClearFailed'), close: false };
   }
-  return { tone: 'success', text, close: options.cleared || result.migrated.length > 0 };
+  return { tone: 'success', text, close: options.cleared || migrated };
 }
 
 function downloadJson(value: unknown, filename: string): void {

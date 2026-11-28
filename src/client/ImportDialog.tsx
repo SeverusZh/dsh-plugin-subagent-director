@@ -1,8 +1,16 @@
 /** Import dialog for portable character-card JSON. */
 import { useEffect, useRef, useState } from 'react';
-import { CARD_BUNDLE_KIND, CARD_KIND, CARD_LIMITS, type CardImportStrategy } from '../card-types.js';
+import {
+  CARD_BUNDLE_KIND,
+  CARD_KIND,
+  CARD_LIMITS,
+  type CardImportIssue,
+  type CardImportResult,
+  type CardImportStrategy,
+} from '../card-types.js';
 import type { CardImportOutcome } from './store.js';
 import type { SubagentDirectorKey } from './locales.js';
+import { formatImportIssue } from './import-issues.js';
 import { IconCheck, IconUpload, IconWarning, IconX } from './icons.js';
 import { useDialogFocus } from './dialog-focus.js';
 
@@ -17,6 +25,69 @@ function withReplacement(template: string, values: Record<string, string | numbe
   let text = template;
   for (const [key, value] of Object.entries(values)) text = text.split('{' + key + '}').join(String(value));
   return text;
+}
+
+/** Minimal file surface the dialog reads; `read()` rejects on browser read errors. */
+export interface ImportFileLike {
+  readonly name: string;
+  readonly size: number;
+  text(): Promise<string>;
+}
+
+/** Outcome of reading the selected files; failures are dictionary keys, not host text. */
+export type ImportFileRead =
+  | { ok: true; contents: string[]; names: string[] }
+  | { ok: false; failure: 'importFileTooLarge' | 'importReadFailed' };
+
+/**
+ * Read the selected files under the import byte limit. Browser read errors and
+ * oversize input collapse to localized dictionary keys; the error object is
+ * never surfaced.
+ */
+export async function readImportFiles(
+  files: readonly ImportFileLike[],
+  byteLimit: number,
+): Promise<ImportFileRead> {
+  const accepted: ImportFileLike[] = [];
+  for (const file of files) {
+    if (file.size > byteLimit) return { ok: false, failure: 'importFileTooLarge' };
+    accepted.push(file);
+  }
+  if (accepted.reduce((total, file) => total + file.size, 0) > byteLimit) {
+    return { ok: false, failure: 'importFileTooLarge' };
+  }
+  try {
+    const contents = await Promise.all(accepted.map((file) => file.text()));
+    return { ok: true, contents, names: accepted.map((file) => file.name) };
+  } catch {
+    return { ok: false, failure: 'importReadFailed' };
+  }
+}
+
+/** Inline import failure line; the caller passes already-localized text. */
+export function ImportFailure({ text }: { text: string }): JSX.Element {
+  return <p className="sd-error-text" role="alert">{text}</p>;
+}
+
+export interface ImportIssuesProps {
+  issues: readonly CardImportIssue[];
+  t: (key: SubagentDirectorKey) => string;
+}
+
+/** Localized rejected-entry list; technical host messages never render. */
+export function ImportIssues({ issues, t }: ImportIssuesProps): JSX.Element {
+  return (
+    <div className="sd-import-issues">
+      <div className="sd-import-issues-head">
+        <IconWarning size={14} /> {withReplacement(t('importIssueCount'), { count: issues.length })}
+      </div>
+      <ul>
+        {issues.slice(0, 6).map((issue, index) => (
+          <li key={index}>{formatImportIssue(t, issue)}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function countCards(value: unknown): number {
@@ -38,7 +109,7 @@ export function ImportDialog({ open, t, onClose, onImport }: ImportDialogProps):
   const [preview, setPreview] = useState<number | undefined>(undefined);
   const [parseError, setParseError] = useState<string | undefined>(undefined);
   const [failure, setFailure] = useState<string | undefined>(undefined);
-  const [result, setResult] = useState<import('../card-types.js').CardImportResult | undefined>(undefined);
+  const [result, setResult] = useState<CardImportResult | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -91,28 +162,15 @@ export function ImportDialog({ open, t, onClose, onImport }: ImportDialogProps):
   if (!open) return null;
 
   const readFiles = async (files: FileList | readonly File[]): Promise<void> => {
-    const list = Array.from(files);
-    const accepted: File[] = [];
-    for (const file of list) {
-      if (file.size > CARD_LIMITS.importBytes) {
-        setFailure(t('importFileTooLarge'));
-        return;
-      }
-      accepted.push(file);
-    }
-    if (accepted.reduce((total, file) => total + file.size, 0) > CARD_LIMITS.importBytes) {
-      setFailure(t('importFileTooLarge'));
+    const outcome = await readImportFiles(Array.from(files), CARD_LIMITS.importBytes);
+    if (!outcome.ok) {
+      setFailure(t(outcome.failure));
       return;
     }
-    try {
-      const contents = await Promise.all(accepted.map((file) => file.text()));
-      setTexts(contents);
-      setFileNames(accepted.map((file) => file.name));
-      setFailure(undefined);
-      setResult(undefined);
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
-    }
+    setTexts(outcome.contents);
+    setFileNames(outcome.names);
+    setFailure(undefined);
+    setResult(undefined);
   };
 
   const runImport = async (): Promise<void> => {
@@ -230,8 +288,8 @@ export function ImportDialog({ open, t, onClose, onImport }: ImportDialogProps):
             ))}
           </fieldset>
 
-          {parseError !== undefined ? <p className="sd-error-text" role="alert">{parseError}</p> : null}
-          {failure !== undefined ? <p className="sd-error-text" role="alert">{failure}</p> : null}
+          {parseError !== undefined ? <ImportFailure text={parseError} /> : null}
+          {failure !== undefined ? <ImportFailure text={failure} /> : null}
           {preview !== undefined ? (
             <p className="sd-note" role="status">{withReplacement(t('importPreview'), { count: preview })}</p>
           ) : null}
@@ -250,16 +308,7 @@ export function ImportDialog({ open, t, onClose, onImport }: ImportDialogProps):
                   duplicated: result.duplicated,
                 })}
               </p>
-              {result.issues.length > 0 ? (
-                <div className="sd-import-issues">
-                  <div className="sd-import-issues-head"><IconWarning size={14} /> {t('importInvalid')}</div>
-                  <ul>
-                    {result.issues.slice(0, 6).map((issue, index) => (
-                      <li key={index}>{issue.id !== undefined ? issue.id + ': ' : ''}{issue.message}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+              {result.issues.length > 0 ? <ImportIssues issues={result.issues} t={t} /> : null}
             </div>
           ) : null}
         </div>

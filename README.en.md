@@ -173,7 +173,9 @@ time.
 
 Upgrading to 0.9.0: local cards created before the release have no usage record, so idle time
 is counted from `createdAt`. Cards older than 30 days with at most one use, or older than 90
-days, enter the closed pool; they are never deleted and the paths above restore them.
+days, enter the closed pool; the built-in Director card, the default card, `neverClose`
+cards, and cards whose source is not `local` are exempt. Cards are never deleted and the
+paths above restore them.
 
 ## 🎬 Director Mode
 

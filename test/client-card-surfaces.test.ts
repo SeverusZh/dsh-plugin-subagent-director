@@ -10,7 +10,8 @@ import { CARD_GLYPHS, type CharacterCard } from '../src/card-types.js';
 import { CardAvatar } from '../src/client/CardAvatar.js';
 import { CardEditor } from '../src/client/CardEditor.js';
 import { CharacterCardTile, CardPinToggle } from '../src/client/CharacterCardTile.js';
-import { en } from '../src/client/locales.js';
+import { en, zh } from '../src/client/locales.js';
+import { CloseFailure } from '../src/client/SubagentCloseAction.js';
 import { SubagentOptionsSection, legacyMigrationNotice } from '../src/client/SubagentOptionsSection.js';
 import { initialSubagentOptionsState, type SubagentOptionsState, type SubagentOptionsStore } from '../src/client/store.js';
 
@@ -230,6 +231,18 @@ describe('legacy migration notice', () => {
       .toMatchObject({ tone: 'success', close: true });
   });
 
+  it('does not claim a clear failure when nothing was migrated', () => {
+    const notice = legacyMigrationNotice(
+      t,
+      { migrated: [], skipped: ['a'], failed: [], remainingLegacy: ['a'] },
+      { clearRequested: true, cleared: false },
+    );
+    expect(notice.tone).toBe('success');
+    expect(notice.close).toBe(false);
+    expect(notice.text).not.toContain('could not be cleared');
+    expect(notice.text).toContain('Migrated 0, skipped 1, failed 0.');
+  });
+
   it('reports failed migrations without carrying host text', () => {
     const notice = legacyMigrationNotice(
       t,
@@ -239,6 +252,17 @@ describe('legacy migration notice', () => {
     expect(notice.tone).toBe('error');
     expect(notice.close).toBe(false);
     expect(notice.text).not.toContain('EACCES');
+  });
+});
+
+describe('release action failure', () => {
+  it('renders localized failure copy in both dictionaries', () => {
+    const english = renderToStaticMarkup(createElement(CloseFailure, { t }));
+    expect(english).toContain('Release failed. Try again.');
+    expect(english).toContain('role="alert"');
+    const chinese = renderToStaticMarkup(createElement(CloseFailure, { t: (key: keyof typeof zh) => zh[key] }));
+    expect(chinese).toContain('终止失败，请重试。');
+    expect((en as Record<string, string>).closeFailed).toBeUndefined();
   });
 });
 
